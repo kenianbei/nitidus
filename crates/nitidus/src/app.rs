@@ -9,21 +9,17 @@ use bevy_ratatui::RatatuiPlugins;
 use nitidus_ui_kit::theme;
 use plurimus::PlurimusPlugin;
 
+use crate::bootstrap::EngineSetup;
 use crate::cmdline::CommandLinePlugin;
 use crate::config::LoadedConfig;
-use crate::engine::{EnginePlugin, EngineResource, StartupNotices};
+use crate::engine::{CacheResource, EnginePlugin, EngineResource, StartupNotices};
 use crate::keymap::Keymaps;
 use crate::router::RouterPlugin;
 use crate::shell::ShellPlugin;
 
 const FRAMES_PER_SECOND: f64 = 30.0;
 
-pub fn build_app(
-    loaded: LoadedConfig,
-    keymaps: Keymaps,
-    mail_engine: nitidus_mail::MailEngine,
-    startup_notices: Vec<String>,
-) -> App {
+pub fn build_app(loaded: LoadedConfig, keymaps: Keymaps, setup: EngineSetup) -> App {
     let mut app = App::new();
     app.add_plugins((
         MinimalPlugins.set(ScheduleRunnerPlugin::run_loop(Duration::from_secs_f64(
@@ -41,8 +37,13 @@ pub fn build_app(
     app.insert_resource(select_theme(&loaded.config.ui.theme));
     app.insert_resource(loaded.config);
     app.insert_resource(keymaps);
-    app.insert_resource(EngineResource(mail_engine));
-    app.insert_resource(StartupNotices(startup_notices));
+    app.insert_resource(EngineResource(setup.engine));
+    app.insert_resource(setup.store);
+    app.insert_resource(setup.tracker);
+    app.insert_resource(StartupNotices(setup.notices));
+    if let Some(cache) = setup.cache {
+        app.insert_resource(CacheResource(cache));
+    }
     app.add_plugins((ShellPlugin, RouterPlugin, CommandLinePlugin, EnginePlugin));
     app
 }

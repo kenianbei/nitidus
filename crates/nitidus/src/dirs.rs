@@ -25,6 +25,12 @@ pub fn config_dir() -> anyhow::Result<PathBuf> {
     Ok(base_strategy()?.config_dir().join(APP_DIR_NAME))
 }
 
+/// Deletable-at-any-time data (envelope cache); losing it only costs a
+/// re-scan.
+pub fn cache_dir() -> anyhow::Result<PathBuf> {
+    Ok(base_strategy()?.cache_dir().join(APP_DIR_NAME))
+}
+
 fn base_strategy() -> anyhow::Result<impl BaseStrategy> {
     etcetera::choose_base_strategy().context("failed to resolve XDG base directories")
 }

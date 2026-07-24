@@ -17,6 +17,8 @@ mock = []
 flume.workspace = true
 mail-parser.workspace = true
 notify.workspace = true
+rusqlite.workspace = true
+rusqlite_migration.workspace = true
 thiserror.workspace = true
 tokio = { workspace = true, features = ["macros", "time"] }
 tokio-util.workspace = true
@@ -24,6 +26,7 @@ tracing.workspace = true
 
 [dev-dependencies]
 nitidus-mail = { path = ".", features = ["mock"] }
+rusqlite.workspace = true
 tempfile.workspace = true
 tokio = { workspace = true, features = ["macros"] }
 

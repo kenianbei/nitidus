@@ -2,6 +2,7 @@
 
 pub mod action;
 pub mod app;
+pub mod bootstrap;
 pub mod cmdline;
 pub mod config;
 pub mod dirs;
@@ -11,13 +12,17 @@ pub mod logging;
 pub mod router;
 pub mod shell;
 pub mod status;
+pub mod store;
 
 pub fn run(loaded: config::LoadedConfig) -> anyhow::Result<()> {
     let keymaps = keymap::Keymaps::compile(&loaded.keymaps)?;
-    let mut mail_engine = nitidus_mail::MailEngine::new(loaded.config.accounts.len())?;
-    let notices = engine::register_accounts(&mut mail_engine, &loaded.config)?;
+    let setup = bootstrap::bootstrap(&loaded.config)?;
     tracing::info!("nitidus {} starting", env!("CARGO_PKG_VERSION"));
-    let exit = app::build_app(loaded, keymaps, mail_engine, notices).run();
+    let mut app = app::build_app(loaded, keymaps, setup);
+    let exit = app.run();
+    if let Some(cache) = app.world_mut().remove_resource::<engine::CacheResource>() {
+        cache.0.close();
+    }
     if let bevy::app::AppExit::Error(code) = exit {
         anyhow::bail!("app exited with error code {code}");
     }

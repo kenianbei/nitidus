@@ -1,17 +1,17 @@
-//! Bevy-side wiring for the mail engine: the resource wrapper, the
-//! per-frame event drain, and connection status for the statusline.
+//! Bevy-side wiring for the mail engine: the resource wrappers, the
+//! per-frame event drain routing into cache and store, and connection
+//! status for the statusline.
 
 use std::collections::BTreeMap;
-use std::path::{Path, PathBuf};
 
-use anyhow::Context;
+use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
-use nitidus_mail::maildir::{self, MaildirBackend};
-use nitidus_mail::{AccountId, ConnectionState, FolderId, MailCommand, MailEngine, MailEvent};
+use nitidus_mail::cache::CacheWriter;
+use nitidus_mail::{AccountId, ConnectionState, FolderId, MailEngine, MailEvent};
 
-use crate::config::Config;
-use crate::config::account::Backend;
+use crate::bootstrap::request_sync;
 use crate::status::StatusMessage;
+use crate::store::{MailStore, SyncTracker};
 
 const MAX_EVENTS_PER_FRAME: usize = 64;
 
@@ -20,6 +20,8 @@ pub struct EnginePlugin;
 impl Plugin for EnginePlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<EngineStatus>();
+        app.init_resource::<MailStore>();
+        app.init_resource::<SyncTracker>();
         app.init_resource::<StartupNotices>();
         app.init_resource::<StatusMessage>();
         app.add_systems(PreUpdate, drain_mail_events);
@@ -27,71 +29,14 @@ impl Plugin for EnginePlugin {
     }
 }
 
-/// Registers every configured account with the engine; returns
-/// user-facing notices for accounts that cannot run yet.
-pub fn register_accounts(engine: &mut MailEngine, config: &Config) -> anyhow::Result<Vec<String>> {
-    let mut notices = Vec::new();
-    for account in &config.accounts {
-        match &account.backend {
-            Some(Backend::Maildir(settings)) => {
-                register_maildir(engine, &account.name, &settings.path)
-                    .with_context(|| format!("account {:?}", account.name))?;
-            }
-            Some(Backend::Imap(_)) => {
-                notices.push(format!("{}: imap not yet supported", account.name));
-            }
-            None => notices.push(format!("{}: no backend configured", account.name)),
-        }
-    }
-    Ok(notices)
-}
+#[derive(Resource)]
+pub struct EngineResource(pub MailEngine);
 
-fn register_maildir(engine: &mut MailEngine, name: &str, path: &Path) -> anyhow::Result<()> {
-    let root = expand_home(path)?;
-    let backend = MaildirBackend::new(root.clone())?;
-    let id = AccountId::new(name);
-    engine.add_account(id.clone(), backend);
-    engine.watch_maildir(id.clone(), root);
-    engine.send(&id, MailCommand::ListFolders)?;
-    let job = engine.next_job();
-    engine.send(
-        &id,
-        MailCommand::SyncEnvelopes {
-            folder: FolderId::new(maildir::INBOX),
-            job,
-        },
-    )?;
-    Ok(())
-}
-
-fn expand_home(path: &Path) -> anyhow::Result<PathBuf> {
-    match path.strip_prefix("~") {
-        Ok(stripped) => {
-            let home = etcetera::home_dir().context("cannot resolve home dir for ~ expansion")?;
-            Ok(home.join(stripped))
-        }
-        Err(_) => Ok(path.to_path_buf()),
-    }
-}
+#[derive(Resource)]
+pub struct CacheResource(pub CacheWriter);
 
 #[derive(Resource, Clone, Debug, Default, PartialEq, Eq)]
 pub struct StartupNotices(pub Vec<String>);
-
-fn surface_startup_notices(
-    notices: Res<StartupNotices>,
-    mut status: ResMut<StatusMessage>,
-    time: Res<Time>,
-    mut surfaced: Local<bool>,
-) {
-    if *surfaced || notices.0.is_empty() {
-        return;
-    }
-    *surfaced = true;
-    status.warn(notices.0.join("; "), time.elapsed_secs_f64());
-}
-
-#[derive(Resource)]
-pub struct EngineResource(pub MailEngine);
 
 #[derive(Resource, Clone, Debug, Default, PartialEq, Eq)]
 pub struct EngineStatus {
@@ -116,59 +61,202 @@ impl EngineStatus {
     }
 }
 
-fn drain_mail_events(engine: Option<Res<EngineResource>>, mut status: ResMut<EngineStatus>) {
-    let Some(engine) = engine else { return };
+#[derive(SystemParam)]
+struct MailRouting<'w> {
+    engine: Option<Res<'w, EngineResource>>,
+    cache: Option<Res<'w, CacheResource>>,
+    status: ResMut<'w, EngineStatus>,
+    store: ResMut<'w, MailStore>,
+    tracker: ResMut<'w, SyncTracker>,
+    messages: ResMut<'w, StatusMessage>,
+    time: Res<'w, Time>,
+}
+
+fn drain_mail_events(mut routing: MailRouting) {
     for _ in 0..MAX_EVENTS_PER_FRAME {
-        let Some(event) = engine.0.try_recv_event() else {
+        let Some(event) = routing
+            .engine
+            .as_deref()
+            .and_then(|engine| engine.0.try_recv_event())
+        else {
             return;
         };
-        match event {
-            MailEvent::Connection { account, state } => status.set(account, state),
-            other => tracing::debug!(event = ?other, "mail event (unrouted until MailStore)"),
+        if let Some(cache) = routing.cache.as_deref() {
+            cache.0.record(&event);
+        }
+        route_event(&mut routing, event);
+    }
+}
+
+fn route_event(routing: &mut MailRouting, event: MailEvent) {
+    match event {
+        MailEvent::Connection { account, state } => routing.status.set(account, state),
+        MailEvent::Folders { account, folders } => routing.store.set_folders(account, folders),
+        MailEvent::EnvelopeBatch {
+            account,
+            folder,
+            job,
+            batch,
+            done,
+        } => {
+            if done {
+                routing.tracker.finish(&account, &folder, job);
+            }
+            routing.store.apply_batch(&account, &folder, job, batch, done);
+        }
+        MailEvent::FolderChanged { account, folder } => resync_changed(routing, account, folder),
+        MailEvent::JobFailed {
+            account,
+            job,
+            error,
+        } => {
+            if let Some(job) = job {
+                routing.tracker.fail(job);
+            }
+            let now = routing.time.elapsed_secs_f64();
+            routing.messages.warn(format!("{account}: {error}"), now);
+        }
+        MailEvent::Message { .. } => {
+            tracing::debug!("message event unrouted until the pager exists");
         }
     }
+}
+
+/// Folders never scanned this session stay lazy: their first view will
+/// trigger the scan that also picks up this change.
+fn resync_changed(routing: &mut MailRouting, account: AccountId, folder: FolderId) {
+    if !routing.tracker.is_tracked(&account, &folder) {
+        return;
+    }
+    let Some(engine) = routing.engine.as_deref() else {
+        return;
+    };
+    if let Err(error) = request_sync(&engine.0, &mut routing.tracker, &account, &folder) {
+        tracing::warn!("re-sync of {folder} after change failed: {error}");
+    }
+}
+
+fn surface_startup_notices(
+    notices: Res<StartupNotices>,
+    mut status: ResMut<StatusMessage>,
+    time: Res<Time>,
+    mut surfaced: Local<bool>,
+) {
+    if *surfaced || notices.0.is_empty() {
+        return;
+    }
+    *surfaced = true;
+    status.warn(notices.0.join("; "), time.elapsed_secs_f64());
 }
 
 #[cfg(test)]
 mod tests {
     #![allow(clippy::unwrap_used, clippy::expect_used)]
 
+    use std::path::Path;
+    use std::time::Duration;
+
     use nitidus_mail::mock::MockBackend;
+    use nitidus_mail::{MailCommand, maildir};
 
     use super::*;
+    use crate::bootstrap::register_accounts;
+    use crate::config::Config;
+    use crate::config::account::{AccountConfig, Backend};
+
+    fn engine_app(engine: MailEngine, tracker: SyncTracker) -> App {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins);
+        app.insert_resource(EngineResource(engine));
+        app.add_plugins(EnginePlugin);
+        app.insert_resource(tracker);
+        app
+    }
+
+    fn update_until(app: &mut App, mut is_done: impl FnMut(&World) -> bool) -> bool {
+        for _ in 0..400 {
+            app.update();
+            if is_done(app.world()) {
+                return true;
+            }
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        false
+    }
 
     #[test]
     fn drains_connection_events_into_status() {
-        let mut app = App::new();
-        app.add_plugins(MinimalPlugins);
         let mut engine = MailEngine::new(1).unwrap();
-        let account = AccountId::new("mock");
-        engine.add_account(account.clone(), MockBackend::new());
-        app.insert_resource(EngineResource(engine));
-        app.add_plugins(EnginePlugin);
-
-        for _ in 0..200 {
-            app.update();
-            let status = app.world().resource::<EngineStatus>();
-            if status.summary().as_deref() == Some("1/1") {
-                return;
-            }
-            std::thread::sleep(std::time::Duration::from_millis(5));
-        }
-        panic!(
-            "engine status never reached 1/1: {:?}",
-            app.world().resource::<EngineStatus>()
+        engine.add_account(AccountId::new("mock"), MockBackend::new());
+        let mut app = engine_app(engine, SyncTracker::default());
+        assert!(
+            update_until(&mut app, |world| {
+                world.resource::<EngineStatus>().summary().as_deref() == Some("1/1")
+            }),
+            "engine status never reached 1/1"
         );
     }
 
     #[test]
-    fn registers_maildir_account_and_reaches_connected() {
+    fn mock_scan_fills_store_and_marks_folder_synced() {
+        let account = AccountId::new("mock");
+        let inbox = FolderId::new("INBOX");
+        let mut engine = MailEngine::new(1).unwrap();
+        engine.add_account(account.clone(), MockBackend::new().with_folder("INBOX", 5));
+        engine.send(&account, MailCommand::ListFolders).unwrap();
+        let mut tracker = SyncTracker::default();
+        request_sync(&engine, &mut tracker, &account, &inbox).unwrap();
+
+        let mut app = engine_app(engine, tracker);
+        assert!(
+            update_until(&mut app, |world| {
+                world.resource::<MailStore>().envelopes(&account, &inbox).len() == 5
+            }),
+            "store never received the scanned envelopes"
+        );
+        let world = app.world();
+        assert_eq!(world.resource::<MailStore>().folders(&account).len(), 1);
+        let tracker = world.resource::<SyncTracker>();
+        assert!(tracker.is_tracked(&account, &inbox));
+        assert_eq!(tracker.in_flight_job(&account, &inbox), None);
+    }
+
+    #[test]
+    fn failed_scan_surfaces_status_warning() {
+        let account = AccountId::new("mock");
+        let mut engine = MailEngine::new(1).unwrap();
+        engine.add_account(account.clone(), MockBackend::new().with_failing_scan());
+        let mut tracker = SyncTracker::default();
+        request_sync(&engine, &mut tracker, &account, &FolderId::new("INBOX")).unwrap();
+
+        let mut app = engine_app(engine, tracker);
+        assert!(
+            update_until(&mut app, |world| {
+                world.resource::<StatusMessage>().current().is_some()
+            }),
+            "scan failure never reached the status message"
+        );
+        let tracker = app.world().resource::<SyncTracker>();
+        assert!(!tracker.is_tracked(&account, &FolderId::new("INBOX")));
+    }
+
+    fn deliver(root: &Path, name: &str) {
+        let body = format!(
+            "From: A <a@example.com>\r\nSubject: {name}\r\nDate: Thu, 15 Feb 2024 12:00:00 +0000\r\n\r\nx\r\n"
+        );
+        std::fs::write(root.join("new").join(name), body).unwrap();
+    }
+
+    #[test]
+    fn external_delivery_resyncs_into_store() {
         let tmp = tempfile::tempdir().unwrap();
         for sub in ["cur", "new", "tmp"] {
             std::fs::create_dir_all(tmp.path().join(sub)).unwrap();
         }
+        deliver(tmp.path(), "first.host");
+
         let mut config = Config::default();
-        config.accounts.push(crate::config::account::AccountConfig {
+        config.accounts.push(AccountConfig {
             name: "local".to_owned(),
             backend: Some(Backend::Maildir(crate::config::account::MaildirBackend {
                 path: tmp.path().to_path_buf(),
@@ -176,50 +264,28 @@ mod tests {
             ..Default::default()
         });
         let mut engine = MailEngine::new(1).unwrap();
-        let notices = register_accounts(&mut engine, &config).unwrap();
+        let mut tracker = SyncTracker::default();
+        let mut notices = Vec::new();
+        register_accounts(&mut engine, &config, &mut tracker, &mut notices).unwrap();
         assert!(notices.is_empty(), "{notices:?}");
 
-        let mut app = App::new();
-        app.add_plugins(MinimalPlugins);
-        app.insert_resource(EngineResource(engine));
-        app.add_plugins(EnginePlugin);
-        for _ in 0..200 {
-            app.update();
-            if app.world().resource::<EngineStatus>().summary().as_deref() == Some("1/1") {
-                return;
-            }
-            std::thread::sleep(std::time::Duration::from_millis(5));
-        }
-        panic!("maildir account never connected");
-    }
+        let account = AccountId::new("local");
+        let inbox = FolderId::new(maildir::INBOX);
+        let mut app = engine_app(engine, tracker);
+        assert!(
+            update_until(&mut app, |world| {
+                world.resource::<MailStore>().envelopes(&account, &inbox).len() == 1
+            }),
+            "initial scan never reached the store"
+        );
 
-    #[test]
-    fn unsupported_accounts_produce_notices_not_errors() {
-        let mut config = Config::default();
-        config.accounts.push(crate::config::account::AccountConfig {
-            name: "work".to_owned(),
-            backend: Some(Backend::Imap(crate::config::account::ImapBackend::default())),
-            ..Default::default()
-        });
-        let mut engine = MailEngine::new(1).unwrap();
-        let notices = register_accounts(&mut engine, &config).unwrap();
-        assert_eq!(notices.len(), 1);
-        assert!(notices[0].contains("imap"), "{notices:?}");
-    }
-
-    #[test]
-    fn missing_maildir_path_fails_registration() {
-        let mut config = Config::default();
-        config.accounts.push(crate::config::account::AccountConfig {
-            name: "broken".to_owned(),
-            backend: Some(Backend::Maildir(crate::config::account::MaildirBackend {
-                path: "/definitely/not/a/maildir".into(),
-            })),
-            ..Default::default()
-        });
-        let mut engine = MailEngine::new(1).unwrap();
-        let message = format!("{:#}", register_accounts(&mut engine, &config).unwrap_err());
-        assert!(message.contains("broken"), "{message}");
+        deliver(tmp.path(), "second.host");
+        assert!(
+            update_until(&mut app, |world| {
+                world.resource::<MailStore>().envelopes(&account, &inbox).len() == 2
+            }),
+            "external delivery never re-synced into the store"
+        );
     }
 
     #[test]

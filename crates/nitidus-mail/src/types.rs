@@ -44,6 +44,16 @@ impl Flags {
     pub const DELETED: Flags = Flags(1 << 3);
     pub const DRAFT: Flags = Flags(1 << 4);
 
+    const KNOWN: u8 = 0b1_1111;
+
+    pub fn bits(self) -> u8 {
+        self.0
+    }
+
+    pub fn from_bits(bits: u8) -> Flags {
+        Flags(bits & Self::KNOWN)
+    }
+
     pub fn contains(self, other: Flags) -> bool {
         self.0 & other.0 == other.0
     }

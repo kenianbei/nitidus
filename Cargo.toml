@@ -33,6 +33,8 @@ ratatui = { version = "0.30", features = [
   "unstable-widget-ref",
 ] }
 ratatui-image = "11"
+rusqlite = { version = "0.40", features = ["bundled"] }
+rusqlite_migration = "2.6"
 serde = { version = "1", features = ["derive"] }
 tachyonfx = "0.25"
 tempfile = "3"

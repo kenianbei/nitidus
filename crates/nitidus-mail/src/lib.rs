@@ -4,6 +4,7 @@
 
 mod actor;
 mod backend;
+pub mod cache;
 mod command;
 mod engine;
 mod error;
