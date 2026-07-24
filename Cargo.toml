@@ -1,0 +1,44 @@
+[workspace]
+members = ["crates/*"]
+resolver = "3"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/kenianbei/nitidus"
+
+[workspace.dependencies]
+nitidus-contacts = { path = "crates/nitidus-contacts" }
+nitidus-mail = { path = "crates/nitidus-mail" }
+nitidus-ui-kit = { path = "crates/nitidus-ui-kit" }
+
+anyhow = "1"
+bevy = { version = "0.18", default-features = false, features = [
+  "bevy_log",
+  "bevy_state",
+] }
+bevy_ratatui = "0.11"
+etcetera = "0.11"
+flume = "0.12"
+image = "0.25"
+plurimus = { version = "0.1", features = ["ui"] }
+ratatui = { version = "0.30", features = [
+  "crossterm",
+  "palette",
+  "unstable-widget-ref",
+] }
+ratatui-image = "11"
+serde = { version = "1", features = ["derive"] }
+thiserror = "2"
+tokio = { version = "1", features = ["rt-multi-thread"] }
+tokio-util = "0.7"
+toml = "1"
+tracing = "0.1"
+tracing-appender = "0.2"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tui-prompts = "0.6"
+
+[workspace.lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"

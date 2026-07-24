@@ -63,7 +63,7 @@ experience.
 #### Contacts
 
 - Contact book tab: table view, 3-pane detail view, popup property editors
-  (vCard 4.0, ported from vcard_tui).
+  (vCard 4.0; vcard_tui's design as reference only).
 - Per-contact `.vcf` persistence (vdir layout, khard-interoperable),
   import/export.
 - Address harvesting from mail traffic into frecency-ranked autocomplete.

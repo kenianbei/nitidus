@@ -168,12 +168,11 @@ bus-factor risk.
 
 Factors the generic analysis can't weigh, which cut in bevy's favor:
 
-- **vcard_tui exists on the bevy stack** — the theme system, layout
-  closures, builders, editor state-machine, and the contacts plugins port
-  directly only if nitidus stays on bevy + plurimus. On any other
-  architecture the *patterns* port but the code must be rewritten
-  (the theme and vCard data layers are UI-framework-agnostic and port
-  regardless).
+- **vcard_tui proves the stack** — it demonstrates the bevy + plurimus
+  reconcile pattern works for this kind of app. It is a POC slated for
+  abandonment and serves as a design/version reference only: no code is
+  imported from it on any architecture; its patterns (theme derivation,
+  layout closures, editor state-machine) are reimplemented fresh.
 - **plurimus is controllable** — its immaturity is a different risk when
   we can fix/extend it ourselves, and nitidus is the forcing function
   that matures it.

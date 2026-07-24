@@ -186,8 +186,8 @@ Chromium. **Recommendation: chromiumoxide**; fallback headless_chrome via
   dependency — tolerates the 3.0-isms real CardDAV servers (Google, iCloud)
   still emit, converts vCard↔JSContact. vcard4 0.7.3 is the strict-RFC 6350
   alternative (parse + `VcardBuilder`, zeroization). vcard_parser 0.2.3 (used by
-  vcard_tui) is smaller, parse/validate focused — the port can migrate to
-  calcard.
+  vcard_tui) is smaller and parse/validate focused — nitidus builds on calcard
+  directly (no vcard_tui code is imported).
 - **CardDAV**: **libdav 0.10.6** (2026-06, **ISC**, whynothugo/pimsync — the
   vdirsyncer successor) — recommended: CalDAV+CardDAV over hyper 1 + tokio +
   rustls, address-book discovery (well-known/SRV), resource fetch. Gotcha: RFC

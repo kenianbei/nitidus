@@ -15,11 +15,11 @@ dependencies; Phase 5 integrates external ecosystems.
 ### 1a. Foundation (nothing works without these)
 
 1. **Workspace scaffold** — cargo workspace (`nitidus-ui-kit`, `nitidus-mail`,
-   `nitidus-contacts`, `nitidus` bin), pinned dependencies, AGENTS/rules wiring,
-   logging to the state dir.
+   `nitidus-contacts`, `nitidus` bin), pinned dependencies, lint/fmt policy,
+   dual license, logging to the state dir.
 2. **App shell** — bevy app bootstrap (MinimalPlugins + ScheduleRunner +
-   RatatuiPlugins + PlurimusPlugin), theme resource (ported from vcard_tui),
-   root layout, statusline, tab-bar shell.
+   RatatuiPlugins + PlurimusPlugin), theme resource (built fresh; vcard_tui's
+   design as reference only), root layout, statusline, tab-bar shell.
 3. **Config loading** — XDG resolution, `config.toml` + `keys.toml` parsing
    (strict), compiled-in defaults, account definitions (no secrets).
 4. **Action router** — Action enum + command-string parser, per-mode keymap trie
@@ -74,9 +74,9 @@ dependencies; Phase 5 integrates external ecosystems.
 
 ### 1e. Contacts (the differentiator)
 
-21. **Contact book port** — vcard_tui plugins into `nitidus-contacts`
-    (calcard-backed), contact tab with table + 3-pane detail + property
-    editors + photos.
+21. **Contact book** — built fresh in `nitidus-contacts` (calcard-backed;
+    vcard_tui's design as reference only, no code imported), contact tab
+    with table + 3-pane detail + property editors + photos.
 22. **Contact persistence** — vdir layout (one `.vcf` per contact), atomic
     writes, import/export.
 23. **Autocomplete + harvesting** — `ContactIndex` prefix map, frecency-ranked

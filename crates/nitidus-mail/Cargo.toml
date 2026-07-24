@@ -1,0 +1,16 @@
+# Invariant: bevy must never appear in this crate's dependency tree. The
+# mail engine runs on its own tokio runtime and stays testable and
+# insulated from UI-framework churn.
+
+[package]
+name = "nitidus-mail"
+description = "Mail engine and backend abstraction for nitidus"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+
+[lints]
+workspace = true
