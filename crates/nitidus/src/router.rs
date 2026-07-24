@@ -21,6 +21,7 @@ impl Plugin for RouterPlugin {
         app.init_resource::<Mode>();
         app.init_resource::<PendingKeys>();
         app.init_resource::<StatusMessage>();
+        app.init_resource::<crate::overlay::ActiveOverlay>();
         app.add_systems(Startup, spawn_router);
         app.add_systems(Update, (expire_pending, expire_status_messages));
     }
@@ -67,6 +68,9 @@ pub fn route_key(world: &mut World, _entity: Entity, event: UiEvent) -> Result {
     }
     if world.resource::<Mode>().0 == InputMode::CommandLine {
         return crate::cmdline::handle_key(world, key);
+    }
+    if world.resource::<crate::overlay::ActiveOverlay>().is_open() {
+        return crate::overlay::handle_key(world, key);
     }
     let now = world.resource::<Time>().elapsed_secs_f64();
     let mut pending = world.resource_mut::<PendingKeys>();

@@ -26,6 +26,8 @@ pub enum Action {
     Flag { flag: Flags, op: FlagOp },
     ToggleThreads,
     Fold(FoldOp),
+    OverlayConfirm,
+    OverlayCancel,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -175,6 +177,16 @@ const COMMANDS: &[CommandSpec] = &[
         aliases: &[],
         parse: |args| no_args("parent", args, Action::Cursor(Motion::Parent)),
     },
+    CommandSpec {
+        name: "confirm",
+        aliases: &[],
+        parse: |args| no_args("confirm", args, Action::OverlayConfirm),
+    },
+    CommandSpec {
+        name: "cancel",
+        aliases: &[],
+        parse: |args| no_args("cancel", args, Action::OverlayCancel),
+    },
 ];
 
 fn flag_action(flag: Flags, op: FlagOp) -> Action {
@@ -236,11 +248,22 @@ pub fn apply_action(world: &mut World, action: &Action) {
                 .resource_mut::<StatusMessage>()
                 .info(text.clone(), now);
         }
-        Action::Cursor(motion) => index::move_cursor(world, *motion),
+        Action::Cursor(motion) => {
+            let overlay_open = world
+                .get_resource::<crate::overlay::ActiveOverlay>()
+                .is_some_and(crate::overlay::ActiveOverlay::is_open);
+            if overlay_open {
+                crate::overlay::move_selection(world, *motion);
+            } else {
+                index::move_cursor(world, *motion);
+            }
+        }
         Action::Sort(mode) => index::set_sort(world, *mode),
         Action::Flag { flag, op } => index::flag_selected(world, *flag, *op),
         Action::ToggleThreads => index::toggle_threads(world),
         Action::Fold(op) => index::fold(world, *op),
+        Action::OverlayConfirm => crate::overlay::confirm(world),
+        Action::OverlayCancel => crate::overlay::close(world),
     }
 }
 

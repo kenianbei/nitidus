@@ -26,12 +26,14 @@ pub struct Mode(pub InputMode);
 
 pub const CONTEXT_GLOBAL: &str = "global";
 pub const CONTEXT_INDEX: &str = "index";
+pub const CONTEXT_PICKER: &str = "picker";
 
 /// Contexts accepted in keys.toml. Screens activate theirs as they land;
 /// binding an inactive context is allowed, a typo is not.
 pub const KNOWN_CONTEXTS: &[&str] = &[
     CONTEXT_GLOBAL,
     CONTEXT_INDEX,
+    CONTEXT_PICKER,
     "pager",
     "compose",
     "contacts",
@@ -63,6 +65,17 @@ const DEFAULT_INDEX_BINDINGS: &[(&str, &str)] = &[
     ("P", ":parent"),
 ];
 
+/// Only single-key bindings are meaningful here: the picker resolves
+/// one key at a time because unbound printables type into the filter.
+const DEFAULT_PICKER_BINDINGS: &[(&str, &str)] = &[
+    ("<Down>", ":next"),
+    ("<Up>", ":prev"),
+    ("<C-j>", ":next"),
+    ("<C-k>", ":prev"),
+    ("<Enter>", ":confirm"),
+    ("<Esc>", ":cancel"),
+];
+
 #[derive(Debug, Default)]
 struct TrieNode {
     action: Option<Action>,
@@ -89,6 +102,9 @@ impl Keymaps {
         }
         for (sequence, command) in DEFAULT_INDEX_BINDINGS {
             keymaps.bind(CONTEXT_INDEX, sequence, command)?;
+        }
+        for (sequence, command) in DEFAULT_PICKER_BINDINGS {
+            keymaps.bind(CONTEXT_PICKER, sequence, command)?;
         }
         for (context, bindings) in &raw.0 {
             if !KNOWN_CONTEXTS.contains(&context.as_str()) {

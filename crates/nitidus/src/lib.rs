@@ -10,6 +10,7 @@ pub mod engine;
 pub mod index;
 pub mod keymap;
 pub mod logging;
+pub mod overlay;
 pub mod router;
 pub mod shell;
 pub mod status;

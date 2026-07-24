@@ -8,7 +8,7 @@ mod thread_view;
 mod view;
 
 pub use ops::{flag_selected, fold, move_cursor, set_sort, toggle_threads};
-pub use view::{IndexView, SortKey, SortMode};
+pub use view::{IndexView, SortKey, SortMode, apply_motion};
 
 use bevy::prelude::*;
 use nitidus_mail::{AccountId, EnvelopeSummary};

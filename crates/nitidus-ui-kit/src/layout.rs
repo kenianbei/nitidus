@@ -40,6 +40,25 @@ pub fn statusline_layout() -> LayoutFn {
     Arc::new(|area| split_shell(*area).statusline)
 }
 
+/// Floating rect for modal panels: centered inside the shell's content
+/// region at `width_pct` of its width, up to `max_height` rows.
+pub fn centered_panel(area: Rect, width_pct: u16, max_height: u16) -> Rect {
+    let content = split_shell(area).content;
+    let width = (u32::from(content.width) * u32::from(width_pct.min(100)) / 100) as u16;
+    let width = width.clamp(content.width.min(20), content.width);
+    let height = max_height.min(content.height);
+    Rect {
+        x: content.x + (content.width - width) / 2,
+        y: content.y + (content.height - height) / 2,
+        width,
+        height,
+    }
+}
+
+pub fn centered_panel_layout(width_pct: u16, max_height: u16) -> LayoutFn {
+    Arc::new(move |area| centered_panel(*area, width_pct, max_height))
+}
+
 #[cfg(test)]
 mod tests {
     #![allow(clippy::unwrap_used, clippy::expect_used)]
@@ -75,6 +94,21 @@ mod tests {
                 "regions must not exceed a {height}-row terminal"
             );
         }
+    }
+
+    #[test]
+    fn centered_panel_centers_and_clamps() {
+        let area = Rect::new(0, 0, 100, 40);
+        let panel = centered_panel(area, 50, 12);
+        assert_eq!(panel.width, 50);
+        assert_eq!(panel.height, 12);
+        assert_eq!(panel.x, 25);
+        assert!(panel.y > 1 && panel.bottom() < 39, "{panel:?}");
+
+        let tiny = centered_panel(Rect::new(0, 0, 10, 5), 50, 12);
+        assert!(tiny.width <= 10);
+        assert!(tiny.height <= 3, "{tiny:?}");
+        assert_eq!(centered_panel_layout(50, 12)(&area), panel);
     }
 
     #[test]
