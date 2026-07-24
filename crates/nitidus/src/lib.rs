@@ -5,6 +5,7 @@ pub mod app;
 pub mod cmdline;
 pub mod config;
 pub mod dirs;
+pub mod engine;
 pub mod keymap;
 pub mod logging;
 pub mod router;
@@ -13,8 +14,9 @@ pub mod status;
 
 pub fn run(loaded: config::LoadedConfig) -> anyhow::Result<()> {
     let keymaps = keymap::Keymaps::compile(&loaded.keymaps)?;
+    let mail_engine = nitidus_mail::MailEngine::new(loaded.config.accounts.len())?;
     tracing::info!("nitidus {} starting", env!("CARGO_PKG_VERSION"));
-    let exit = app::build_app(loaded, keymaps).run();
+    let exit = app::build_app(loaded, keymaps, mail_engine).run();
     if let bevy::app::AppExit::Error(code) = exit {
         anyhow::bail!("app exited with error code {code}");
     }

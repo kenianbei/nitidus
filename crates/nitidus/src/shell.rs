@@ -10,6 +10,7 @@ use ratatui::style::Style;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Paragraph};
 
+use crate::engine::EngineStatus;
 use crate::router::PendingKeys;
 use crate::status::{Severity, StatusMessage};
 
@@ -135,17 +136,21 @@ fn refresh_statusline(
     tabs: Res<Tabs>,
     pending: Res<PendingKeys>,
     status: Res<StatusMessage>,
+    engine_status: Res<EngineStatus>,
     mut widgets: Query<&mut Widget, With<Statusline>>,
 ) -> Result {
-    let changed =
-        theme.is_changed() || tabs.is_changed() || pending.is_changed() || status.is_changed();
+    let changed = theme.is_changed()
+        || tabs.is_changed()
+        || pending.is_changed()
+        || status.is_changed()
+        || engine_status.is_changed();
     if !changed {
         return Ok(());
     }
     let (center, center_style) = center_segment(&pending, &status, &theme);
     for mut widget in &mut widgets {
         widget.set_state(StatuslineState {
-            left: tabs.active_label().to_owned(),
+            left: left_segment(&tabs, &engine_status),
             center: center.clone(),
             center_style,
             right: format!("nitidus v{}", env!("CARGO_PKG_VERSION")),
@@ -153,6 +158,13 @@ fn refresh_statusline(
         })?;
     }
     Ok(())
+}
+
+fn left_segment(tabs: &Tabs, engine_status: &EngineStatus) -> String {
+    match engine_status.summary() {
+        Some(summary) => format!("{} ⋅ {summary}", tabs.active_label()),
+        None => tabs.active_label().to_owned(),
+    }
 }
 
 fn center_segment(pending: &PendingKeys, status: &StatusMessage, theme: &Theme) -> (String, Style) {
@@ -229,6 +241,7 @@ mod tests {
         app.insert_non_send_resource(TachyonRegistry::default());
         app.insert_resource(tailwind_dark());
         app.init_resource::<PendingKeys>();
+        app.init_resource::<EngineStatus>();
         app.add_plugins(ShellPlugin);
         app
     }

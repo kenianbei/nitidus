@@ -1,18 +1,23 @@
 //! Mail engine for nitidus: mail I/O, sync, and the backend abstraction.
-//! This crate must never depend on bevy.
+//! This crate must never depend on bevy — it runs on its own tokio
+//! runtime and talks to the UI through channels.
 
-pub fn crate_version() -> &'static str {
-    env!("CARGO_PKG_VERSION")
-}
+mod actor;
+mod backend;
+mod command;
+mod engine;
+mod error;
+mod event;
+mod types;
 
-#[cfg(test)]
-mod tests {
-    #![allow(clippy::unwrap_used, clippy::expect_used)]
+#[cfg(feature = "mock")]
+pub mod mock;
 
-    use super::*;
-
-    #[test]
-    fn crate_version_is_nonempty() {
-        assert!(!crate_version().is_empty());
-    }
-}
+pub use backend::MailBackend;
+pub use command::MailCommand;
+pub use engine::MailEngine;
+pub use error::MailError;
+pub use event::MailEvent;
+pub use types::{
+    AccountId, ConnectionState, EnvelopeId, EnvelopeSummary, Flags, FolderId, FolderMeta, JobId,
+};

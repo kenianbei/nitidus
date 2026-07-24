@@ -10,7 +10,19 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 
+[features]
+mock = []
+
 [dependencies]
+flume.workspace = true
+thiserror.workspace = true
+tokio = { workspace = true, features = ["macros", "time"] }
+tokio-util.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+nitidus-mail = { path = ".", features = ["mock"] }
+tokio = { workspace = true, features = ["macros"] }
 
 [lints]
 workspace = true

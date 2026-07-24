@@ -71,7 +71,7 @@ mod tests {
             let regions = split_shell(Rect::new(0, 0, 80, height));
             let total = regions.tab_bar.height + regions.content.height + regions.statusline.height;
             assert!(
-                total <= height.max(0),
+                total <= height,
                 "regions must not exceed a {height}-row terminal"
             );
         }

@@ -12,6 +12,7 @@ bevy.workspace = true
 bevy_ratatui.workspace = true
 crokey.workspace = true
 etcetera.workspace = true
+nitidus-mail.workspace = true
 nitidus-ui-kit.workspace = true
 nucleo-matcher.workspace = true
 plurimus.workspace = true
@@ -24,6 +25,7 @@ tracing-appender.workspace = true
 tracing-subscriber.workspace = true
 
 [dev-dependencies]
+nitidus-mail = { workspace = true, features = ["mock"] }
 tempfile.workspace = true
 
 [lints]
