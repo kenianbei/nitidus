@@ -1,21 +1,20 @@
-//! Persistent application chrome: tab bar, content pane, and a
-//! three-segment statusline (tab | chord hint or status message |
-//! version). All input flows through the action router.
+//! Persistent application chrome: tab bar and a three-segment
+//! statusline (tab | chord hint or status message | version). The
+//! content region belongs to the active screen's own widget; nothing
+//! here may draw into it. All input flows through the action router.
 
 use bevy::prelude::*;
 use nitidus_ui_kit::layout;
 use nitidus_ui_kit::theme::Theme;
-use plurimus::{TachyonRegistry, Widget, WidgetLayout, add_fx, enable_fx};
+use plurimus::{Widget, WidgetLayout};
 use ratatui::style::Style;
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Paragraph};
+use ratatui::widgets::Paragraph;
 
 use crate::engine::EngineStatus;
 use crate::index::IndexStatus;
 use crate::router::PendingKeys;
 use crate::status::{Severity, StatusMessage};
-
-const STARTUP_FX_MILLIS: u32 = 800;
 
 pub struct ShellPlugin;
 
@@ -24,11 +23,8 @@ impl Plugin for ShellPlugin {
         app.init_resource::<Tabs>();
         app.init_resource::<StatusMessage>();
         app.init_resource::<IndexStatus>();
-        app.add_systems(Startup, (spawn_shell, apply_startup_fx).chain());
-        app.add_systems(
-            Update,
-            (refresh_tab_bar, refresh_content, refresh_statusline),
-        );
+        app.add_systems(Startup, spawn_shell);
+        app.add_systems(Update, (refresh_tab_bar, refresh_statusline));
     }
 }
 
@@ -64,9 +60,6 @@ impl Tabs {
 pub struct TabBar;
 
 #[derive(Component)]
-pub struct ContentPane;
-
-#[derive(Component)]
 pub struct Statusline;
 
 #[derive(Clone, Default)]
@@ -85,30 +78,10 @@ fn spawn_shell(mut commands: Commands) {
         WidgetLayout::from(layout::tab_bar_layout()),
     ));
     commands.spawn((
-        ContentPane,
-        Widget::from_widget(Block::new()),
-        WidgetLayout::from(layout::content_layout()),
-    ));
-    commands.spawn((
         Statusline,
         Widget::from_render_fn_with_state(render_statusline, StatuslineState::default()),
         WidgetLayout::from(layout::statusline_layout()),
     ));
-}
-
-fn apply_startup_fx(
-    mut commands: Commands,
-    mut registry: NonSendMut<TachyonRegistry>,
-    panes: Query<Entity, With<ContentPane>>,
-) {
-    for entity in &panes {
-        enable_fx(&mut commands, &mut registry, entity);
-        add_fx(
-            &mut registry,
-            entity,
-            tachyonfx::fx::coalesce(STARTUP_FX_MILLIS),
-        );
-    }
 }
 
 fn refresh_tab_bar(
@@ -121,15 +94,6 @@ fn refresh_tab_bar(
     }
     for mut widget in &mut widgets {
         widget.set_widget(tab_bar_paragraph(&tabs, &theme));
-    }
-}
-
-fn refresh_content(theme: Res<Theme>, mut widgets: Query<&mut Widget, With<ContentPane>>) {
-    if !theme.is_changed() {
-        return;
-    }
-    for mut widget in &mut widgets {
-        widget.set_widget(Block::new().style(theme.base.default.normal.style()));
     }
 }
 
@@ -249,7 +213,6 @@ mod tests {
     fn shell_app() -> App {
         let mut app = App::new();
         app.add_plugins(MinimalPlugins);
-        app.insert_non_send_resource(TachyonRegistry::default());
         app.insert_resource(tailwind_dark());
         app.init_resource::<PendingKeys>();
         app.init_resource::<EngineStatus>();
@@ -258,13 +221,17 @@ mod tests {
     }
 
     #[test]
-    fn spawns_the_three_chrome_widgets() {
+    fn spawns_only_tab_bar_and_statusline() {
         let mut app = shell_app();
         app.update();
         let world = app.world_mut();
         assert_eq!(world.query::<&TabBar>().iter(world).count(), 1);
-        assert_eq!(world.query::<&ContentPane>().iter(world).count(), 1);
         assert_eq!(world.query::<&Statusline>().iter(world).count(), 1);
+        assert_eq!(
+            world.query::<&Widget>().iter(world).count(),
+            2,
+            "the shell must not own a content-region widget that could draw over the active screen"
+        );
     }
 
     #[test]
