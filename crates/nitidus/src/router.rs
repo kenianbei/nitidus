@@ -9,7 +9,7 @@ use crokey::{KeyCombination, KeyCombinationFormat};
 use plurimus::{UiActions, UiEvent, UiInputBinding, Widget};
 
 use crate::action::apply_action;
-use crate::keymap::{CONTEXT_GLOBAL, InputMode, KeymapMatch, Keymaps, Mode};
+use crate::keymap::{CONTEXT_INDEX, InputMode, KeymapMatch, Keymaps, Mode};
 use crate::status::{StatusMessage, expire_status_messages};
 
 const CHORD_TIMEOUT_SECS: f64 = 0.5;
@@ -82,7 +82,9 @@ fn resolve_now(world: &mut World, now: f64) {
     let outcome = {
         let keymaps = world.resource::<Keymaps>();
         let pending = world.resource::<PendingKeys>();
-        keymaps.lookup(CONTEXT_GLOBAL, &pending.keys)
+        // The mail index is the only Normal-mode screen; tabs/screens
+        // will drive the active context once more exist.
+        keymaps.resolve_layered(CONTEXT_INDEX, &pending.keys)
     };
     match outcome {
         KeymapMatch::Exact(action) => {

@@ -13,6 +13,7 @@ use crate::bootstrap::EngineSetup;
 use crate::cmdline::CommandLinePlugin;
 use crate::config::LoadedConfig;
 use crate::engine::{CacheResource, EnginePlugin, EngineResource, StartupNotices};
+use crate::index::IndexPlugin;
 use crate::keymap::Keymaps;
 use crate::router::RouterPlugin;
 use crate::shell::ShellPlugin;
@@ -44,7 +45,13 @@ pub fn build_app(loaded: LoadedConfig, keymaps: Keymaps, setup: EngineSetup) -> 
     if let Some(cache) = setup.cache {
         app.insert_resource(CacheResource(cache));
     }
-    app.add_plugins((ShellPlugin, RouterPlugin, CommandLinePlugin, EnginePlugin));
+    app.add_plugins((
+        ShellPlugin,
+        IndexPlugin,
+        RouterPlugin,
+        CommandLinePlugin,
+        EnginePlugin,
+    ));
     app
 }
 

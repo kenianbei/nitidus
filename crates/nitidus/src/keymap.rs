@@ -25,12 +25,13 @@ pub enum InputMode {
 pub struct Mode(pub InputMode);
 
 pub const CONTEXT_GLOBAL: &str = "global";
+pub const CONTEXT_INDEX: &str = "index";
 
 /// Contexts accepted in keys.toml. Screens activate theirs as they land;
 /// binding an inactive context is allowed, a typo is not.
 pub const KNOWN_CONTEXTS: &[&str] = &[
     CONTEXT_GLOBAL,
-    "index",
+    CONTEXT_INDEX,
     "pager",
     "compose",
     "contacts",
@@ -42,6 +43,19 @@ const DEFAULT_GLOBAL_BINDINGS: &[(&str, &str)] = &[
     (":", ":command-line"),
     ("<Tab>", ":tab-next"),
     ("<BackTab>", ":tab-prev"),
+];
+
+const DEFAULT_INDEX_BINDINGS: &[(&str, &str)] = &[
+    ("j", ":next"),
+    ("k", ":prev"),
+    ("<Down>", ":next"),
+    ("<Up>", ":prev"),
+    ("<PageDown>", ":next-page"),
+    ("<PageUp>", ":prev-page"),
+    ("gg", ":first"),
+    ("G", ":last"),
+    ("N", ":toggle-read"),
+    ("F", ":toggle-flag"),
 ];
 
 #[derive(Debug, Default)]
@@ -67,6 +81,9 @@ impl Keymaps {
         let mut keymaps = Self::default();
         for (sequence, command) in DEFAULT_GLOBAL_BINDINGS {
             keymaps.bind(CONTEXT_GLOBAL, sequence, command)?;
+        }
+        for (sequence, command) in DEFAULT_INDEX_BINDINGS {
+            keymaps.bind(CONTEXT_INDEX, sequence, command)?;
         }
         for (context, bindings) in &raw.0 {
             if !KNOWN_CONTEXTS.contains(&context.as_str()) {
@@ -121,6 +138,21 @@ impl Keymaps {
         }
         node.action = None;
         Ok(())
+    }
+
+    /// Context bindings shadow global ones: a context exact fires first,
+    /// a prefix in either layer waits for the chord, and only then may a
+    /// global exact fire.
+    pub fn resolve_layered(&self, context: &str, keys: &[KeyCombination]) -> KeymapMatch {
+        let scoped = self.lookup(context, keys);
+        if matches!(scoped, KeymapMatch::Exact(_)) {
+            return scoped;
+        }
+        let global = self.lookup(CONTEXT_GLOBAL, keys);
+        match (scoped, global) {
+            (KeymapMatch::Prefix, _) | (_, KeymapMatch::Prefix) => KeymapMatch::Prefix,
+            (_, global) => global,
+        }
     }
 
     /// An exact match fires immediately even if longer bindings share the
@@ -208,6 +240,44 @@ mod tests {
         assert_eq!(
             keymaps.lookup(CONTEXT_GLOBAL, &keys("gx")),
             KeymapMatch::Unbound
+        );
+    }
+
+    #[test]
+    fn index_defaults_resolve_through_layering() {
+        let keymaps = Keymaps::compile(&RawKeymaps::default()).unwrap();
+        assert!(matches!(
+            keymaps.resolve_layered(CONTEXT_INDEX, &keys("j")),
+            KeymapMatch::Exact(Action::Cursor(crate::action::Motion::Next))
+        ));
+        assert_eq!(
+            keymaps.resolve_layered(CONTEXT_INDEX, &keys("q")),
+            KeymapMatch::Exact(Action::Quit),
+            "global bindings must fall through"
+        );
+    }
+
+    #[test]
+    fn context_binding_shadows_global() {
+        let keymaps = Keymaps::compile(&raw("index", &[("q", ":tab-next")])).unwrap();
+        assert_eq!(
+            keymaps.resolve_layered(CONTEXT_INDEX, &keys("q")),
+            KeymapMatch::Exact(Action::TabNext)
+        );
+    }
+
+    #[test]
+    fn context_prefix_outweighs_global_exact() {
+        let keymaps = Keymaps::compile(&raw("global", &[("g", ":tab-next")])).unwrap();
+        assert_eq!(
+            keymaps.resolve_layered(CONTEXT_INDEX, &keys("g")),
+            KeymapMatch::Prefix,
+            "gg in index must make bare g wait for the chord"
+        );
+        assert_eq!(
+            keymaps.resolve_layered("pager", &keys("g")),
+            KeymapMatch::Exact(Action::TabNext),
+            "contexts without the chord fire the global immediately"
         );
     }
 

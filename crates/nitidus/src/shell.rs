@@ -11,6 +11,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Paragraph};
 
 use crate::engine::EngineStatus;
+use crate::index::IndexStatus;
 use crate::router::PendingKeys;
 use crate::status::{Severity, StatusMessage};
 
@@ -22,6 +23,7 @@ impl Plugin for ShellPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Tabs>();
         app.init_resource::<StatusMessage>();
+        app.init_resource::<IndexStatus>();
         app.add_systems(Startup, (spawn_shell, apply_startup_fx).chain());
         app.add_systems(
             Update,
@@ -137,20 +139,22 @@ fn refresh_statusline(
     pending: Res<PendingKeys>,
     status: Res<StatusMessage>,
     engine_status: Res<EngineStatus>,
+    index_status: Res<IndexStatus>,
     mut widgets: Query<&mut Widget, With<Statusline>>,
 ) -> Result {
     let changed = theme.is_changed()
         || tabs.is_changed()
         || pending.is_changed()
         || status.is_changed()
-        || engine_status.is_changed();
+        || engine_status.is_changed()
+        || index_status.is_changed();
     if !changed {
         return Ok(());
     }
     let (center, center_style) = center_segment(&pending, &status, &theme);
     for mut widget in &mut widgets {
         widget.set_state(StatuslineState {
-            left: left_segment(&tabs, &engine_status),
+            left: left_segment(&tabs, &engine_status, &index_status),
             center: center.clone(),
             center_style,
             right: format!("nitidus v{}", env!("CARGO_PKG_VERSION")),
@@ -160,11 +164,18 @@ fn refresh_statusline(
     Ok(())
 }
 
-fn left_segment(tabs: &Tabs, engine_status: &EngineStatus) -> String {
-    match engine_status.summary() {
-        Some(summary) => format!("{} ⋅ {summary}", tabs.active_label()),
-        None => tabs.active_label().to_owned(),
+fn left_segment(tabs: &Tabs, engine_status: &EngineStatus, index_status: &IndexStatus) -> String {
+    let mut segment = tabs.active_label().to_owned();
+    if let Some(summary) = engine_status.summary() {
+        segment = format!("{segment} ⋅ {summary}");
     }
+    if index_status.total > 0 {
+        segment = format!(
+            "{segment} ⋅ {}/{}",
+            index_status.selected, index_status.total
+        );
+    }
+    segment
 }
 
 fn center_segment(pending: &PendingKeys, status: &StatusMessage, theme: &Theme) -> (String, Style) {

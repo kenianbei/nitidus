@@ -5,7 +5,7 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 use bevy::prelude::*;
-use nitidus_mail::{AccountId, EnvelopeId, EnvelopeSummary, FolderId, FolderMeta, JobId};
+use nitidus_mail::{AccountId, EnvelopeId, EnvelopeSummary, Flags, FolderId, FolderMeta, JobId};
 
 /// Stamp for warm-loaded rows; any live scan's `done` prunes them.
 const WARM_JOB: JobId = JobId(0);
@@ -49,6 +49,23 @@ impl MailStore {
     ) {
         self.entry(account.clone(), folder.clone())
             .upsert(job, batch, done);
+    }
+
+    /// Optimistic in-memory flag write; the backend write and its
+    /// re-sync confirm or correct it. Flags never affect date order, so
+    /// no re-sort is needed.
+    pub fn set_flags(
+        &mut self,
+        account: &AccountId,
+        folder: &FolderId,
+        id: &EnvelopeId,
+        flags: Flags,
+    ) {
+        if let Some(cached) = self.envelopes.get_mut(&(account.clone(), folder.clone()))
+            && let Some(&position) = cached.index.get(id)
+        {
+            cached.sorted[position].flags = flags;
+        }
     }
 
     fn entry(&mut self, account: AccountId, folder: FolderId) -> &mut FolderEnvelopes {

@@ -7,6 +7,7 @@ pub mod cmdline;
 pub mod config;
 pub mod dirs;
 pub mod engine;
+pub mod index;
 pub mod keymap;
 pub mod logging;
 pub mod router;
