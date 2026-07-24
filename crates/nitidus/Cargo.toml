@@ -8,7 +8,13 @@ repository.workspace = true
 
 [dependencies]
 anyhow.workspace = true
+bevy.workspace = true
+bevy_ratatui.workspace = true
 etcetera.workspace = true
+nitidus-ui-kit.workspace = true
+plurimus.workspace = true
+ratatui.workspace = true
+tachyonfx.workspace = true
 tracing.workspace = true
 tracing-appender.workspace = true
 tracing-subscriber.workspace = true

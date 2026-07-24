@@ -22,7 +22,7 @@ bevy_ratatui = "0.11"
 etcetera = "0.11"
 flume = "0.12"
 image = "0.25"
-plurimus = { version = "0.1", features = ["ui"] }
+plurimus = { version = "0.1", features = ["ui", "tachyonfx"] }
 ratatui = { version = "0.30", features = [
   "crossterm",
   "palette",
@@ -30,6 +30,7 @@ ratatui = { version = "0.30", features = [
 ] }
 ratatui-image = "11"
 serde = { version = "1", features = ["derive"] }
+tachyonfx = "0.25"
 thiserror = "2"
 tokio = { version = "1", features = ["rt-multi-thread"] }
 tokio-util = "0.7"
