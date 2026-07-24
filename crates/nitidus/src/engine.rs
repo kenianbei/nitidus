@@ -10,6 +10,8 @@ use nitidus_mail::cache::CacheWriter;
 use nitidus_mail::{AccountId, ConnectionState, FolderId, MailEngine, MailEvent};
 
 use crate::bootstrap::request_sync;
+use crate::pager::PagerState;
+use crate::screen::Screen;
 use crate::status::StatusMessage;
 use crate::store::{MailStore, SyncTracker, ThreadSet};
 
@@ -23,6 +25,8 @@ impl Plugin for EnginePlugin {
         app.init_resource::<MailStore>();
         app.init_resource::<SyncTracker>();
         app.init_resource::<ThreadSet>();
+        app.init_resource::<PagerState>();
+        app.init_resource::<Screen>();
         app.init_resource::<StartupNotices>();
         app.init_resource::<StatusMessage>();
         app.add_systems(PreUpdate, drain_mail_events);
@@ -70,6 +74,8 @@ struct MailRouting<'w> {
     store: ResMut<'w, MailStore>,
     tracker: ResMut<'w, SyncTracker>,
     threads: ResMut<'w, ThreadSet>,
+    pager: ResMut<'w, PagerState>,
+    screen: ResMut<'w, Screen>,
     messages: ResMut<'w, StatusMessage>,
     time: Res<'w, Time>,
 }
@@ -120,13 +126,20 @@ fn route_event(routing: &mut MailRouting, event: MailEvent) {
         } => {
             if let Some(job) = job {
                 routing.tracker.fail(job);
+                if routing.pager.fail_fetch(job) {
+                    *routing.screen = Screen::Index;
+                }
             }
             let now = routing.time.elapsed_secs_f64();
             routing.messages.warn(format!("{account}: {error}"), now);
         }
-        MailEvent::Message { .. } => {
-            tracing::debug!("message event unrouted until the pager exists");
-        }
+        MailEvent::Message {
+            account,
+            folder,
+            id,
+            job,
+            raw,
+        } => routing.pager.receive(account, folder, id, job, raw),
     }
 }
 

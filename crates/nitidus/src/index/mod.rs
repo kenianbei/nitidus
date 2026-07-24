@@ -39,6 +39,7 @@ impl Plugin for IndexPlugin {
         app.init_resource::<IndexOrder>();
         app.init_resource::<IndexStatus>();
         app.init_resource::<ThreadSet>();
+        app.init_resource::<crate::screen::Screen>();
         app.add_systems(Startup, (configure_view, first_view_sync, spawn_index).chain());
         app.add_systems(
             Update,
@@ -73,6 +74,10 @@ struct IndexWidget;
 
 #[derive(Clone, Default)]
 struct IndexWindowState {
+    /// Cleared while another screen owns the content region — plurimus
+    /// repaints refreshed widgets individually, so an inactive screen
+    /// must draw nothing rather than rely on draw order.
+    active: bool,
     rows: Vec<IndexRow>,
     empty_message: Option<String>,
     styles: RowStyles,
@@ -134,12 +139,16 @@ fn refresh_index(
     theme: Res<Theme>,
     store: Res<MailStore>,
     order: Res<IndexOrder>,
+    screen: Res<crate::screen::Screen>,
     mut index_view: ResMut<IndexView>,
     mut status: ResMut<IndexStatus>,
     mut widgets: Query<&mut Widget, With<IndexWidget>>,
 ) -> Result {
-    let changed =
-        theme.is_changed() || store.is_changed() || index_view.is_changed() || order.is_changed();
+    let changed = theme.is_changed()
+        || store.is_changed()
+        || index_view.is_changed()
+        || order.is_changed()
+        || screen.is_changed();
     if !changed {
         return Ok(());
     }
@@ -156,6 +165,7 @@ fn refresh_index(
     anchor_selection(cached, envelopes, &order.entries, selected_row, viewport);
     let mut window = build_window_state(&theme, envelopes, &order.entries, cached, viewport);
     window.last_height = last_height;
+    window.active = *screen == crate::screen::Screen::Index;
     widget.set_state(window)?;
     let position = IndexStatus {
         selected: selected_row.map_or(0, |row| row + 1),
@@ -215,6 +225,7 @@ fn build_window_state(
         })
         .collect();
     IndexWindowState {
+        active: false,
         rows,
         empty_message,
         styles: RowStyles::from_theme(theme),
@@ -228,6 +239,9 @@ fn render_index(
     state: &mut IndexWindowState,
 ) -> Result {
     state.last_height = area.height;
+    if !state.active {
+        return Ok(());
+    }
     if let Some(message) = &state.empty_message {
         let paragraph = Paragraph::new(message.as_str())
             .style(state.styles.normal)

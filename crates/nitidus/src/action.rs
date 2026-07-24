@@ -28,6 +28,22 @@ pub enum Action {
     Fold(FoldOp),
     OverlayConfirm,
     OverlayCancel,
+    View,
+    Pager(PagerOp),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PagerOp {
+    Close,
+    NextMessage,
+    PrevMessage,
+    ToggleHeaders,
+    SkipQuoted,
+    NextPart,
+    PrevPart,
+    SavePart,
+    OpenPart,
+    Links,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -187,6 +203,61 @@ const COMMANDS: &[CommandSpec] = &[
         aliases: &[],
         parse: |args| no_args("cancel", args, Action::OverlayCancel),
     },
+    CommandSpec {
+        name: "view",
+        aliases: &[],
+        parse: |args| no_args("view", args, Action::View),
+    },
+    CommandSpec {
+        name: "close",
+        aliases: &[],
+        parse: |args| no_args("close", args, Action::Pager(PagerOp::Close)),
+    },
+    CommandSpec {
+        name: "next-message",
+        aliases: &[],
+        parse: |args| no_args("next-message", args, Action::Pager(PagerOp::NextMessage)),
+    },
+    CommandSpec {
+        name: "prev-message",
+        aliases: &[],
+        parse: |args| no_args("prev-message", args, Action::Pager(PagerOp::PrevMessage)),
+    },
+    CommandSpec {
+        name: "headers",
+        aliases: &[],
+        parse: |args| no_args("headers", args, Action::Pager(PagerOp::ToggleHeaders)),
+    },
+    CommandSpec {
+        name: "skip-quoted",
+        aliases: &[],
+        parse: |args| no_args("skip-quoted", args, Action::Pager(PagerOp::SkipQuoted)),
+    },
+    CommandSpec {
+        name: "next-part",
+        aliases: &[],
+        parse: |args| no_args("next-part", args, Action::Pager(PagerOp::NextPart)),
+    },
+    CommandSpec {
+        name: "prev-part",
+        aliases: &[],
+        parse: |args| no_args("prev-part", args, Action::Pager(PagerOp::PrevPart)),
+    },
+    CommandSpec {
+        name: "save-part",
+        aliases: &[],
+        parse: |args| no_args("save-part", args, Action::Pager(PagerOp::SavePart)),
+    },
+    CommandSpec {
+        name: "open-part",
+        aliases: &[],
+        parse: |args| no_args("open-part", args, Action::Pager(PagerOp::OpenPart)),
+    },
+    CommandSpec {
+        name: "links",
+        aliases: &[],
+        parse: |args| no_args("links", args, Action::Pager(PagerOp::Links)),
+    },
 ];
 
 fn flag_action(flag: Flags, op: FlagOp) -> Action {
@@ -248,22 +319,34 @@ pub fn apply_action(world: &mut World, action: &Action) {
                 .resource_mut::<StatusMessage>()
                 .info(text.clone(), now);
         }
-        Action::Cursor(motion) => {
-            let overlay_open = world
-                .get_resource::<crate::overlay::ActiveOverlay>()
-                .is_some_and(crate::overlay::ActiveOverlay::is_open);
-            if overlay_open {
-                crate::overlay::move_selection(world, *motion);
-            } else {
-                index::move_cursor(world, *motion);
-            }
-        }
+        Action::Cursor(motion) => dispatch_motion(world, *motion),
         Action::Sort(mode) => index::set_sort(world, *mode),
         Action::Flag { flag, op } => index::flag_selected(world, *flag, *op),
         Action::ToggleThreads => index::toggle_threads(world),
         Action::Fold(op) => index::fold(world, *op),
         Action::OverlayConfirm => crate::overlay::confirm(world),
         Action::OverlayCancel => crate::overlay::close(world),
+        Action::View => crate::pager::open_selected(world),
+        Action::Pager(op) => crate::pager::dispatch(world, *op),
+    }
+}
+
+/// One motion vocabulary, three surfaces: the open overlay wins, then
+/// the active screen.
+fn dispatch_motion(world: &mut World, motion: Motion) {
+    let overlay_open = world
+        .get_resource::<crate::overlay::ActiveOverlay>()
+        .is_some_and(crate::overlay::ActiveOverlay::is_open);
+    if overlay_open {
+        return crate::overlay::move_selection(world, motion);
+    }
+    let screen = world
+        .get_resource::<crate::screen::Screen>()
+        .copied()
+        .unwrap_or_default();
+    match screen {
+        crate::screen::Screen::Pager => crate::pager::scroll(world, motion),
+        crate::screen::Screen::Index => index::move_cursor(world, motion),
     }
 }
 

@@ -26,6 +26,7 @@ pub struct Mode(pub InputMode);
 
 pub const CONTEXT_GLOBAL: &str = "global";
 pub const CONTEXT_INDEX: &str = "index";
+pub const CONTEXT_PAGER: &str = "pager";
 pub const CONTEXT_PICKER: &str = "picker";
 
 /// Contexts accepted in keys.toml. Screens activate theirs as they land;
@@ -33,8 +34,8 @@ pub const CONTEXT_PICKER: &str = "picker";
 pub const KNOWN_CONTEXTS: &[&str] = &[
     CONTEXT_GLOBAL,
     CONTEXT_INDEX,
+    CONTEXT_PAGER,
     CONTEXT_PICKER,
-    "pager",
     "compose",
     "contacts",
     "command_line",
@@ -63,6 +64,29 @@ const DEFAULT_INDEX_BINDINGS: &[(&str, &str)] = &[
     ("zM", ":fold-all"),
     ("zR", ":unfold-all"),
     ("P", ":parent"),
+    ("<Enter>", ":view"),
+];
+
+const DEFAULT_PAGER_BINDINGS: &[(&str, &str)] = &[
+    ("q", ":close"),
+    ("j", ":next"),
+    ("k", ":prev"),
+    ("<Down>", ":next"),
+    ("<Up>", ":prev"),
+    ("<Space>", ":next-page"),
+    ("<PageDown>", ":next-page"),
+    ("<PageUp>", ":prev-page"),
+    ("gg", ":first"),
+    ("G", ":last"),
+    ("J", ":next-message"),
+    ("K", ":prev-message"),
+    ("H", ":headers"),
+    ("S", ":skip-quoted"),
+    ("]", ":next-part"),
+    ("[", ":prev-part"),
+    ("s", ":save-part"),
+    ("o", ":open-part"),
+    ("l", ":links"),
 ];
 
 /// Only single-key bindings are meaningful here: the picker resolves
@@ -102,6 +126,9 @@ impl Keymaps {
         }
         for (sequence, command) in DEFAULT_INDEX_BINDINGS {
             keymaps.bind(CONTEXT_INDEX, sequence, command)?;
+        }
+        for (sequence, command) in DEFAULT_PAGER_BINDINGS {
+            keymaps.bind(CONTEXT_PAGER, sequence, command)?;
         }
         for (sequence, command) in DEFAULT_PICKER_BINDINGS {
             keymaps.bind(CONTEXT_PICKER, sequence, command)?;
@@ -296,7 +323,7 @@ mod tests {
             "gg in index must make bare g wait for the chord"
         );
         assert_eq!(
-            keymaps.resolve_layered("pager", &keys("g")),
+            keymaps.resolve_layered("contacts", &keys("g")),
             KeymapMatch::Exact(Action::TabNext),
             "contexts without the chord fire the global immediately"
         );

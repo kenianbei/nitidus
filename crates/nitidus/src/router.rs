@@ -9,7 +9,8 @@ use crokey::{KeyCombination, KeyCombinationFormat};
 use plurimus::{UiActions, UiEvent, UiInputBinding, Widget};
 
 use crate::action::apply_action;
-use crate::keymap::{CONTEXT_INDEX, InputMode, KeymapMatch, Keymaps, Mode};
+use crate::keymap::{CONTEXT_INDEX, CONTEXT_PAGER, InputMode, KeymapMatch, Keymaps, Mode};
+use crate::screen::Screen;
 use crate::status::{StatusMessage, expire_status_messages};
 
 const CHORD_TIMEOUT_SECS: f64 = 0.5;
@@ -22,6 +23,7 @@ impl Plugin for RouterPlugin {
         app.init_resource::<PendingKeys>();
         app.init_resource::<StatusMessage>();
         app.init_resource::<crate::overlay::ActiveOverlay>();
+        app.init_resource::<Screen>();
         app.add_systems(Startup, spawn_router);
         app.add_systems(Update, (expire_pending, expire_status_messages));
     }
@@ -84,11 +86,13 @@ pub fn route_key(world: &mut World, _entity: Entity, event: UiEvent) -> Result {
 /// deeper than the last resolution — whole-buffer lookup is incremental.
 fn resolve_now(world: &mut World, now: f64) {
     let outcome = {
+        let context = match world.resource::<Screen>() {
+            Screen::Index => CONTEXT_INDEX,
+            Screen::Pager => CONTEXT_PAGER,
+        };
         let keymaps = world.resource::<Keymaps>();
         let pending = world.resource::<PendingKeys>();
-        // The mail index is the only Normal-mode screen; tabs/screens
-        // will drive the active context once more exist.
-        keymaps.resolve_layered(CONTEXT_INDEX, &pending.keys)
+        keymaps.resolve_layered(context, &pending.keys)
     };
     match outcome {
         KeymapMatch::Exact(action) => {

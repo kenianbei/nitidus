@@ -13,6 +13,7 @@ use ratatui::widgets::Paragraph;
 
 use crate::engine::EngineStatus;
 use crate::index::IndexStatus;
+use crate::pager::PagerStatus;
 use crate::router::PendingKeys;
 use crate::status::{Severity, StatusMessage};
 
@@ -23,6 +24,7 @@ impl Plugin for ShellPlugin {
         app.init_resource::<Tabs>();
         app.init_resource::<StatusMessage>();
         app.init_resource::<IndexStatus>();
+        app.init_resource::<PagerStatus>();
         app.add_systems(Startup, spawn_shell);
         app.add_systems(Update, (refresh_tab_bar, refresh_statusline));
     }
@@ -97,28 +99,42 @@ fn refresh_tab_bar(
     }
 }
 
+#[derive(bevy::ecs::system::SystemParam)]
+struct StatuslineInputs<'w> {
+    theme: Res<'w, Theme>,
+    tabs: Res<'w, Tabs>,
+    pending: Res<'w, PendingKeys>,
+    status: Res<'w, StatusMessage>,
+    engine_status: Res<'w, EngineStatus>,
+    index_status: Res<'w, IndexStatus>,
+    pager_status: Res<'w, PagerStatus>,
+}
+
+impl StatuslineInputs<'_> {
+    fn any_changed(&self) -> bool {
+        self.theme.is_changed()
+            || self.tabs.is_changed()
+            || self.pending.is_changed()
+            || self.status.is_changed()
+            || self.engine_status.is_changed()
+            || self.index_status.is_changed()
+            || self.pager_status.is_changed()
+    }
+}
+
 fn refresh_statusline(
-    theme: Res<Theme>,
-    tabs: Res<Tabs>,
-    pending: Res<PendingKeys>,
-    status: Res<StatusMessage>,
-    engine_status: Res<EngineStatus>,
-    index_status: Res<IndexStatus>,
+    inputs: StatuslineInputs,
     mut widgets: Query<&mut Widget, With<Statusline>>,
 ) -> Result {
-    let changed = theme.is_changed()
-        || tabs.is_changed()
-        || pending.is_changed()
-        || status.is_changed()
-        || engine_status.is_changed()
-        || index_status.is_changed();
-    if !changed {
+    if !inputs.any_changed() {
         return Ok(());
     }
-    let (center, center_style) = center_segment(&pending, &status, &theme);
+    let theme = &inputs.theme;
+    let (center, center_style) =
+        center_segment(&inputs.pending, &inputs.status, &inputs.pager_status, theme);
     for mut widget in &mut widgets {
         widget.set_state(StatuslineState {
-            left: left_segment(&tabs, &engine_status, &index_status),
+            left: left_segment(&inputs.tabs, &inputs.engine_status, &inputs.index_status),
             center: center.clone(),
             center_style,
             right: format!("nitidus v{}", env!("CARGO_PKG_VERSION")),
@@ -142,7 +158,12 @@ fn left_segment(tabs: &Tabs, engine_status: &EngineStatus, index_status: &IndexS
     segment
 }
 
-fn center_segment(pending: &PendingKeys, status: &StatusMessage, theme: &Theme) -> (String, Style) {
+fn center_segment(
+    pending: &PendingKeys,
+    status: &StatusMessage,
+    pager_status: &PagerStatus,
+    theme: &Theme,
+) -> (String, Style) {
     if let Some((text, severity)) = status.current() {
         let palette = &theme.paper;
         let style = match severity {
@@ -154,6 +175,9 @@ fn center_segment(pending: &PendingKeys, status: &StatusMessage, theme: &Theme) 
     }
     if let Some(hint) = pending.hint() {
         return (hint, theme.paper.default.focused.style());
+    }
+    if let Some(part) = &pager_status.part {
+        return (part.clone(), theme.paper.default.normal.style());
     }
     (String::new(), theme.paper.default.normal.style())
 }
