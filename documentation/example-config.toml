@@ -1,0 +1,51 @@
+# nitidus example configuration
+#
+# Location: ~/.config/nitidus/config.toml (override the directory with
+# NITIDUS_CONFIG_DIR). Every setting is optional — an absent file or
+# field falls back to a compiled-in default. Unknown keys are errors:
+# typos fail loudly at startup instead of being silently ignored.
+#
+# Secrets NEVER go in this file. Accounts reference credentials via the
+# OS keyring (default), a password command, or an OAuth2 provider.
+
+[ui]
+# Theme preset. Available: "tailwind-dark".
+theme = "tailwind-dark"
+
+# Accounts are an array of tables — repeat [[accounts]] per account.
+[[accounts]]
+name = "personal"
+email = "norman@example.com"
+display_name = "Norman Kerr"
+aliases = ["nk@example.com"]
+
+# Mail source: exactly one of maildir or imap.
+#   backend = { maildir = { path = "~/Mail/personal" } }
+[accounts.backend.imap]
+host = "imap.example.com"
+port = 993           # default 993
+encryption = "tls"   # tls | starttls | none (default tls)
+
+# Outgoing mail: smtp or sendmail.
+#   outgoing = { sendmail = { command = "/usr/bin/msmtp" } }
+[accounts.outgoing.smtp]
+host = "smtp.example.com"
+port = 587             # default 587
+encryption = "starttls" # default starttls
+
+# Credentials reference (default: "keyring").
+#   auth = "keyring"
+#   auth = { password_cmd = { command = "pass show mail/personal" } }
+[accounts.auth.oauth2]
+provider = "google" # google | microsoft
+
+# Special-folder names as your server calls them.
+[accounts.folders]
+drafts = "Drafts"
+sent = "Sent"
+trash = "Trash"
+archive = "Archive"
+
+# Signature: inline text or a file path (not both).
+# signature = "Norman"
+# signature_file = "~/.config/nitidus/signature.txt"
