@@ -8,7 +8,9 @@ mod command;
 mod engine;
 mod error;
 mod event;
+pub mod maildir;
 mod types;
+mod watch;
 
 #[cfg(feature = "mock")]
 pub mod mock;

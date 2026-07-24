@@ -14,9 +14,10 @@ pub mod status;
 
 pub fn run(loaded: config::LoadedConfig) -> anyhow::Result<()> {
     let keymaps = keymap::Keymaps::compile(&loaded.keymaps)?;
-    let mail_engine = nitidus_mail::MailEngine::new(loaded.config.accounts.len())?;
+    let mut mail_engine = nitidus_mail::MailEngine::new(loaded.config.accounts.len())?;
+    let notices = engine::register_accounts(&mut mail_engine, &loaded.config)?;
     tracing::info!("nitidus {} starting", env!("CARGO_PKG_VERSION"));
-    let exit = app::build_app(loaded, keymaps, mail_engine).run();
+    let exit = app::build_app(loaded, keymaps, mail_engine, notices).run();
     if let bevy::app::AppExit::Error(code) = exit {
         anyhow::bail!("app exited with error code {code}");
     }

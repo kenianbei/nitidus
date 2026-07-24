@@ -76,6 +76,14 @@ impl MailEngine {
     pub fn next_job(&self) -> JobId {
         JobId(self.next_job.fetch_add(1, Ordering::Relaxed))
     }
+
+    pub(crate) fn events_sender(&self) -> flume::Sender<MailEvent> {
+        self.events_tx.clone()
+    }
+
+    pub(crate) fn runtime_handle(&self) -> tokio::runtime::Handle {
+        self.runtime.handle().clone()
+    }
 }
 
 impl Drop for MailEngine {

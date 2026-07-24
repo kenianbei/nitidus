@@ -34,4 +34,10 @@ pub enum MailEvent {
         job: Option<JobId>,
         error: MailError,
     },
+    /// A folder's contents changed on disk outside our control
+    /// (external delivery, another client). Consumers re-sync.
+    FolderChanged {
+        account: AccountId,
+        folder: FolderId,
+    },
 }

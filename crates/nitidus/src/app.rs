@@ -11,7 +11,7 @@ use plurimus::PlurimusPlugin;
 
 use crate::cmdline::CommandLinePlugin;
 use crate::config::LoadedConfig;
-use crate::engine::{EnginePlugin, EngineResource};
+use crate::engine::{EnginePlugin, EngineResource, StartupNotices};
 use crate::keymap::Keymaps;
 use crate::router::RouterPlugin;
 use crate::shell::ShellPlugin;
@@ -22,6 +22,7 @@ pub fn build_app(
     loaded: LoadedConfig,
     keymaps: Keymaps,
     mail_engine: nitidus_mail::MailEngine,
+    startup_notices: Vec<String>,
 ) -> App {
     let mut app = App::new();
     app.add_plugins((
@@ -41,6 +42,7 @@ pub fn build_app(
     app.insert_resource(loaded.config);
     app.insert_resource(keymaps);
     app.insert_resource(EngineResource(mail_engine));
+    app.insert_resource(StartupNotices(startup_notices));
     app.add_plugins((ShellPlugin, RouterPlugin, CommandLinePlugin, EnginePlugin));
     app
 }
