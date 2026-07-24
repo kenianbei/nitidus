@@ -146,9 +146,11 @@ excluded until their phase.
   Phase 5.
 - **uuid** — UID generation for new contacts (`.vcf` filenames and vCard UID
   properties).
-- **html2text** (0.17, `css`) — HTML tier 1: html5ever-based HTML→styled spans
-  with `RichAnnotation` (links, emphasis, colors) mapped onto ratatui styles;
-  table layout and width-aware wrapping.
+- **html2text** (0.17) — HTML tier 1: html5ever-based HTML→styled spans with
+  `RichAnnotation` (links, emphasis) mapped onto ratatui styles; table layout
+  and width-aware wrapping. The `css` feature stays off: ammonia strips
+  `<style>` blocks and `style=` attributes before rendering, so it could only
+  ever see nothing — CSS-driven color is revisited with the Phase 4 tiers.
 - **ammonia** (4.1) — HTML sanitization before any rendering: strips
   scripts/trackers, blocks remote content by default via its attribute filter,
   allowlists `cid:`/`mailto:` schemes.

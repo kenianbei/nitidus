@@ -7,11 +7,13 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+ammonia.workspace = true
 anyhow.workspace = true
 bevy.workspace = true
 bevy_ratatui.workspace = true
 crokey.workspace = true
 etcetera.workspace = true
+html2text.workspace = true
 jiff.workspace = true
 nitidus-mail.workspace = true
 nitidus-ui-kit.workspace = true

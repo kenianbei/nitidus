@@ -3,8 +3,10 @@
 //! region while `Screen::Pager` is active.
 
 mod body;
+mod html;
 mod ops;
 mod render;
+mod save;
 
 pub use ops::{dispatch, open_selected, scroll};
 

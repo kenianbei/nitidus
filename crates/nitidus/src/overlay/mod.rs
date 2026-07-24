@@ -118,6 +118,17 @@ impl ActiveOverlay {
     pub fn is_open(&self) -> bool {
         self.0.is_some()
     }
+
+    /// Items currently visible, in match order.
+    pub fn visible_items(&self) -> Vec<&PickerItem> {
+        self.0.as_ref().map_or_else(Vec::new, |picker| {
+            picker
+                .matches
+                .iter()
+                .filter_map(|&index| picker.items.get(index as usize))
+                .collect()
+        })
+    }
 }
 
 pub fn open_picker(world: &mut World, spec: PickerSpec) {
@@ -198,7 +209,10 @@ fn sync_picker_entity(
             let entity = commands
                 .spawn((
                     PickerWidget,
-                    Widget::from_render_fn_with_state(render::render_picker, PickerWindow::default()),
+                    Widget::from_render_fn_with_state(
+                        render::render_picker,
+                        PickerWindow::default(),
+                    ),
                     WidgetLayout::from(layout::centered_panel_layout(
                         PANEL_WIDTH_PCT,
                         PANEL_MAX_HEIGHT,

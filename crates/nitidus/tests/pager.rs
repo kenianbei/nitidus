@@ -66,11 +66,28 @@ fn rich_message() -> String {
     .to_owned()
 }
 
+fn html_message() -> String {
+    concat!(
+        "From: Carol <carol@x.com>\r\n",
+        "Subject: newsletter\r\n",
+        "Date: Wed, 22 Jul 2026 09:00:00 +0000\r\n",
+        "MIME-Version: 1.0\r\n",
+        "Content-Type: text/html\r\n",
+        "\r\n",
+        "<p>Read <strong>this</strong>: <a href=\"https://example.com/story\">the story</a></p>\r\n",
+        "<img src=\"https://tracker.example/pixel.gif\">\r\n",
+    )
+    .to_owned()
+}
+
 /// Engine without a watcher, so tests control the filesystem freely.
 fn pager_app(root: &Path) -> App {
     let account = AccountId::new("local");
     let mut engine = MailEngine::new(1).unwrap();
-    engine.add_account(account.clone(), MaildirBackend::new(root.to_path_buf()).unwrap());
+    engine.add_account(
+        account.clone(),
+        MaildirBackend::new(root.to_path_buf()).unwrap(),
+    );
     let mut tracker = SyncTracker::default();
     nitidus::bootstrap::request_sync(&engine, &mut tracker, &account, &FolderId::new("INBOX"))
         .unwrap();
@@ -150,13 +167,26 @@ fn view_opens_marks_read_and_close_returns() {
 fn adjacent_message_navigation_stays_in_pager() {
     let tmp = tempfile::tempdir().unwrap();
     make_maildir(tmp.path());
-    std::fs::write(tmp.path().join("cur/newer.host:2,S"), simple_message("newer")).unwrap();
-    std::fs::write(tmp.path().join("cur/older.host:2,S"), simple_message("older")).unwrap();
+    std::fs::write(
+        tmp.path().join("cur/newer.host:2,S"),
+        simple_message("newer"),
+    )
+    .unwrap();
+    std::fs::write(
+        tmp.path().join("cur/older.host:2,S"),
+        simple_message("older"),
+    )
+    .unwrap();
     let mut app = pager_app(tmp.path());
     wait_total(&mut app, 2);
 
     open_selected_and_wait(&mut app);
-    let first = app.world().resource::<PagerState>().open_id().unwrap().clone();
+    let first = app
+        .world()
+        .resource::<PagerState>()
+        .open_id()
+        .unwrap()
+        .clone();
     apply_action(app.world_mut(), &Action::Pager(PagerOp::NextMessage));
     assert!(
         wait_for(&mut app, |world| {
@@ -224,7 +254,33 @@ fn links_command_opens_the_picker_with_extracted_urls() {
     open_selected_and_wait(&mut app);
 
     apply_action(app.world_mut(), &Action::Pager(PagerOp::Links));
-    assert!(app.world().resource::<ActiveOverlay>().is_open());
+    let overlay = app.world().resource::<ActiveOverlay>();
+    assert!(overlay.is_open());
+    let items = overlay.visible_items();
+    assert_eq!(items.len(), 1);
+    assert_eq!(items[0].label, "https://example.com/page");
+    assert_eq!(items[0].detail, None, "plain-text links carry no detail");
+}
+
+#[test]
+fn html_part_links_list_anchors_with_labels() {
+    let tmp = tempfile::tempdir().unwrap();
+    make_maildir(tmp.path());
+    std::fs::write(tmp.path().join("cur/html.host:2,S"), html_message()).unwrap();
+    let mut app = pager_app(tmp.path());
+    wait_total(&mut app, 1);
+    open_selected_and_wait(&mut app);
+
+    apply_action(app.world_mut(), &Action::Pager(PagerOp::Links));
+    let overlay = app.world().resource::<ActiveOverlay>();
+    assert!(overlay.is_open());
+    let items = overlay.visible_items();
+    assert_eq!(items.len(), 1, "tracker img must not appear as a link");
+    assert_eq!(items[0].label, "the story");
+    assert_eq!(
+        items[0].detail.as_deref(),
+        Some("https://example.com/story")
+    );
 }
 
 #[test]

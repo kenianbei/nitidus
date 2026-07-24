@@ -11,6 +11,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::Paragraph;
 
 use super::body::{self, BodyLine, LineKind};
+use super::html;
 use super::{OpenMessage, PagerState};
 
 const WEEDED_HEADERS: &[&str] = &["From", "To", "Cc", "Date", "Subject"];
@@ -83,14 +84,10 @@ fn build_message_lines(open: &OpenMessage, theme: &Theme, width: usize, window: 
     window.kinds.push(LineKind::Normal);
 
     match open.view.parts.get(open.part) {
+        Some(part) if part.kind == PartKind::Html => {
+            append_html_body(part, theme, width, window);
+        }
         Some(part) => {
-            if part.kind == PartKind::Html {
-                window.lines.push(Line::from(Span::styled(
-                    "[text/html shown raw — styled rendering lands with tier 1]",
-                    theme.base.warning.normal.style(),
-                )));
-                window.kinds.push(LineKind::Normal);
-            }
             for line in body::build_body_lines(part, width) {
                 window.lines.push(styled_body_line(&line, theme, normal));
                 window.kinds.push(line.kind);
@@ -105,6 +102,74 @@ fn build_message_lines(open: &OpenMessage, theme: &Theme, width: usize, window: 
         }
     }
     append_attachment_footer(open, theme, window);
+}
+
+fn append_html_body(
+    part: &nitidus_mail::message::PartView,
+    theme: &Theme,
+    width: usize,
+    window: &mut PagerWindow,
+) {
+    let sanitized = html::sanitize(part.text.as_deref().unwrap_or_default());
+    if sanitized.blocked_remote > 0 {
+        let plural = if sanitized.blocked_remote == 1 {
+            ""
+        } else {
+            "s"
+        };
+        window.lines.push(Line::from(Span::styled(
+            format!(
+                "[{} remote image{plural} blocked]",
+                sanitized.blocked_remote
+            ),
+            theme.base.info.normal.style(),
+        )));
+        window.kinds.push(LineKind::Normal);
+    }
+    for line in html::render_html(&sanitized.html, width).lines {
+        window
+            .lines
+            .push(styled_html_line(&line, theme, window.normal));
+        window.kinds.push(line.kind);
+    }
+}
+
+fn styled_html_line(line: &html::HtmlLine, theme: &Theme, normal: Style) -> Line<'static> {
+    let base = match line.kind {
+        LineKind::Quote(depth) => quote_style(theme, depth),
+        _ => normal,
+    };
+    let spans = line
+        .spans
+        .iter()
+        .map(|(text, tag)| Span::styled(text.clone(), html_span_style(*tag, theme, base)))
+        .collect::<Vec<_>>();
+    Line::from(spans)
+}
+
+fn html_span_style(tag: html::SpanStyleTag, theme: &Theme, base: Style) -> Style {
+    let mut style = base;
+    if tag.is_code {
+        style = theme.base.default.disabled.style();
+    }
+    if tag.is_link {
+        style = theme
+            .base
+            .info
+            .normal
+            .style()
+            .add_modifier(Modifier::UNDERLINED);
+    }
+    if tag.is_strong {
+        style = style.add_modifier(Modifier::BOLD);
+    }
+    if tag.is_emphasis {
+        style = style.add_modifier(Modifier::ITALIC);
+    }
+    if tag.is_strikeout {
+        style = style.add_modifier(Modifier::CROSSED_OUT);
+    }
+    style
 }
 
 fn append_attachment_footer(open: &OpenMessage, theme: &Theme, window: &mut PagerWindow) {
@@ -152,11 +217,7 @@ fn styled_body_line(line: &BodyLine, theme: &Theme, normal: Style) -> Line<'stat
 }
 
 fn quote_style(theme: &Theme, depth: u8) -> Style {
-    let palettes = [
-        &theme.base.success,
-        &theme.base.info,
-        &theme.base.warning,
-    ];
+    let palettes = [&theme.base.success, &theme.base.info, &theme.base.warning];
     palettes[usize::from(depth - 1) % palettes.len()]
         .normal
         .style()
