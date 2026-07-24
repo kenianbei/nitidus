@@ -1,18 +1,17 @@
-//! Persistent application chrome: tab bar, content pane, statusline, and
-//! the temporary quit bindings (replaced by the action router in 1a.4).
+//! Persistent application chrome: tab bar, content pane, and a
+//! three-segment statusline (tab | chord hint or status message |
+//! version). All input flows through the action router.
 
-use bevy::app::AppExit;
 use bevy::prelude::*;
-use bevy_ratatui::crossterm::event::{KeyCode, KeyModifiers};
 use nitidus_ui_kit::layout;
 use nitidus_ui_kit::theme::Theme;
-use plurimus::{
-    KeyBinding, TachyonRegistry, UiActions, UiEvent, UiInputBinding, Widget, WidgetLayout, add_fx,
-    enable_fx,
-};
+use plurimus::{TachyonRegistry, Widget, WidgetLayout, add_fx, enable_fx};
 use ratatui::style::Style;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Paragraph};
+
+use crate::router::PendingKeys;
+use crate::status::{Severity, StatusMessage};
 
 const STARTUP_FX_MILLIS: u32 = 800;
 
@@ -21,6 +20,7 @@ pub struct ShellPlugin;
 impl Plugin for ShellPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Tabs>();
+        app.init_resource::<StatusMessage>();
         app.add_systems(Startup, (spawn_shell, apply_startup_fx).chain());
         app.add_systems(
             Update,
@@ -48,6 +48,13 @@ impl Tabs {
     pub fn active_label(&self) -> &str {
         self.labels.get(self.active).map_or("", String::as_str)
     }
+
+    pub fn rotate(&mut self, delta: isize) {
+        let len = self.labels.len() as isize;
+        if len > 0 {
+            self.active = (self.active as isize + delta).rem_euclid(len) as usize;
+        }
+    }
 }
 
 #[derive(Component)]
@@ -62,6 +69,8 @@ pub struct Statusline;
 #[derive(Clone, Default)]
 struct StatuslineState {
     left: String,
+    center: String,
+    center_style: Style,
     right: String,
     style: Style,
 }
@@ -71,7 +80,6 @@ fn spawn_shell(mut commands: Commands) {
         TabBar,
         Widget::from_widget(Paragraph::new("")),
         WidgetLayout::from(layout::tab_bar_layout()),
-        quit_actions(),
     ));
     commands.spawn((
         ContentPane,
@@ -100,22 +108,6 @@ fn apply_startup_fx(
     }
 }
 
-fn quit_actions() -> UiActions {
-    UiActions::new(vec![
-        UiInputBinding::key_binding(KeyBinding::press(KeyCode::Char('q')), handle_quit).global(),
-        UiInputBinding::key_binding(
-            KeyBinding::press(KeyCode::Char('c')).with_modifiers(KeyModifiers::CONTROL),
-            handle_quit,
-        )
-        .global(),
-    ])
-}
-
-fn handle_quit(world: &mut World, _entity: Entity, _event: UiEvent) -> Result {
-    world.write_message(AppExit::Success);
-    Ok(())
-}
-
 fn refresh_tab_bar(
     theme: Res<Theme>,
     tabs: Res<Tabs>,
@@ -141,19 +133,42 @@ fn refresh_content(theme: Res<Theme>, mut widgets: Query<&mut Widget, With<Conte
 fn refresh_statusline(
     theme: Res<Theme>,
     tabs: Res<Tabs>,
+    pending: Res<PendingKeys>,
+    status: Res<StatusMessage>,
     mut widgets: Query<&mut Widget, With<Statusline>>,
 ) -> Result {
-    if !theme.is_changed() && !tabs.is_changed() {
+    let changed =
+        theme.is_changed() || tabs.is_changed() || pending.is_changed() || status.is_changed();
+    if !changed {
         return Ok(());
     }
+    let (center, center_style) = center_segment(&pending, &status, &theme);
     for mut widget in &mut widgets {
         widget.set_state(StatuslineState {
             left: tabs.active_label().to_owned(),
+            center: center.clone(),
+            center_style,
             right: format!("nitidus v{}", env!("CARGO_PKG_VERSION")),
             style: theme.paper.default.normal.style(),
         })?;
     }
     Ok(())
+}
+
+fn center_segment(pending: &PendingKeys, status: &StatusMessage, theme: &Theme) -> (String, Style) {
+    if let Some((text, severity)) = status.current() {
+        let palette = &theme.paper;
+        let style = match severity {
+            Severity::Info => palette.info.normal.style(),
+            Severity::Warning => palette.warning.normal.style(),
+            Severity::Error => palette.error.normal.style(),
+        };
+        return (text.to_owned(), style);
+    }
+    if let Some(hint) = pending.hint() {
+        return (hint, theme.paper.default.focused.style());
+    }
+    (String::new(), theme.paper.default.normal.style())
 }
 
 fn tab_bar_paragraph(tabs: &Tabs, theme: &Theme) -> Paragraph<'static> {
@@ -179,18 +194,26 @@ fn render_statusline(
     area: ratatui::layout::Rect,
     state: &mut StatuslineState,
 ) -> Result {
-    let text = statusline_text(&state.left, &state.right, area.width);
-    frame.render_widget(Paragraph::new(text).style(state.style), area);
+    frame.render_widget(Paragraph::new(statusline_line(state, area.width)), area);
     Ok(())
 }
 
-fn statusline_text(left: &str, right: &str, width: u16) -> String {
+fn statusline_line(state: &StatuslineState, width: u16) -> Line<'static> {
     let width = usize::from(width);
-    let used = left.chars().count() + right.chars().count();
-    if used >= width {
-        return format!("{left} {right}");
-    }
-    format!("{left}{}{right}", " ".repeat(width - used))
+    let used = [&state.left, &state.center, &state.right]
+        .iter()
+        .map(|s| s.chars().count())
+        .sum::<usize>();
+    let remaining = width.saturating_sub(used).max(2);
+    let pad_left = remaining / 2;
+    let pad_right = remaining - pad_left;
+    Line::from(vec![
+        Span::styled(state.left.clone(), state.style),
+        Span::styled(" ".repeat(pad_left), state.style),
+        Span::styled(state.center.clone(), state.center_style),
+        Span::styled(" ".repeat(pad_right), state.style),
+        Span::styled(state.right.clone(), state.style),
+    ])
 }
 
 #[cfg(test)]
@@ -205,6 +228,7 @@ mod tests {
         app.add_plugins(MinimalPlugins);
         app.insert_non_send_resource(TachyonRegistry::default());
         app.insert_resource(tailwind_dark());
+        app.init_resource::<PendingKeys>();
         app.add_plugins(ShellPlugin);
         app
     }
@@ -236,15 +260,32 @@ mod tests {
     }
 
     #[test]
-    fn statusline_text_pads_between_segments() {
-        assert_eq!(statusline_text("mail", "v1", 10), "mail    v1");
-        assert_eq!(statusline_text("mail", "v1", 4), "mail v1");
+    fn statusline_line_pads_between_segments() {
+        let state = StatuslineState {
+            left: "mail".to_owned(),
+            center: "gg".to_owned(),
+            right: "v1".to_owned(),
+            ..StatuslineState::default()
+        };
+        let line = statusline_line(&state, 20);
+        let text: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
+        assert_eq!(text.chars().count(), 20);
+        assert!(text.starts_with("mail"));
+        assert!(text.ends_with("v1"));
+        assert!(text.contains("gg"));
     }
 
     #[test]
-    fn default_tabs_has_one_active_mail_tab() {
-        let tabs = Tabs::default();
-        assert_eq!(tabs.active_label(), "mail");
-        assert_eq!(tabs.labels.len(), 1);
+    fn tabs_rotate_wraps_both_directions() {
+        let mut tabs = Tabs {
+            labels: vec!["a".to_owned(), "b".to_owned(), "c".to_owned()],
+            active: 0,
+        };
+        tabs.rotate(1);
+        assert_eq!(tabs.active, 1);
+        tabs.rotate(-2);
+        assert_eq!(tabs.active, 2);
+        tabs.rotate(1);
+        assert_eq!(tabs.active, 0);
     }
 }

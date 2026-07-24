@@ -9,12 +9,15 @@ use bevy_ratatui::RatatuiPlugins;
 use nitidus_ui_kit::theme;
 use plurimus::PlurimusPlugin;
 
+use crate::cmdline::CommandLinePlugin;
 use crate::config::LoadedConfig;
+use crate::keymap::Keymaps;
+use crate::router::RouterPlugin;
 use crate::shell::ShellPlugin;
 
 const FRAMES_PER_SECOND: f64 = 30.0;
 
-pub fn build_app(loaded: LoadedConfig) -> App {
+pub fn build_app(loaded: LoadedConfig, keymaps: Keymaps) -> App {
     let mut app = App::new();
     app.add_plugins((
         MinimalPlugins.set(ScheduleRunnerPlugin::run_loop(Duration::from_secs_f64(
@@ -31,8 +34,8 @@ pub fn build_app(loaded: LoadedConfig) -> App {
     app.insert_resource(Time::<Fixed>::from_seconds(1.0 / FRAMES_PER_SECOND));
     app.insert_resource(select_theme(&loaded.config.ui.theme));
     app.insert_resource(loaded.config);
-    app.insert_resource(loaded.keymaps);
-    app.add_plugins(ShellPlugin);
+    app.insert_resource(keymaps);
+    app.add_plugins((ShellPlugin, RouterPlugin, CommandLinePlugin));
     app
 }
 

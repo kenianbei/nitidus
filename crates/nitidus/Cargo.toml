@@ -13,6 +13,7 @@ bevy_ratatui.workspace = true
 crokey.workspace = true
 etcetera.workspace = true
 nitidus-ui-kit.workspace = true
+nucleo-matcher.workspace = true
 plurimus.workspace = true
 ratatui.workspace = true
 serde.workspace = true

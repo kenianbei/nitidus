@@ -85,12 +85,21 @@ fn normalize_token(token: &str) -> String {
 }
 
 fn normalize_key_name(name: &str) -> String {
-    match name {
-        "PgUp" => "pageup".to_owned(),
-        "PgDn" => "pagedown".to_owned(),
-        "Del" => "delete".to_owned(),
-        other if other.chars().count() > 1 => other.to_ascii_lowercase(),
-        other => other.to_owned(),
+    let mut chars = name.chars();
+    match (chars.next(), chars.next()) {
+        // crokey's parser lowercases its input, so an uppercase letter
+        // must be spelled shift-<lower> to match the shift-normalized
+        // combination crossterm delivers for a typed capital.
+        (Some(c), None) if c.is_ascii_uppercase() => {
+            format!("shift-{}", c.to_ascii_lowercase())
+        }
+        _ => match name {
+            "PgUp" => "pageup".to_owned(),
+            "PgDn" => "pagedown".to_owned(),
+            "Del" => "delete".to_owned(),
+            other if other.chars().count() > 1 => other.to_ascii_lowercase(),
+            other => other.to_owned(),
+        },
     }
 }
 
@@ -114,6 +123,14 @@ mod tests {
         assert_eq!(parse_key_sequence("<C-S-Tab>").unwrap().len(), 1);
         assert_eq!(parse_key_sequence("g<Tab>").unwrap().len(), 2);
         assert_eq!(parse_key_sequence("<PgUp>").unwrap().len(), 1);
+    }
+
+    #[test]
+    fn uppercase_letters_match_shifted_key_events() {
+        use bevy_ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+        let parsed = parse_key_sequence("Z").unwrap();
+        let typed = KeyCombination::from(KeyEvent::new(KeyCode::Char('Z'), KeyModifiers::SHIFT));
+        assert_eq!(parsed, vec![typed]);
     }
 
     #[test]
