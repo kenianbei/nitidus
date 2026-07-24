@@ -40,16 +40,34 @@ impl RowStyles {
     }
 }
 
-pub fn build_row(envelope: &EnvelopeSummary, selected: bool, now: &Zoned) -> IndexRow {
+pub(super) fn build_row(
+    envelope: &EnvelopeSummary,
+    entry: &super::thread_view::OrderEntry,
+    selected: bool,
+    now: &Zoned,
+) -> IndexRow {
     IndexRow {
         flag_cell: flag_cell(envelope.flags),
         date: format_date(envelope.date_epoch_secs, now),
         from: envelope.from_display.clone(),
-        subject: envelope.subject.clone(),
+        subject: threaded_subject(&envelope.subject, entry.depth, entry.collapsed_children),
         unseen: !envelope.flags.contains(Flags::SEEN),
         deleted: envelope.flags.contains(Flags::DELETED),
         selected,
     }
+}
+
+/// `↳ ` marks replies (indented two spaces per extra level); collapsed
+/// roots carry their hidden-descendant count.
+fn threaded_subject(subject: &str, depth: u8, collapsed_children: u32) -> String {
+    if collapsed_children > 0 {
+        return format!("[+{collapsed_children}] {subject}");
+    }
+    if depth == 0 {
+        return subject.to_owned();
+    }
+    let indent = "  ".repeat(usize::from(depth) - 1);
+    format!("{indent}↳ {subject}")
 }
 
 pub fn flag_cell(flags: Flags) -> String {

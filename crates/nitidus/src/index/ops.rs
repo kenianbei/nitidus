@@ -6,36 +6,119 @@ use nitidus_mail::{AccountId, EnvelopeId, Flags, FolderId, MailCommand};
 use plurimus::Widget;
 
 use super::{IndexOrder, IndexView, IndexWidget, IndexWindowState, SortMode, current_envelopes, view};
-use crate::action::{FlagOp, Motion};
+use crate::action::{FlagOp, FoldOp, Motion};
 use crate::engine::EngineResource;
 use crate::status::StatusMessage;
-use crate::store::MailStore;
+use crate::store::{MailStore, ThreadSet};
 
 /// Page size when nothing has rendered yet (headless tests, first frame).
 const FALLBACK_PAGE_ROWS: usize = 10;
 
 pub fn move_cursor(world: &mut World, motion: Motion) {
+    if matches!(motion, Motion::Parent) {
+        return move_to_parent(world);
+    }
     let page = viewport_rows(world).saturating_sub(1).max(1);
     let new_id = {
         let index_view = world.resource::<IndexView>();
         let store = world.resource::<MailStore>();
-        let order = &world.resource::<IndexOrder>().order;
+        let entries = &world.resource::<IndexOrder>().entries;
         let envelopes = current_envelopes(store, index_view);
-        let Some(row) = view::resolve_selection(index_view, envelopes, order) else {
+        let Some(row) = view::resolve_selection(index_view, envelopes, entries) else {
             return;
         };
-        let new_row = view::apply_motion(row, order.len(), page, motion);
-        order
+        let new_row = view::apply_motion(row, entries.len(), page, motion);
+        entries
             .get(new_row)
-            .map(|&index| envelopes[index as usize].id.clone())
+            .map(|entry| envelopes[entry.index as usize].id.clone())
     };
     if new_id.is_some() {
         world.resource_mut::<IndexView>().selected = new_id;
     }
 }
 
+fn move_to_parent(world: &mut World) {
+    let parent = {
+        let index_view = world.resource::<IndexView>();
+        let threads = world.resource::<ThreadSet>();
+        let (Some(account), Some(selected)) = (&index_view.account, &index_view.selected) else {
+            return;
+        };
+        threads
+            .rows(account, &index_view.folder)
+            .and_then(|rows| rows.iter().find(|row| &row.id == selected))
+            .and_then(|row| row.parent.clone())
+    };
+    if parent.is_some() {
+        world.resource_mut::<IndexView>().selected = parent;
+    }
+}
+
 pub fn set_sort(world: &mut World, mode: SortMode) {
     world.resource_mut::<IndexView>().sort = mode;
+}
+
+pub fn toggle_threads(world: &mut World) {
+    let mut index_view = world.resource_mut::<IndexView>();
+    index_view.threaded = !index_view.threaded;
+    index_view.fold_epoch += 1;
+}
+
+pub fn fold(world: &mut World, op: FoldOp) {
+    match op {
+        FoldOp::Toggle => toggle_selected_fold(world),
+        FoldOp::CollapseAll => set_all_folds(world, true),
+        FoldOp::ExpandAll => set_all_folds(world, false),
+    }
+}
+
+/// Collapsing keeps the cursor meaningful by moving it to the root the
+/// selection just disappeared into.
+fn toggle_selected_fold(world: &mut World) {
+    let root = {
+        let index_view = world.resource::<IndexView>();
+        let threads = world.resource::<ThreadSet>();
+        let (Some(account), Some(selected)) = (&index_view.account, &index_view.selected) else {
+            return;
+        };
+        threads
+            .rows(account, &index_view.folder)
+            .and_then(|rows| rows.iter().find(|row| &row.id == selected))
+            .map(|row| row.root.clone())
+    };
+    let Some(root) = root else { return };
+    let mut index_view = world.resource_mut::<IndexView>();
+    if !index_view.collapsed.remove(&root) {
+        index_view.collapsed.insert(root.clone());
+        index_view.selected = Some(root);
+    }
+    index_view.fold_epoch += 1;
+}
+
+fn set_all_folds(world: &mut World, collapse: bool) {
+    let roots = {
+        let index_view = world.resource::<IndexView>();
+        let threads = world.resource::<ThreadSet>();
+        let Some(account) = &index_view.account else {
+            return;
+        };
+        if !collapse {
+            Vec::new()
+        } else {
+            threads
+                .rows(account, &index_view.folder)
+                .map(|rows| {
+                    rows.iter()
+                        .filter(|row| row.depth == 0 && row.has_children)
+                        .map(|row| row.root.clone())
+                        .collect()
+                })
+                .unwrap_or_default()
+        }
+    };
+    let mut index_view = world.resource_mut::<IndexView>();
+    index_view.collapsed = roots.into_iter().collect();
+    index_view.fold_epoch += 1;
 }
 
 pub fn flag_selected(world: &mut World, flag: Flags, op: FlagOp) {

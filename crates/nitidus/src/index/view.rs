@@ -54,6 +54,13 @@ pub struct IndexView {
     pub selected_row: usize,
     pub top: usize,
     pub sort: SortMode,
+    pub threaded: bool,
+    /// Collapsed thread roots; keyed by envelope id so folds survive
+    /// re-threads.
+    pub collapsed: std::collections::HashSet<EnvelopeId>,
+    /// Bumped by fold/threading toggles so the order rebuild can react
+    /// without rebuilding on every cursor move.
+    pub fold_epoch: u64,
 }
 
 impl Default for IndexView {
@@ -65,6 +72,9 @@ impl Default for IndexView {
             selected_row: 0,
             top: 0,
             sort: SortMode::default(),
+            threaded: false,
+            collapsed: std::collections::HashSet::new(),
+            fold_epoch: 0,
         }
     }
 }
@@ -95,26 +105,28 @@ pub fn compute_order(envelopes: &[EnvelopeSummary], sort: SortMode) -> Vec<u32> 
     order
 }
 
-/// Follows the selected id into the current order; a vanished id clamps
-/// to the anchored position instead.
-pub fn resolve_selection(
+/// Follows the selected id into the current entry list; a vanished id
+/// clamps to the anchored position instead.
+pub(super) fn resolve_selection(
     view: &IndexView,
     envelopes: &[EnvelopeSummary],
-    order: &[u32],
+    entries: &[super::thread_view::OrderEntry],
 ) -> Option<usize> {
-    if order.is_empty() {
+    if entries.is_empty() {
         return None;
     }
     if let Some(id) = &view.selected
-        && let Some(row) = order
+        && let Some(row) = entries
             .iter()
-            .position(|&index| &envelopes[index as usize].id == id)
+            .position(|entry| &envelopes[entry.index as usize].id == id)
     {
         return Some(row);
     }
-    Some(view.selected_row.min(order.len() - 1))
+    Some(view.selected_row.min(entries.len() - 1))
 }
 
+/// Row arithmetic for uniform motions; `Parent` is thread-structural
+/// and handled by `ops::move_to_parent` before reaching here.
 pub fn apply_motion(row: usize, total: usize, page: usize, motion: Motion) -> usize {
     let last = total.saturating_sub(1);
     match motion {
@@ -124,6 +136,7 @@ pub fn apply_motion(row: usize, total: usize, page: usize, motion: Motion) -> us
         Motion::PrevPage => row.saturating_sub(page),
         Motion::First => 0,
         Motion::Last => last,
+        Motion::Parent => row,
     }
 }
 
@@ -155,6 +168,8 @@ mod tests {
             from_addr: format!("{from}@example.com"),
             date_epoch_secs: date,
             flags,
+            message_id: format!("{id}@example"),
+            references: Vec::new(),
         }
     }
 
@@ -240,26 +255,26 @@ mod tests {
             selected: Some(EnvelopeId::new("oldest")),
             ..IndexView::default()
         };
-        let date_order = compute_order(&envelopes, SortMode::default());
-        assert_eq!(resolve_selection(&view, &envelopes, &date_order), Some(2));
+        let date_entries = crate::index::thread_view::flat_entries(&envelopes, SortMode::default());
+        assert_eq!(resolve_selection(&view, &envelopes, &date_entries), Some(2));
         view.sort = SortMode {
             key: SortKey::Flagged,
             reverse: false,
         };
-        let flag_order = compute_order(&envelopes, view.sort);
-        assert_eq!(resolve_selection(&view, &envelopes, &flag_order), Some(0));
+        let flag_entries = crate::index::thread_view::flat_entries(&envelopes, view.sort);
+        assert_eq!(resolve_selection(&view, &envelopes, &flag_entries), Some(0));
     }
 
     #[test]
     fn vanished_selection_clamps_to_anchor() {
         let envelopes = fixture();
-        let order = compute_order(&envelopes, SortMode::default());
+        let entries = crate::index::thread_view::flat_entries(&envelopes, SortMode::default());
         let view = IndexView {
             selected: Some(EnvelopeId::new("gone")),
             selected_row: 7,
             ..IndexView::default()
         };
-        assert_eq!(resolve_selection(&view, &envelopes, &order), Some(2));
+        assert_eq!(resolve_selection(&view, &envelopes, &entries), Some(2));
         assert_eq!(resolve_selection(&view, &[], &[]), None);
     }
 

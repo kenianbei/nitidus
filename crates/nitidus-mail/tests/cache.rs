@@ -19,6 +19,8 @@ fn envelope(id: &str, date: i64, flags: Flags) -> EnvelopeSummary {
         from_addr: "alice@example.com".to_owned(),
         date_epoch_secs: date,
         flags,
+        message_id: format!("{id}@example"),
+        references: Vec::new(),
     }
 }
 
@@ -161,6 +163,60 @@ fn folder_replacement_drops_removed_folders_and_their_envelopes() {
         .collect();
     assert_eq!(names, vec!["INBOX"]);
     assert!(cache.load_envelopes(&account, &archive).unwrap().is_empty());
+}
+
+#[test]
+fn v1_database_migrates_in_place_preserving_rows() {
+    let tmp = tempfile::tempdir().unwrap();
+    let path = tmp.path().join("mail.db");
+    {
+        let connection = rusqlite::Connection::open(&path).unwrap();
+        connection
+            .execute_batch(
+                "CREATE TABLE folders (
+                     account TEXT NOT NULL, id TEXT NOT NULL, name TEXT NOT NULL,
+                     unread INTEGER NOT NULL, total INTEGER NOT NULL,
+                     PRIMARY KEY (account, id)) STRICT;
+                 CREATE TABLE envelopes (
+                     account TEXT NOT NULL, folder TEXT NOT NULL, id TEXT NOT NULL,
+                     subject TEXT NOT NULL, from_display TEXT NOT NULL,
+                     from_addr TEXT NOT NULL, date_epoch_secs INTEGER NOT NULL,
+                     flags INTEGER NOT NULL, seen_job INTEGER NOT NULL,
+                     PRIMARY KEY (account, folder, id)) STRICT;
+                 CREATE INDEX envelopes_by_folder_date
+                     ON envelopes (account, folder, date_epoch_secs DESC);
+                 INSERT INTO envelopes VALUES
+                     ('local', 'INBOX', 'kept', 'survived', 'A', 'a@x', 42, 1, 1);
+                 PRAGMA user_version = 1;",
+            )
+            .unwrap();
+    }
+
+    let cache = MailCache::open(&path).unwrap();
+    let envelopes = cache
+        .load_envelopes(&AccountId::new("local"), &FolderId::new("INBOX"))
+        .unwrap();
+    assert_eq!(envelopes.len(), 1, "v1 rows must survive the migration");
+    assert_eq!(envelopes[0].subject, "survived");
+    assert_eq!(envelopes[0].message_id, "");
+    assert!(envelopes[0].references.is_empty());
+}
+
+#[test]
+fn references_roundtrip_through_the_cache() {
+    let tmp = tempfile::tempdir().unwrap();
+    let path = tmp.path().join("mail.db");
+    let account = AccountId::new("local");
+    let inbox = FolderId::new("INBOX");
+    let mut reply = envelope("reply", 100, Flags::default());
+    reply.message_id = "reply@x".to_owned();
+    reply.references = vec!["root@x".to_owned(), "mid@x".to_owned()];
+    record_all(&path, &[batch_event(&account, &inbox, 1, vec![reply], true)]);
+
+    let cache = MailCache::open(&path).unwrap();
+    let envelopes = cache.load_envelopes(&account, &inbox).unwrap();
+    assert_eq!(envelopes[0].message_id, "reply@x");
+    assert_eq!(envelopes[0].references, vec!["root@x", "mid@x"]);
 }
 
 #[test]

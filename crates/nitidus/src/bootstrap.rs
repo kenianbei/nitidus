@@ -232,6 +232,8 @@ mod tests {
                 from_addr: String::new(),
                 date_epoch_secs: 42,
                 flags: Flags::default(),
+                message_id: "warm@example".to_owned(),
+                references: Vec::new(),
             }],
             done: true,
         });

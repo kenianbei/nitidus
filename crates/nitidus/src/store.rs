@@ -5,6 +5,7 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 use bevy::prelude::*;
+use nitidus_mail::thread::ThreadRow;
 use nitidus_mail::{AccountId, EnvelopeId, EnvelopeSummary, Flags, FolderId, FolderMeta, JobId};
 
 /// Stamp for warm-loaded rows; any live scan's `done` prunes them.
@@ -68,6 +69,22 @@ impl MailStore {
         }
     }
 
+    pub fn position_of(&self, account: &AccountId, folder: &FolderId, id: &EnvelopeId) -> Option<usize> {
+        self.envelopes
+            .get(&(account.clone(), folder.clone()))?
+            .index
+            .get(id)
+            .copied()
+    }
+
+    /// Bumps only when the id set changes (adds/prunes), never on flag
+    /// edits — the re-thread trigger.
+    pub fn structure_generation(&self, account: &AccountId, folder: &FolderId) -> u64 {
+        self.envelopes
+            .get(&(account.clone(), folder.clone()))
+            .map_or(0, |cached| cached.generation)
+    }
+
     fn entry(&mut self, account: AccountId, folder: FolderId) -> &mut FolderEnvelopes {
         self.envelopes.entry((account, folder)).or_default()
     }
@@ -78,21 +95,31 @@ struct FolderEnvelopes {
     sorted: Vec<EnvelopeSummary>,
     index: HashMap<EnvelopeId, usize>,
     stamps: HashMap<EnvelopeId, JobId>,
+    generation: u64,
 }
 
 impl FolderEnvelopes {
     fn upsert(&mut self, job: JobId, batch: Vec<EnvelopeSummary>, done: bool) {
+        let mut structure_changed = false;
         for envelope in batch {
             self.stamps.insert(envelope.id.clone(), job);
             match self.index.get(&envelope.id) {
                 Some(&position) => self.sorted[position] = envelope,
-                None => self.sorted.push(envelope),
+                None => {
+                    self.sorted.push(envelope);
+                    structure_changed = true;
+                }
             }
         }
         if done {
+            let before = self.sorted.len();
             self.sorted
                 .retain(|envelope| self.stamps.get(&envelope.id) == Some(&job));
             self.stamps.retain(|_, stamp| *stamp == job);
+            structure_changed |= self.sorted.len() != before;
+        }
+        if structure_changed {
+            self.generation += 1;
         }
         self.resort();
     }
@@ -109,6 +136,65 @@ impl FolderEnvelopes {
             .enumerate()
             .map(|(position, envelope)| (envelope.id.clone(), position))
             .collect();
+    }
+}
+
+/// Latest threading result for the viewed folder. Superseded or
+/// out-of-scope jobs are dropped on arrival; rows are keyed to the
+/// store generation they were computed from.
+#[derive(Resource, Default)]
+pub struct ThreadSet {
+    scope: Option<(AccountId, FolderId)>,
+    pending: Option<(JobId, u64)>,
+    rows: Vec<ThreadRow>,
+    for_generation: Option<u64>,
+}
+
+impl ThreadSet {
+    pub fn needs_compute(&self, account: &AccountId, folder: &FolderId, generation: u64) -> bool {
+        if self.scope.as_ref() != Some(&(account.clone(), folder.clone())) {
+            return true;
+        }
+        self.for_generation != Some(generation)
+            && !matches!(self.pending, Some((_, pending_generation)) if pending_generation == generation)
+    }
+
+    pub fn begin(&mut self, account: AccountId, folder: FolderId, job: JobId, generation: u64) {
+        if self.scope.as_ref() != Some(&(account.clone(), folder.clone())) {
+            self.rows.clear();
+            self.for_generation = None;
+        }
+        self.scope = Some((account, folder));
+        self.pending = Some((job, generation));
+    }
+
+    pub fn accept(
+        &mut self,
+        account: &AccountId,
+        folder: &FolderId,
+        job: JobId,
+        rows: Vec<ThreadRow>,
+    ) {
+        let Some((pending_job, pending_generation)) = self.pending else {
+            return;
+        };
+        if pending_job != job || self.scope.as_ref() != Some(&(account.clone(), folder.clone())) {
+            return;
+        }
+        self.rows = rows;
+        self.for_generation = Some(pending_generation);
+        self.pending = None;
+    }
+
+    /// Rows only when a computation for this folder has completed.
+    pub fn rows(&self, account: &AccountId, folder: &FolderId) -> Option<&[ThreadRow]> {
+        if self.scope.as_ref() == Some(&(account.clone(), folder.clone()))
+            && self.for_generation.is_some()
+        {
+            Some(&self.rows)
+        } else {
+            None
+        }
     }
 }
 
@@ -166,6 +252,8 @@ mod tests {
             from_addr: String::new(),
             date_epoch_secs: date,
             flags: Default::default(),
+            message_id: format!("{id}@example"),
+            references: Vec::new(),
         }
     }
 

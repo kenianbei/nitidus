@@ -143,15 +143,17 @@ fn upsert_envelope(
     tx.execute(
         "INSERT INTO envelopes
              (account, folder, id, subject, from_display, from_addr,
-              date_epoch_secs, flags, seen_job)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+              date_epoch_secs, flags, seen_job, message_id, reference_ids)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
          ON CONFLICT (account, folder, id) DO UPDATE SET
              subject = excluded.subject,
              from_display = excluded.from_display,
              from_addr = excluded.from_addr,
              date_epoch_secs = excluded.date_epoch_secs,
              flags = excluded.flags,
-             seen_job = excluded.seen_job",
+             seen_job = excluded.seen_job,
+             message_id = excluded.message_id,
+             reference_ids = excluded.reference_ids",
         (
             account.as_str(),
             folder.as_str(),
@@ -162,6 +164,8 @@ fn upsert_envelope(
             envelope.date_epoch_secs,
             envelope.flags.bits(),
             job.0 as i64,
+            &envelope.message_id,
+            super::join_references(&envelope.references),
         ),
     )?;
     Ok(())

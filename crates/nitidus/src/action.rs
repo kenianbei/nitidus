@@ -24,6 +24,8 @@ pub enum Action {
     Cursor(Motion),
     Sort(SortMode),
     Flag { flag: Flags, op: FlagOp },
+    ToggleThreads,
+    Fold(FoldOp),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -34,6 +36,7 @@ pub enum Motion {
     PrevPage,
     First,
     Last,
+    Parent,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -41,6 +44,13 @@ pub enum FlagOp {
     Set,
     Clear,
     Toggle,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FoldOp {
+    Toggle,
+    CollapseAll,
+    ExpandAll,
 }
 
 struct CommandSpec {
@@ -140,6 +150,31 @@ const COMMANDS: &[CommandSpec] = &[
         aliases: &[],
         parse: |args| no_args("toggle-flag", args, flag_action(Flags::FLAGGED, FlagOp::Toggle)),
     },
+    CommandSpec {
+        name: "threads",
+        aliases: &[],
+        parse: |args| no_args("threads", args, Action::ToggleThreads),
+    },
+    CommandSpec {
+        name: "fold",
+        aliases: &[],
+        parse: |args| no_args("fold", args, Action::Fold(FoldOp::Toggle)),
+    },
+    CommandSpec {
+        name: "fold-all",
+        aliases: &[],
+        parse: |args| no_args("fold-all", args, Action::Fold(FoldOp::CollapseAll)),
+    },
+    CommandSpec {
+        name: "unfold-all",
+        aliases: &[],
+        parse: |args| no_args("unfold-all", args, Action::Fold(FoldOp::ExpandAll)),
+    },
+    CommandSpec {
+        name: "parent",
+        aliases: &[],
+        parse: |args| no_args("parent", args, Action::Cursor(Motion::Parent)),
+    },
 ];
 
 fn flag_action(flag: Flags, op: FlagOp) -> Action {
@@ -204,6 +239,8 @@ pub fn apply_action(world: &mut World, action: &Action) {
         Action::Cursor(motion) => index::move_cursor(world, *motion),
         Action::Sort(mode) => index::set_sort(world, *mode),
         Action::Flag { flag, op } => index::flag_selected(world, *flag, *op),
+        Action::ToggleThreads => index::toggle_threads(world),
+        Action::Fold(op) => index::fold(world, *op),
     }
 }
 

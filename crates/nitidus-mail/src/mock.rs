@@ -53,6 +53,8 @@ impl MockBackend {
     }
 }
 
+/// Every third message replies to its predecessor, so scripted folders
+/// contain small threads for threading tests.
 pub fn generate_envelopes(folder: &FolderId, count: usize) -> Vec<EnvelopeSummary> {
     (0..count)
         .map(|index| EnvelopeSummary {
@@ -62,6 +64,12 @@ pub fn generate_envelopes(folder: &FolderId, count: usize) -> Vec<EnvelopeSummar
             from_addr: "mock@example.com".to_owned(),
             date_epoch_secs: 1_700_000_000 + index as i64,
             flags: Flags::default(),
+            message_id: format!("{folder}-{index}@mock"),
+            references: if index % 3 == 0 {
+                Vec::new()
+            } else {
+                vec![format!("{folder}-{}@mock", index - 1)]
+            },
         })
         .collect()
 }

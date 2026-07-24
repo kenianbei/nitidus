@@ -60,7 +60,8 @@ impl MailCache {
         folder: &FolderId,
     ) -> Result<Vec<EnvelopeSummary>, CacheError> {
         let mut statement = self.connection.prepare(
-            "SELECT id, subject, from_display, from_addr, date_epoch_secs, flags
+            "SELECT id, subject, from_display, from_addr, date_epoch_secs, flags,
+                    message_id, reference_ids
              FROM envelopes WHERE account = ?1 AND folder = ?2
              ORDER BY date_epoch_secs DESC",
         )?;
@@ -72,6 +73,8 @@ impl MailCache {
                 from_addr: row.get(3)?,
                 date_epoch_secs: row.get(4)?,
                 flags: Flags::from_bits(row.get(5)?),
+                message_id: row.get(6)?,
+                references: split_references(&row.get::<_, String>(7)?),
             })
         })?;
         rows.collect::<Result<_, _>>().map_err(Into::into)
@@ -82,4 +85,17 @@ impl MailCache {
     pub fn into_writer(self) -> CacheWriter {
         writer::spawn(self.connection)
     }
+}
+
+/// Message-ids cannot contain newlines, so the reference chain stores
+/// newline-joined.
+pub(crate) fn join_references(references: &[String]) -> String {
+    references.join("\n")
+}
+
+fn split_references(joined: &str) -> Vec<String> {
+    if joined.is_empty() {
+        return Vec::new();
+    }
+    joined.lines().map(str::to_owned).collect()
 }

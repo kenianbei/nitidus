@@ -10,6 +10,7 @@ mod engine;
 mod error;
 mod event;
 pub mod maildir;
+pub mod thread;
 mod types;
 mod watch;
 

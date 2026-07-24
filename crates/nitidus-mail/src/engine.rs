@@ -9,7 +9,7 @@ use crate::backend::MailBackend;
 use crate::command::MailCommand;
 use crate::error::MailError;
 use crate::event::MailEvent;
-use crate::types::{AccountId, JobId};
+use crate::types::{AccountId, FolderId, JobId};
 
 const COMMAND_CHANNEL_CAPACITY: usize = 256;
 const EVENT_CHANNEL_CAPACITY: usize = 1024;
@@ -75,6 +75,32 @@ impl MailEngine {
 
     pub fn next_job(&self) -> JobId {
         JobId(self.next_job.fetch_add(1, Ordering::Relaxed))
+    }
+
+    /// Runs the pure JWZ computation off-thread over a snapshot and
+    /// emits `MailEvent::Threads`. Superseded jobs need no cancellation
+    /// — consumers keep only the newest job's rows.
+    pub fn compute_threads(
+        &self,
+        account: AccountId,
+        folder: FolderId,
+        envelopes: Vec<crate::types::EnvelopeSummary>,
+        job: JobId,
+    ) {
+        let events = self.events_tx.clone();
+        self.runtime.spawn(async move {
+            let rows =
+                tokio::task::spawn_blocking(move || crate::thread::compute_thread_rows(&envelopes))
+                    .await
+                    .unwrap_or_default();
+            let event = MailEvent::Threads {
+                account,
+                folder,
+                job,
+                rows,
+            };
+            let _sent = events.send_async(event).await;
+        });
     }
 
     pub(crate) fn events_sender(&self) -> flume::Sender<MailEvent> {

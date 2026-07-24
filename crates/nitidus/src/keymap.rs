@@ -56,6 +56,11 @@ const DEFAULT_INDEX_BINDINGS: &[(&str, &str)] = &[
     ("G", ":last"),
     ("N", ":toggle-read"),
     ("F", ":toggle-flag"),
+    ("T", ":threads"),
+    ("za", ":fold"),
+    ("zM", ":fold-all"),
+    ("zR", ":unfold-all"),
+    ("P", ":parent"),
 ];
 
 #[derive(Debug, Default)]

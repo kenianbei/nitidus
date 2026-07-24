@@ -1,6 +1,7 @@
 //! Events flow from account actors back to the UI drain.
 
 use crate::error::MailError;
+use crate::thread::ThreadRow;
 use crate::types::{
     AccountId, ConnectionState, EnvelopeId, EnvelopeSummary, FolderId, FolderMeta, JobId,
 };
@@ -39,5 +40,13 @@ pub enum MailEvent {
     FolderChanged {
         account: AccountId,
         folder: FolderId,
+    },
+    /// Result of a `compute_threads` job (or, later, a server THREAD
+    /// response — the event is backend-agnostic).
+    Threads {
+        account: AccountId,
+        folder: FolderId,
+        job: JobId,
+        rows: Vec<ThreadRow>,
     },
 }

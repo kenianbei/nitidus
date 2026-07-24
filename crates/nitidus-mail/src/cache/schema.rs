@@ -34,8 +34,13 @@ CREATE INDEX envelopes_by_folder_date
     ON envelopes (account, folder, date_epoch_secs DESC);
 ";
 
+const SCHEMA_V2_THREADING: &str = "\
+ALTER TABLE envelopes ADD COLUMN message_id TEXT NOT NULL DEFAULT '';
+ALTER TABLE envelopes ADD COLUMN reference_ids TEXT NOT NULL DEFAULT '';
+";
+
 fn migrations() -> Migrations<'static> {
-    Migrations::new(vec![M::up(SCHEMA_V1)])
+    Migrations::new(vec![M::up(SCHEMA_V1), M::up(SCHEMA_V2_THREADING)])
 }
 
 pub fn prepare(connection: &mut Connection) -> Result<(), CacheError> {

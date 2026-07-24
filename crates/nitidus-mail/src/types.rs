@@ -83,6 +83,11 @@ pub struct EnvelopeSummary {
     pub from_addr: String,
     pub date_epoch_secs: i64,
     pub flags: Flags,
+    /// RFC 5322 Message-ID (without angle brackets); empty when absent.
+    pub message_id: String,
+    /// `References` chain oldest-first, with `In-Reply-To` as the sole
+    /// entry when `References` is absent.
+    pub references: Vec<String>,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]

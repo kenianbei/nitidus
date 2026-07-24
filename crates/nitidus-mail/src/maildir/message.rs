@@ -18,7 +18,7 @@ pub fn parse_envelope(path: &Path, in_new: bool) -> Result<EnvelopeSummary, Mail
     let (unique, flags) = split_flags(&file_name);
     let window = read_header_window(path)?;
     let parsed = MessageParser::default().parse(&window);
-    let (subject, from_display, from_addr, date) = match &parsed {
+    let (subject, from_display, from_addr, date, message_id, references) = match &parsed {
         Some(message) => (
             message.subject().unwrap_or("(no subject)").to_owned(),
             message
@@ -34,12 +34,16 @@ pub fn parse_envelope(path: &Path, in_new: bool) -> Result<EnvelopeSummary, Mail
                 .unwrap_or_default()
                 .to_owned(),
             message.date().map(|date| date.to_timestamp()),
+            message.message_id().unwrap_or_default().to_owned(),
+            parse_references(message),
         ),
         None => (
             "(unparseable message)".to_owned(),
             String::new(),
             String::new(),
             None,
+            String::new(),
+            Vec::new(),
         ),
     };
     let date_epoch_secs = date.unwrap_or_else(|| mtime_epoch(path));
@@ -54,7 +58,31 @@ pub fn parse_envelope(path: &Path, in_new: bool) -> Result<EnvelopeSummary, Mail
         } else {
             flags
         },
+        message_id,
+        references,
     })
+}
+
+/// `References` oldest-first; `In-Reply-To` only fills in when the
+/// `References` header is missing entirely.
+fn parse_references(message: &mail_parser::Message) -> Vec<String> {
+    let references: Vec<String> = message
+        .references()
+        .as_text_list()
+        .unwrap_or_default()
+        .iter()
+        .map(|id| id.as_ref().to_owned())
+        .collect();
+    if !references.is_empty() {
+        return references;
+    }
+    message
+        .in_reply_to()
+        .as_text_list()
+        .unwrap_or_default()
+        .iter()
+        .map(|id| id.as_ref().to_owned())
+        .collect()
 }
 
 /// Finds the file for a maildir unique name in `cur/` then `new/`.

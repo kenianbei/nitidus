@@ -11,7 +11,7 @@ use nitidus_mail::{AccountId, ConnectionState, FolderId, MailEngine, MailEvent};
 
 use crate::bootstrap::request_sync;
 use crate::status::StatusMessage;
-use crate::store::{MailStore, SyncTracker};
+use crate::store::{MailStore, SyncTracker, ThreadSet};
 
 const MAX_EVENTS_PER_FRAME: usize = 64;
 
@@ -22,6 +22,7 @@ impl Plugin for EnginePlugin {
         app.init_resource::<EngineStatus>();
         app.init_resource::<MailStore>();
         app.init_resource::<SyncTracker>();
+        app.init_resource::<ThreadSet>();
         app.init_resource::<StartupNotices>();
         app.init_resource::<StatusMessage>();
         app.add_systems(PreUpdate, drain_mail_events);
@@ -68,6 +69,7 @@ struct MailRouting<'w> {
     status: ResMut<'w, EngineStatus>,
     store: ResMut<'w, MailStore>,
     tracker: ResMut<'w, SyncTracker>,
+    threads: ResMut<'w, ThreadSet>,
     messages: ResMut<'w, StatusMessage>,
     time: Res<'w, Time>,
 }
@@ -105,6 +107,12 @@ fn route_event(routing: &mut MailRouting, event: MailEvent) {
             routing.store.apply_batch(&account, &folder, job, batch, done);
         }
         MailEvent::FolderChanged { account, folder } => resync_changed(routing, account, folder),
+        MailEvent::Threads {
+            account,
+            folder,
+            job,
+            rows,
+        } => routing.threads.accept(&account, &folder, job, rows),
         MailEvent::JobFailed {
             account,
             job,

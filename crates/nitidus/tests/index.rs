@@ -8,7 +8,7 @@ use std::path::Path;
 use std::time::Duration;
 
 use bevy::prelude::*;
-use nitidus::action::{Action, FlagOp, Motion, apply_action};
+use nitidus::action::{Action, FlagOp, FoldOp, Motion, apply_action};
 use nitidus::bootstrap::register_accounts;
 use nitidus::config::Config;
 use nitidus::config::account::{AccountConfig, Backend, MaildirBackend};
@@ -28,6 +28,8 @@ fn envelope(id: &str, subject: &str, date: i64) -> EnvelopeSummary {
         from_addr: "alice@example.com".to_owned(),
         date_epoch_secs: date,
         flags: Flags::default(),
+        message_id: format!("{id}@example"),
+        references: Vec::new(),
     }
 }
 
@@ -201,4 +203,74 @@ fn flag_toggle_is_optimistic_and_renames_the_maildir_file() {
         std::thread::sleep(Duration::from_millis(5));
     }
     panic!("maildir file was never renamed with the flag suffix");
+}
+
+fn threaded_fixture() -> Vec<EnvelopeSummary> {
+    let mut root = envelope("root", "the thread root", 100);
+    root.message_id = "r@x".to_owned();
+    let mut reply = envelope("reply", "Re: the thread root", 300);
+    reply.message_id = "re@x".to_owned();
+    reply.references = vec!["r@x".to_owned()];
+    let lone = envelope("lone", "unrelated", 200);
+    vec![root, reply, lone]
+}
+
+fn wait_for(app: &mut App, mut is_done: impl FnMut(&World) -> bool) -> bool {
+    for _ in 0..400 {
+        app.update();
+        if is_done(app.world()) {
+            return true;
+        }
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    false
+}
+
+#[test]
+fn threading_folds_and_parent_jump_work_end_to_end() {
+    let mut app = index_app(account_config("local"), threaded_fixture());
+    app.insert_resource(EngineResource(MailEngine::new(1).unwrap()));
+    app.add_plugins(EnginePlugin);
+    app.update();
+    assert_eq!(selected_id(&app).as_deref(), Some("reply"), "flat date order first");
+    assert_eq!(status(&app).selected, 1);
+
+    apply_action(app.world_mut(), &Action::ToggleThreads);
+    assert!(
+        wait_for(&mut app, |world| {
+            world.resource::<IndexStatus>().selected == 2
+        }),
+        "threaded order never arrived (selection should sit at row 2 of root,reply,lone)"
+    );
+    assert_eq!(selected_id(&app).as_deref(), Some("reply"));
+
+    apply_action(app.world_mut(), &Action::Cursor(Motion::Parent));
+    app.update();
+    assert_eq!(selected_id(&app).as_deref(), Some("root"));
+    assert_eq!(status(&app).selected, 1);
+
+    apply_action(app.world_mut(), &Action::Fold(FoldOp::Toggle));
+    app.update();
+    apply_action(app.world_mut(), &Action::Cursor(Motion::Next));
+    app.update();
+    assert_eq!(
+        selected_id(&app).as_deref(),
+        Some("lone"),
+        "next from a collapsed root must skip its hidden reply"
+    );
+
+    apply_action(app.world_mut(), &Action::Fold(FoldOp::ExpandAll));
+    app.update();
+    apply_action(app.world_mut(), &Action::Cursor(Motion::Prev));
+    app.update();
+    assert_eq!(
+        selected_id(&app).as_deref(),
+        Some("reply"),
+        "expanding must reveal the reply row again"
+    );
+
+    apply_action(app.world_mut(), &Action::ToggleThreads);
+    app.update();
+    assert_eq!(selected_id(&app).as_deref(), Some("reply"));
+    assert_eq!(status(&app).selected, 1, "back to flat date order");
 }

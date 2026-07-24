@@ -229,3 +229,32 @@ fn unknown_account_send_errors() {
         Err(MailError::UnknownAccount(_))
     ));
 }
+
+#[test]
+fn compute_threads_emits_rows_off_thread() {
+    let (engine, account) = engine_with(MockBackend::new());
+    wait_connected(&engine);
+    let envelopes = nitidus_mail::mock::generate_envelopes(&FolderId::new("INBOX"), 6);
+    let job = engine.next_job();
+    engine.compute_threads(
+        account.clone(),
+        FolderId::new("INBOX"),
+        envelopes,
+        job,
+    );
+    match wait_event(&engine) {
+        MailEvent::Threads {
+            account: event_account,
+            job: event_job,
+            rows,
+            ..
+        } => {
+            assert_eq!(event_account, account);
+            assert_eq!(event_job, job);
+            assert_eq!(rows.len(), 6);
+            let max_depth = rows.iter().map(|row| row.depth).max().unwrap();
+            assert_eq!(max_depth, 2, "mock reply chains are three deep");
+        }
+        other => panic!("expected Threads, got {other:?}"),
+    }
+}

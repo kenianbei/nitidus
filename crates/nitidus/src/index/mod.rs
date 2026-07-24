@@ -4,9 +4,10 @@
 
 mod ops;
 mod render;
+mod thread_view;
 mod view;
 
-pub use ops::{flag_selected, move_cursor, set_sort};
+pub use ops::{flag_selected, fold, move_cursor, set_sort, toggle_threads};
 pub use view::{IndexView, SortKey, SortMode};
 
 use bevy::prelude::*;
@@ -19,10 +20,11 @@ use ratatui::text::Line;
 use ratatui::widgets::Paragraph;
 
 use self::render::{IndexRow, RowStyles};
+use self::thread_view::OrderEntry;
 use crate::bootstrap::request_sync;
 use crate::config::Config;
 use crate::engine::EngineResource;
-use crate::store::{MailStore, SyncTracker};
+use crate::store::{MailStore, SyncTracker, ThreadSet};
 
 const STARTUP_FX_MILLIS: u32 = 800;
 /// Rows built beyond the last known viewport, so a taller resize has
@@ -36,8 +38,17 @@ impl Plugin for IndexPlugin {
         app.init_resource::<IndexView>();
         app.init_resource::<IndexOrder>();
         app.init_resource::<IndexStatus>();
+        app.init_resource::<ThreadSet>();
         app.add_systems(Startup, (configure_view, first_view_sync, spawn_index).chain());
-        app.add_systems(Update, (refresh_order, refresh_index).chain());
+        app.add_systems(
+            Update,
+            (
+                thread_view::refresh_threads,
+                thread_view::refresh_order,
+                refresh_index,
+            )
+                .chain(),
+        );
     }
 }
 
@@ -49,12 +60,12 @@ pub struct IndexStatus {
     pub total: usize,
 }
 
-/// Cached display permutation; recomputed when the store or sort mode
-/// changes, not on cursor movement.
+/// Cached display entry list; rebuilt when the store, thread rows, sort
+/// mode, or fold state change — never on cursor movement.
 #[derive(Resource, Default)]
 struct IndexOrder {
-    order: Vec<u32>,
-    for_sort: Option<SortMode>,
+    entries: Vec<OrderEntry>,
+    for_key: Option<(SortMode, bool, u64)>,
 }
 
 #[derive(Component)]
@@ -119,18 +130,6 @@ fn current_envelopes<'a>(
     }
 }
 
-fn refresh_order(
-    store: Res<MailStore>,
-    index_view: Res<IndexView>,
-    mut order: ResMut<IndexOrder>,
-) {
-    if !store.is_changed() && order.for_sort == Some(index_view.sort) {
-        return;
-    }
-    order.order = view::compute_order(current_envelopes(&store, &index_view), index_view.sort);
-    order.for_sort = Some(index_view.sort);
-}
-
 fn refresh_index(
     theme: Res<Theme>,
     store: Res<MailStore>,
@@ -150,12 +149,12 @@ fn refresh_index(
     };
     let last_height = widget.get_state::<IndexWindowState>()?.last_height;
     let viewport = usize::from(last_height).max(1);
-    let selected_row = view::resolve_selection(&index_view, envelopes, &order.order);
+    let selected_row = view::resolve_selection(&index_view, envelopes, &order.entries);
     // Cache writes bypass change detection: they are derived state, and
     // a tracked write here would re-trigger this system every frame.
     let cached = index_view.bypass_change_detection();
-    anchor_selection(cached, envelopes, &order.order, selected_row, viewport);
-    let mut window = build_window_state(&theme, envelopes, &order.order, cached, viewport);
+    anchor_selection(cached, envelopes, &order.entries, selected_row, viewport);
+    let mut window = build_window_state(&theme, envelopes, &order.entries, cached, viewport);
     window.last_height = last_height;
     widget.set_state(window)?;
     let position = IndexStatus {
@@ -171,15 +170,15 @@ fn refresh_index(
 fn anchor_selection(
     index_view: &mut IndexView,
     envelopes: &[EnvelopeSummary],
-    order: &[u32],
+    entries: &[OrderEntry],
     selected_row: Option<usize>,
     viewport: usize,
 ) {
     match selected_row {
         Some(row) => {
-            index_view.selected = order
+            index_view.selected = entries
                 .get(row)
-                .map(|&index| envelopes[index as usize].id.clone());
+                .map(|entry| envelopes[entry.index as usize].id.clone());
             index_view.selected_row = row;
             index_view.top = view::scrolled_top(index_view.top, row, viewport);
         }
@@ -194,7 +193,7 @@ fn anchor_selection(
 fn build_window_state(
     theme: &Theme,
     envelopes: &[EnvelopeSummary],
-    order: &[u32],
+    entries: &[OrderEntry],
     index_view: &IndexView,
     viewport: usize,
 ) -> IndexWindowState {
@@ -206,13 +205,13 @@ fn build_window_state(
         None
     };
     let now = jiff::Zoned::now();
-    let window_end = (index_view.top + viewport.max(MIN_WINDOW_ROWS)).min(order.len());
-    let rows = order[index_view.top..window_end]
+    let window_end = (index_view.top + viewport.max(MIN_WINDOW_ROWS)).min(entries.len());
+    let rows = entries[index_view.top..window_end]
         .iter()
         .enumerate()
-        .map(|(offset, &index)| {
+        .map(|(offset, entry)| {
             let selected = index_view.top + offset == index_view.selected_row;
-            render::build_row(&envelopes[index as usize], selected, &now)
+            render::build_row(&envelopes[entry.index as usize], entry, selected, &now)
         })
         .collect();
     IndexWindowState {
