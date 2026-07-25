@@ -19,6 +19,18 @@ pub enum MailCommand {
         id: EnvelopeId,
         flags: Flags,
     },
+    /// Folder ops reply with a refreshed `Folders` event on success and
+    /// `JobFailed` on error; `name` values are display paths.
+    CreateFolder {
+        name: String,
+    },
+    DeleteFolder {
+        folder: FolderId,
+    },
+    RenameFolder {
+        folder: FolderId,
+        new_name: String,
+    },
     Cancel(JobId),
     Shutdown,
 }

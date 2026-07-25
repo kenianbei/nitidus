@@ -146,6 +146,9 @@ fn refresh_statusline(
 
 fn left_segment(tabs: &Tabs, engine_status: &EngineStatus, index_status: &IndexStatus) -> String {
     let mut segment = tabs.active_label().to_owned();
+    if !index_status.folder.is_empty() {
+        segment = format!("{segment} ⋅ {}", index_status.folder);
+    }
     if let Some(summary) = engine_status.summary() {
         segment = format!("{segment} ⋅ {summary}");
     }

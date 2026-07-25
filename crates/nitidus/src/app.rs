@@ -17,6 +17,7 @@ use crate::index::IndexPlugin;
 use crate::keymap::Keymaps;
 use crate::overlay::OverlayPlugin;
 use crate::pager::PagerPlugin;
+use crate::sidebar::SidebarPlugin;
 use crate::router::RouterPlugin;
 use crate::shell::ShellPlugin;
 
@@ -51,6 +52,7 @@ pub fn build_app(loaded: LoadedConfig, keymaps: Keymaps, setup: EngineSetup) -> 
         ShellPlugin,
         IndexPlugin,
         PagerPlugin,
+        SidebarPlugin,
         OverlayPlugin,
         RouterPlugin,
         CommandLinePlugin,

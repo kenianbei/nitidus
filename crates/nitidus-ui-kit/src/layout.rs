@@ -40,6 +40,25 @@ pub fn statusline_layout() -> LayoutFn {
     Arc::new(|area| split_shell(*area).statusline)
 }
 
+/// Left column of the content region for a folder sidebar; clamps so a
+/// narrow terminal always leaves the main column at least half.
+pub fn sidebar_split(area: Rect, sidebar_width: u16) -> (Rect, Rect) {
+    let content = split_shell(area).content;
+    let width = sidebar_width.min(content.width / 2);
+    let [sidebar, main] =
+        Layout::horizontal([Constraint::Length(width), Constraint::Fill(1)]).areas(content);
+    (sidebar, main)
+}
+
+pub fn sidebar_layout(sidebar_width: u16) -> LayoutFn {
+    Arc::new(move |area| sidebar_split(*area, sidebar_width).0)
+}
+
+/// The content region minus the sidebar column.
+pub fn main_layout(sidebar_width: u16) -> LayoutFn {
+    Arc::new(move |area| sidebar_split(*area, sidebar_width).1)
+}
+
 /// Floating rect for modal panels: centered inside the shell's content
 /// region at `width_pct` of its width, up to `max_height` rows.
 pub fn centered_panel(area: Rect, width_pct: u16, max_height: u16) -> Rect {
@@ -109,6 +128,27 @@ mod tests {
         assert!(tiny.width <= 10);
         assert!(tiny.height <= 3, "{tiny:?}");
         assert_eq!(centered_panel_layout(50, 12)(&area), panel);
+    }
+
+    #[test]
+    fn sidebar_split_partitions_the_content_region() {
+        let area = Rect::new(0, 0, 100, 30);
+        let content = split_shell(area).content;
+        let (sidebar, main) = sidebar_split(area, 24);
+        assert_eq!(sidebar.width, 24);
+        assert_eq!(sidebar.x, content.x);
+        assert_eq!(main.x, sidebar.right());
+        assert_eq!(sidebar.width + main.width, content.width);
+        assert_eq!(sidebar.height, content.height);
+        assert_eq!(sidebar_layout(24)(&area), sidebar);
+        assert_eq!(main_layout(24)(&area), main);
+    }
+
+    #[test]
+    fn sidebar_never_takes_more_than_half_a_narrow_terminal() {
+        let (sidebar, main) = sidebar_split(Rect::new(0, 0, 30, 20), 24);
+        assert_eq!(sidebar.width, 15);
+        assert!(main.width >= 15);
     }
 
     #[test]

@@ -2,6 +2,7 @@
 //! `:2,` flag protocol, and message access.
 
 mod backend;
+mod folder_ops;
 pub(crate) mod folders;
 mod message;
 

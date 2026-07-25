@@ -9,7 +9,9 @@ use crokey::{KeyCombination, KeyCombinationFormat};
 use plurimus::{UiActions, UiEvent, UiInputBinding, Widget};
 
 use crate::action::apply_action;
-use crate::keymap::{CONTEXT_INDEX, CONTEXT_PAGER, InputMode, KeymapMatch, Keymaps, Mode};
+use crate::keymap::{
+    CONTEXT_INDEX, CONTEXT_PAGER, CONTEXT_SIDEBAR, InputMode, KeymapMatch, Keymaps, Mode,
+};
 use crate::screen::Screen;
 use crate::status::{StatusMessage, expire_status_messages};
 
@@ -23,6 +25,7 @@ impl Plugin for RouterPlugin {
         app.init_resource::<PendingKeys>();
         app.init_resource::<StatusMessage>();
         app.init_resource::<crate::overlay::ActiveOverlay>();
+        app.init_resource::<crate::sidebar::SidebarState>();
         app.init_resource::<Screen>();
         app.add_systems(Startup, spawn_router);
         app.add_systems(Update, (expire_pending, expire_status_messages));
@@ -86,9 +89,13 @@ pub fn route_key(world: &mut World, _entity: Entity, event: UiEvent) -> Result {
 /// deeper than the last resolution — whole-buffer lookup is incremental.
 fn resolve_now(world: &mut World, now: f64) {
     let outcome = {
-        let context = match world.resource::<Screen>() {
-            Screen::Index => CONTEXT_INDEX,
-            Screen::Pager => CONTEXT_PAGER,
+        let context = if world.resource::<crate::sidebar::SidebarState>().focused {
+            CONTEXT_SIDEBAR
+        } else {
+            match world.resource::<Screen>() {
+                Screen::Index => CONTEXT_INDEX,
+                Screen::Pager => CONTEXT_PAGER,
+            }
         };
         let keymaps = world.resource::<Keymaps>();
         let pending = world.resource::<PendingKeys>();
@@ -178,12 +185,28 @@ mod tests {
     }
 
     #[test]
-    fn tab_binding_rotates_tabs() {
+    fn tab_toggles_sidebar_focus_shadowing_global_tab_next() {
         let mut app = router_app();
         app.world_mut().resource_mut::<Tabs>().labels =
             vec!["mail".to_owned(), "contacts".to_owned()];
         press(&mut app, KeyCode::Tab);
-        assert_eq!(app.world().resource::<Tabs>().active, 1);
+        assert_eq!(
+            app.world().resource::<Tabs>().active,
+            0,
+            "the index-context Tab binding must shadow the global tab-next"
+        );
+        assert!(
+            app.world()
+                .resource::<crate::sidebar::SidebarState>()
+                .focused
+        );
+        press(&mut app, KeyCode::Tab);
+        assert!(
+            !app.world()
+                .resource::<crate::sidebar::SidebarState>()
+                .focused,
+            "Tab in the sidebar context must return focus"
+        );
     }
 
     #[test]

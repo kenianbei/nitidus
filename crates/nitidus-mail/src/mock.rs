@@ -126,4 +126,46 @@ impl crate::backend::MailBackend for MockBackend {
         }
         Ok(())
     }
+
+    async fn create_folder(&mut self, name: &str) -> Result<(), MailError> {
+        let id = FolderId::new(name);
+        if self.folders.iter().any(|meta| meta.id == id) {
+            return Err(MailError::Backend(format!("folder already exists: {name}")));
+        }
+        self.folders.push(FolderMeta {
+            id: id.clone(),
+            name: name.to_owned(),
+            unread: 0,
+            total: 0,
+        });
+        self.envelopes.insert(id, Vec::new());
+        Ok(())
+    }
+
+    async fn delete_folder(&mut self, folder: &FolderId) -> Result<(), MailError> {
+        let is_empty = self.envelopes.get(folder).is_some_and(Vec::is_empty);
+        if !is_empty {
+            return Err(MailError::Backend(format!(
+                "folder missing or not empty, refusing to delete: {folder}"
+            )));
+        }
+        self.folders.retain(|meta| &meta.id != folder);
+        self.envelopes.remove(folder);
+        Ok(())
+    }
+
+    async fn rename_folder(&mut self, folder: &FolderId, new_name: &str) -> Result<(), MailError> {
+        let meta = self
+            .folders
+            .iter_mut()
+            .find(|meta| &meta.id == folder)
+            .ok_or_else(|| MailError::Backend(format!("no such folder: {folder}")))?;
+        let new_id = FolderId::new(new_name);
+        meta.id = new_id.clone();
+        meta.name = new_name.to_owned();
+        if let Some(envelopes) = self.envelopes.remove(folder) {
+            self.envelopes.insert(new_id, envelopes);
+        }
+        Ok(())
+    }
 }

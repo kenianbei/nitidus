@@ -32,4 +32,21 @@ pub trait MailBackend: Send + 'static {
         id: &EnvelopeId,
         flags: Flags,
     ) -> impl Future<Output = Result<(), MailError>> + Send;
+
+    /// `name` is a display path (`Archive/2024`); each backend encodes
+    /// it into its own folder-id scheme.
+    fn create_folder(&mut self, name: &str) -> impl Future<Output = Result<(), MailError>> + Send;
+
+    /// Must refuse non-empty folders and folders with children — the UI
+    /// deliberately has no destructive-delete path.
+    fn delete_folder(
+        &mut self,
+        folder: &FolderId,
+    ) -> impl Future<Output = Result<(), MailError>> + Send;
+
+    fn rename_folder(
+        &mut self,
+        folder: &FolderId,
+        new_name: &str,
+    ) -> impl Future<Output = Result<(), MailError>> + Send;
 }

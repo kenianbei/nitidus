@@ -5,7 +5,9 @@ use bevy::prelude::*;
 use nitidus_mail::{AccountId, EnvelopeId, Flags, FolderId, MailCommand};
 use plurimus::Widget;
 
-use super::{IndexOrder, IndexView, IndexWidget, IndexWindowState, SortMode, current_envelopes, view};
+use super::{
+    IndexOrder, IndexView, IndexWidget, IndexWindowState, SortMode, current_envelopes, view,
+};
 use crate::action::{FlagOp, FoldOp, Motion};
 use crate::engine::EngineResource;
 use crate::status::StatusMessage;

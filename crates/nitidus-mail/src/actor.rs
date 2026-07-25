@@ -60,16 +60,18 @@ async fn handle_command<B: MailBackend>(
     match command {
         MailCommand::Shutdown => return ControlFlow::Break(()),
         MailCommand::Cancel(_) => {}
-        MailCommand::ListFolders => {
-            let result = backend.list_folders().await;
-            let event = match result {
-                Ok(folders) => MailEvent::Folders {
-                    account: account.clone(),
-                    folders,
-                },
-                Err(error) => job_failed(account, None, error),
-            };
-            let _sent = events.send_async(event).await;
+        MailCommand::ListFolders => send_folder_list(account, backend, events).await,
+        MailCommand::CreateFolder { name } => {
+            let result = backend.create_folder(&name).await;
+            reply_folder_op(account, backend, events, result).await;
+        }
+        MailCommand::DeleteFolder { folder } => {
+            let result = backend.delete_folder(&folder).await;
+            reply_folder_op(account, backend, events, result).await;
+        }
+        MailCommand::RenameFolder { folder, new_name } => {
+            let result = backend.rename_folder(&folder, &new_name).await;
+            reply_folder_op(account, backend, events, result).await;
         }
         MailCommand::SyncEnvelopes { folder, job } => {
             return run_scan(account, backend, commands, events, deferred, folder, job).await;
@@ -95,6 +97,37 @@ async fn handle_command<B: MailBackend>(
         }
     }
     ControlFlow::Continue(())
+}
+
+async fn send_folder_list<B: MailBackend>(
+    account: &AccountId,
+    backend: &mut B,
+    events: &flume::Sender<MailEvent>,
+) {
+    let event = match backend.list_folders().await {
+        Ok(folders) => MailEvent::Folders {
+            account: account.clone(),
+            folders,
+        },
+        Err(error) => job_failed(account, None, error),
+    };
+    let _sent = events.send_async(event).await;
+}
+
+/// A successful folder op answers with the refreshed folder list, so
+/// every consumer converges through the one `Folders` event.
+async fn reply_folder_op<B: MailBackend>(
+    account: &AccountId,
+    backend: &mut B,
+    events: &flume::Sender<MailEvent>,
+    result: Result<(), MailError>,
+) {
+    match result {
+        Ok(()) => send_folder_list(account, backend, events).await,
+        Err(error) => {
+            let _sent = events.send_async(job_failed(account, None, error)).await;
+        }
+    }
 }
 
 async fn run_scan<B: MailBackend>(

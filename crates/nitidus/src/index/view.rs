@@ -175,7 +175,13 @@ mod tests {
 
     fn fixture() -> Vec<EnvelopeSummary> {
         vec![
-            envelope("newest", "carol", "beta", 300, Flags::default().with(Flags::SEEN)),
+            envelope(
+                "newest",
+                "carol",
+                "beta",
+                300,
+                Flags::default().with(Flags::SEEN),
+            ),
             envelope("middle", "alice", "alpha", 200, Flags::default()),
             envelope(
                 "oldest",
@@ -198,7 +204,10 @@ mod tests {
     fn date_sort_is_store_order_and_reversible() {
         let envelopes = fixture();
         let date = SortMode::default();
-        assert_eq!(sorted_ids(&envelopes, date), vec!["newest", "middle", "oldest"]);
+        assert_eq!(
+            sorted_ids(&envelopes, date),
+            vec!["newest", "middle", "oldest"]
+        );
         let reversed = SortMode {
             reverse: true,
             ..date

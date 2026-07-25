@@ -162,6 +162,16 @@ fn execute(world: &mut World) {
 }
 
 impl CommandLineState {
+    /// Opens with `text` already typed (plus a trailing space when
+    /// non-empty, so arguments continue straight on).
+    pub fn prefill(&mut self, text: &str) {
+        self.reset_input();
+        if !text.is_empty() {
+            self.buffer = format!("{text} ");
+            self.cursor = self.buffer.chars().count();
+        }
+    }
+
     fn reset_input(&mut self) {
         self.buffer.clear();
         self.cursor = 0;

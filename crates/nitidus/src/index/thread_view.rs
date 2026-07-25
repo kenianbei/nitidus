@@ -295,8 +295,11 @@ mod tests {
     fn vanished_ids_drop_out_of_the_display() {
         let envelopes = fixture();
         let rows = compute_thread_rows(&envelopes);
-        let shrunk: Vec<EnvelopeSummary> =
-            envelopes.iter().filter(|e| e.id.as_str() != "reply").cloned().collect();
+        let shrunk: Vec<EnvelopeSummary> = envelopes
+            .iter()
+            .filter(|e| e.id.as_str() != "reply")
+            .cloned()
+            .collect();
         let entries = threaded_entries(
             &rows,
             &shrunk,

@@ -64,7 +64,7 @@ fn folder_meta(dir: &Path, id: FolderId, name: String) -> FolderMeta {
     }
 }
 
-fn is_maildir(dir: &Path) -> bool {
+pub(super) fn is_maildir(dir: &Path) -> bool {
     dir.is_dir() && dir.join("cur").is_dir() && dir.join("new").is_dir() && dir.join("tmp").is_dir()
 }
 

@@ -121,7 +121,7 @@ impl PagerState {
 }
 
 #[derive(Component)]
-struct PagerWidget;
+pub struct PagerWidget;
 
 fn spawn_pager(mut commands: Commands) {
     commands.spawn((

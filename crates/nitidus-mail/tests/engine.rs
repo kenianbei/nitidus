@@ -236,12 +236,7 @@ fn compute_threads_emits_rows_off_thread() {
     wait_connected(&engine);
     let envelopes = nitidus_mail::mock::generate_envelopes(&FolderId::new("INBOX"), 6);
     let job = engine.next_job();
-    engine.compute_threads(
-        account.clone(),
-        FolderId::new("INBOX"),
-        envelopes,
-        job,
-    );
+    engine.compute_threads(account.clone(), FolderId::new("INBOX"), envelopes, job);
     match wait_event(&engine) {
         MailEvent::Threads {
             account: event_account,
@@ -256,5 +251,86 @@ fn compute_threads_emits_rows_off_thread() {
             assert_eq!(max_depth, 2, "mock reply chains are three deep");
         }
         other => panic!("expected Threads, got {other:?}"),
+    }
+}
+
+fn wait_folders(engine: &MailEngine) -> Vec<nitidus_mail::FolderMeta> {
+    match wait_event(engine) {
+        MailEvent::Folders { folders, .. } => folders,
+        other => panic!("expected Folders, got {other:?}"),
+    }
+}
+
+#[test]
+fn folder_ops_round_trip_with_refreshed_lists() {
+    let (engine, account) = engine_with(MockBackend::new().with_folder("INBOX", 0));
+    wait_connected(&engine);
+
+    engine
+        .send(
+            &account,
+            MailCommand::CreateFolder {
+                name: "Projects".to_owned(),
+            },
+        )
+        .unwrap();
+    let names: Vec<String> = wait_folders(&engine)
+        .into_iter()
+        .map(|meta| meta.name)
+        .collect();
+    assert_eq!(names, vec!["INBOX", "Projects"]);
+
+    engine
+        .send(
+            &account,
+            MailCommand::RenameFolder {
+                folder: FolderId::new("Projects"),
+                new_name: "Archive".to_owned(),
+            },
+        )
+        .unwrap();
+    let names: Vec<String> = wait_folders(&engine)
+        .into_iter()
+        .map(|meta| meta.name)
+        .collect();
+    assert_eq!(names, vec!["INBOX", "Archive"]);
+
+    engine
+        .send(
+            &account,
+            MailCommand::DeleteFolder {
+                folder: FolderId::new("Archive"),
+            },
+        )
+        .unwrap();
+    let names: Vec<String> = wait_folders(&engine)
+        .into_iter()
+        .map(|meta| meta.name)
+        .collect();
+    assert_eq!(names, vec!["INBOX"]);
+}
+
+#[test]
+fn failed_folder_op_reports_job_failed_without_a_job() {
+    let (engine, account) = engine_with(MockBackend::new().with_folder("INBOX", 3));
+    wait_connected(&engine);
+
+    engine
+        .send(
+            &account,
+            MailCommand::DeleteFolder {
+                folder: FolderId::new("INBOX"),
+            },
+        )
+        .unwrap();
+    match wait_event(&engine) {
+        MailEvent::JobFailed { job, error, .. } => {
+            assert_eq!(job, None);
+            assert!(
+                matches!(error, MailError::Backend(_)),
+                "unexpected error kind: {error:?}"
+            );
+        }
+        other => panic!("expected JobFailed, got {other:?}"),
     }
 }

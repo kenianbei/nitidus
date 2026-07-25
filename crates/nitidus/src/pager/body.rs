@@ -212,7 +212,10 @@ mod tests {
         let text = "> a quoted line that is definitely much longer than the wrap width in play";
         let lines = build_body_lines(&part(text, false, false), 30);
         assert!(lines.len() > 1);
-        assert!(lines.iter().all(|line| line.text.starts_with('>')), "{lines:?}");
+        assert!(
+            lines.iter().all(|line| line.text.starts_with('>')),
+            "{lines:?}"
+        );
         assert!(lines.iter().all(|line| line.kind == LineKind::Quote(1)));
     }
 
@@ -222,7 +225,9 @@ mod tests {
         let lines = build_body_lines(&part(text, false, false), 80);
         assert_eq!(lines[0].kind, LineKind::Normal);
         assert!(
-            lines[1..].iter().all(|line| line.kind == LineKind::Signature),
+            lines[1..]
+                .iter()
+                .all(|line| line.kind == LineKind::Signature),
             "{lines:?}"
         );
     }

@@ -28,6 +28,7 @@ pub const CONTEXT_GLOBAL: &str = "global";
 pub const CONTEXT_INDEX: &str = "index";
 pub const CONTEXT_PAGER: &str = "pager";
 pub const CONTEXT_PICKER: &str = "picker";
+pub const CONTEXT_SIDEBAR: &str = "sidebar";
 
 /// Contexts accepted in keys.toml. Screens activate theirs as they land;
 /// binding an inactive context is allowed, a typo is not.
@@ -36,6 +37,7 @@ pub const KNOWN_CONTEXTS: &[&str] = &[
     CONTEXT_INDEX,
     CONTEXT_PAGER,
     CONTEXT_PICKER,
+    CONTEXT_SIDEBAR,
     "compose",
     "contacts",
     "command_line",
@@ -65,6 +67,8 @@ const DEFAULT_INDEX_BINDINGS: &[(&str, &str)] = &[
     ("zR", ":unfold-all"),
     ("P", ":parent"),
     ("<Enter>", ":view"),
+    ("b", ":sidebar"),
+    ("<Tab>", ":sidebar-focus"),
 ];
 
 const DEFAULT_PAGER_BINDINGS: &[(&str, &str)] = &[
@@ -87,6 +91,30 @@ const DEFAULT_PAGER_BINDINGS: &[(&str, &str)] = &[
     ("s", ":save-part"),
     ("o", ":open-part"),
     ("l", ":links"),
+    ("b", ":sidebar"),
+    ("<Tab>", ":sidebar-focus"),
+];
+
+const DEFAULT_SIDEBAR_BINDINGS: &[(&str, &str)] = &[
+    ("j", ":next"),
+    ("k", ":prev"),
+    ("<Down>", ":next"),
+    ("<Up>", ":prev"),
+    ("<PageDown>", ":next-page"),
+    ("<PageUp>", ":prev-page"),
+    ("gg", ":first"),
+    ("G", ":last"),
+    ("P", ":parent"),
+    ("<Enter>", ":view"),
+    ("za", ":fold"),
+    ("zM", ":fold-all"),
+    ("zR", ":unfold-all"),
+    ("b", ":sidebar"),
+    ("<Tab>", ":sidebar-focus"),
+    ("<Esc>", ":sidebar-focus"),
+    ("c", ":command-line folder-create"),
+    ("r", ":command-line folder-rename"),
+    ("D", ":command-line folder-delete"),
 ];
 
 /// Only single-key bindings are meaningful here: the picker resolves
@@ -132,6 +160,9 @@ impl Keymaps {
         }
         for (sequence, command) in DEFAULT_PICKER_BINDINGS {
             keymaps.bind(CONTEXT_PICKER, sequence, command)?;
+        }
+        for (sequence, command) in DEFAULT_SIDEBAR_BINDINGS {
+            keymaps.bind(CONTEXT_SIDEBAR, sequence, command)?;
         }
         for (context, bindings) in &raw.0 {
             if !KNOWN_CONTEXTS.contains(&context.as_str()) {
@@ -252,7 +283,7 @@ mod tests {
         );
         assert_eq!(
             keymaps.lookup(CONTEXT_GLOBAL, &keys(":")),
-            KeymapMatch::Exact(Action::OpenCommandLine)
+            KeymapMatch::Exact(Action::OpenCommandLine(String::new()))
         );
     }
 

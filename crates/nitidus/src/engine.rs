@@ -10,6 +10,7 @@ use nitidus_mail::cache::CacheWriter;
 use nitidus_mail::{AccountId, ConnectionState, FolderId, MailEngine, MailEvent};
 
 use crate::bootstrap::request_sync;
+use crate::index::IndexView;
 use crate::pager::PagerState;
 use crate::screen::Screen;
 use crate::status::StatusMessage;
@@ -26,6 +27,7 @@ impl Plugin for EnginePlugin {
         app.init_resource::<SyncTracker>();
         app.init_resource::<ThreadSet>();
         app.init_resource::<PagerState>();
+        app.init_resource::<IndexView>();
         app.init_resource::<Screen>();
         app.init_resource::<StartupNotices>();
         app.init_resource::<StatusMessage>();
@@ -77,6 +79,7 @@ struct MailRouting<'w> {
     pager: ResMut<'w, PagerState>,
     screen: ResMut<'w, Screen>,
     messages: ResMut<'w, StatusMessage>,
+    index_view: ResMut<'w, IndexView>,
     time: Res<'w, Time>,
 }
 
@@ -99,7 +102,10 @@ fn drain_mail_events(mut routing: MailRouting) {
 fn route_event(routing: &mut MailRouting, event: MailEvent) {
     match event {
         MailEvent::Connection { account, state } => routing.status.set(account, state),
-        MailEvent::Folders { account, folders } => routing.store.set_folders(account, folders),
+        MailEvent::Folders { account, folders } => {
+            reanchor_vanished_view(routing, &account, &folders);
+            routing.store.set_folders(account, folders);
+        }
         MailEvent::EnvelopeBatch {
             account,
             folder,
@@ -110,7 +116,9 @@ fn route_event(routing: &mut MailRouting, event: MailEvent) {
             if done {
                 routing.tracker.finish(&account, &folder, job);
             }
-            routing.store.apply_batch(&account, &folder, job, batch, done);
+            routing
+                .store
+                .apply_batch(&account, &folder, job, batch, done);
         }
         MailEvent::FolderChanged { account, folder } => resync_changed(routing, account, folder),
         MailEvent::Threads {
@@ -143,15 +151,46 @@ fn route_event(routing: &mut MailRouting, event: MailEvent) {
     }
 }
 
+/// A folder list that no longer contains the viewed folder (deleted or
+/// renamed elsewhere) sends the view back to INBOX.
+fn reanchor_vanished_view(
+    routing: &mut MailRouting,
+    account: &AccountId,
+    folders: &[nitidus_mail::FolderMeta],
+) {
+    let index_view = &mut routing.index_view;
+    let is_viewed_account = index_view.account.as_ref() == Some(account);
+    if folders.is_empty()
+        || !is_viewed_account
+        || folders.iter().any(|meta| meta.id == index_view.folder)
+    {
+        return;
+    }
+    index_view.folder = FolderId::new(nitidus_mail::maildir::INBOX);
+    index_view.selected = None;
+    index_view.selected_row = 0;
+    index_view.top = 0;
+    index_view.collapsed.clear();
+    index_view.fold_epoch += 1;
+}
+
 /// Folders never scanned this session stay lazy: their first view will
 /// trigger the scan that also picks up this change.
 fn resync_changed(routing: &mut MailRouting, account: AccountId, folder: FolderId) {
-    if !routing.tracker.is_tracked(&account, &folder) {
-        return;
-    }
     let Some(engine) = routing.engine.as_deref() else {
         return;
     };
+    // Watched changes also refresh the folder list, keeping sidebar
+    // unread snapshots current for folders not synced this session.
+    if let Err(error) = engine
+        .0
+        .send(&account, nitidus_mail::MailCommand::ListFolders)
+    {
+        tracing::warn!("folder-list refresh after change failed: {error}");
+    }
+    if !routing.tracker.is_tracked(&account, &folder) {
+        return;
+    }
     if let Err(error) = request_sync(&engine.0, &mut routing.tracker, &account, &folder) {
         tracing::warn!("re-sync of {folder} after change failed: {error}");
     }
@@ -231,7 +270,11 @@ mod tests {
         let mut app = engine_app(engine, tracker);
         assert!(
             update_until(&mut app, |world| {
-                world.resource::<MailStore>().envelopes(&account, &inbox).len() == 5
+                world
+                    .resource::<MailStore>()
+                    .envelopes(&account, &inbox)
+                    .len()
+                    == 5
             }),
             "store never received the scanned envelopes"
         );
@@ -295,7 +338,11 @@ mod tests {
         let mut app = engine_app(engine, tracker);
         assert!(
             update_until(&mut app, |world| {
-                world.resource::<MailStore>().envelopes(&account, &inbox).len() == 1
+                world
+                    .resource::<MailStore>()
+                    .envelopes(&account, &inbox)
+                    .len()
+                    == 1
             }),
             "initial scan never reached the store"
         );
@@ -303,7 +350,11 @@ mod tests {
         deliver(tmp.path(), "second.host");
         assert!(
             update_until(&mut app, |world| {
-                world.resource::<MailStore>().envelopes(&account, &inbox).len() == 2
+                world
+                    .resource::<MailStore>()
+                    .envelopes(&account, &inbox)
+                    .len()
+                    == 2
             }),
             "external delivery never re-synced into the store"
         );

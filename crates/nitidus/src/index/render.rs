@@ -192,8 +192,14 @@ mod tests {
         let same_year = zoned("2026-02-15T12:00:00+00:00[UTC]");
         let older = zoned("2024-02-15T12:00:00+00:00[UTC]");
         assert_eq!(format_date(same_day.timestamp().as_second(), &now), "09:30");
-        assert_eq!(format_date(same_year.timestamp().as_second(), &now), "Feb 15");
-        assert_eq!(format_date(older.timestamp().as_second(), &now), "2024-02-15");
+        assert_eq!(
+            format_date(same_year.timestamp().as_second(), &now),
+            "Feb 15"
+        );
+        assert_eq!(
+            format_date(older.timestamp().as_second(), &now),
+            "2024-02-15"
+        );
         assert_eq!(format_date(i64::MAX, &now), "");
     }
 

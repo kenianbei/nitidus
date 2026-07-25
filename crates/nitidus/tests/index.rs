@@ -16,9 +16,7 @@ use nitidus::engine::{EnginePlugin, EngineResource};
 use nitidus::index::{IndexPlugin, IndexStatus, IndexView, SortKey, SortMode};
 use nitidus::status::StatusMessage;
 use nitidus::store::{MailStore, SyncTracker};
-use nitidus_mail::{
-    AccountId, EnvelopeId, EnvelopeSummary, Flags, FolderId, JobId, MailEngine,
-};
+use nitidus_mail::{AccountId, EnvelopeId, EnvelopeSummary, Flags, FolderId, JobId, MailEngine};
 
 fn envelope(id: &str, subject: &str, date: i64) -> EnvelopeSummary {
     EnvelopeSummary {
@@ -86,7 +84,14 @@ fn selection_defaults_to_first_and_motions_move_it() {
         envelope("oldest", "three", 100),
     ];
     let mut app = index_app(account_config("local"), envelopes);
-    assert_eq!(status(&app), IndexStatus { selected: 1, total: 3 });
+    assert_eq!(
+        status(&app),
+        IndexStatus {
+            selected: 1,
+            total: 3,
+            folder: "INBOX".to_owned()
+        }
+    );
     assert_eq!(selected_id(&app).as_deref(), Some("newest"));
 
     apply_action(app.world_mut(), &Action::Cursor(Motion::Next));
@@ -139,7 +144,15 @@ fn empty_configurations_report_zero_status() {
     assert_eq!(selected_id(&app), None);
 
     let app = index_app(account_config("local"), Vec::new());
-    assert_eq!(status(&app), IndexStatus::default());
+    assert_eq!(
+        status(&app),
+        IndexStatus {
+            selected: 0,
+            total: 0,
+            folder: "INBOX".to_owned()
+        },
+        "a configured account shows its viewed folder even before folders load"
+    );
 }
 
 fn make_maildir(root: &Path) {
@@ -232,7 +245,11 @@ fn threading_folds_and_parent_jump_work_end_to_end() {
     app.insert_resource(EngineResource(MailEngine::new(1).unwrap()));
     app.add_plugins(EnginePlugin);
     app.update();
-    assert_eq!(selected_id(&app).as_deref(), Some("reply"), "flat date order first");
+    assert_eq!(
+        selected_id(&app).as_deref(),
+        Some("reply"),
+        "flat date order first"
+    );
     assert_eq!(status(&app).selected, 1);
 
     apply_action(app.world_mut(), &Action::ToggleThreads);

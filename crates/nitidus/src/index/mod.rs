@@ -40,7 +40,10 @@ impl Plugin for IndexPlugin {
         app.init_resource::<IndexStatus>();
         app.init_resource::<ThreadSet>();
         app.init_resource::<crate::screen::Screen>();
-        app.add_systems(Startup, (configure_view, first_view_sync, spawn_index).chain());
+        app.add_systems(
+            Startup,
+            (configure_view, first_view_sync, spawn_index).chain(),
+        );
         app.add_systems(
             Update,
             (
@@ -54,11 +57,12 @@ impl Plugin for IndexPlugin {
 }
 
 /// Selected position / folder total for the statusline (1-based; zero
-/// total means hide).
+/// total means hide), plus the viewed folder's display name.
 #[derive(Resource, Clone, Debug, Default, PartialEq, Eq)]
 pub struct IndexStatus {
     pub selected: usize,
     pub total: usize,
+    pub folder: String,
 }
 
 /// Cached display entry list; rebuilt when the store, thread rows, sort
@@ -70,7 +74,7 @@ struct IndexOrder {
 }
 
 #[derive(Component)]
-struct IndexWidget;
+pub struct IndexWidget;
 
 #[derive(Clone, Default)]
 struct IndexWindowState {
@@ -125,10 +129,7 @@ fn spawn_index(mut commands: Commands, mut registry: NonSendMut<TachyonRegistry>
     );
 }
 
-fn current_envelopes<'a>(
-    store: &'a MailStore,
-    index_view: &IndexView,
-) -> &'a [EnvelopeSummary] {
+fn current_envelopes<'a>(store: &'a MailStore, index_view: &IndexView) -> &'a [EnvelopeSummary] {
     match &index_view.account {
         Some(account) => store.envelopes(account, &index_view.folder),
         None => &[],
@@ -170,11 +171,24 @@ fn refresh_index(
     let position = IndexStatus {
         selected: selected_row.map_or(0, |row| row + 1),
         total: envelopes.len(),
+        folder: folder_display_name(&store, cached),
     };
     if *status != position {
         *status = position;
     }
     Ok(())
+}
+
+fn folder_display_name(store: &MailStore, index_view: &IndexView) -> String {
+    let Some(account) = &index_view.account else {
+        return String::new();
+    };
+    store
+        .folders(account)
+        .iter()
+        .find(|meta| meta.id == index_view.folder)
+        .map(|meta| meta.name.clone())
+        .unwrap_or_else(|| index_view.folder.to_string())
 }
 
 fn anchor_selection(
@@ -233,11 +247,7 @@ fn build_window_state(
     }
 }
 
-fn render_index(
-    frame: &mut ratatui::Frame,
-    area: Rect,
-    state: &mut IndexWindowState,
-) -> Result {
+fn render_index(frame: &mut ratatui::Frame, area: Rect, state: &mut IndexWindowState) -> Result {
     state.last_height = area.height;
     if !state.active {
         return Ok(());
@@ -258,4 +268,3 @@ fn render_index(
     frame.render_widget(Paragraph::new(lines).style(state.styles.normal), area);
     Ok(())
 }
-

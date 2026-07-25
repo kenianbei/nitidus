@@ -2,34 +2,46 @@
 //! that parses to an `Action`. Keybindings, the command line, and future
 //! macros all share this one parser.
 
-use anyhow::{Context, bail};
-use bevy::app::AppExit;
-use bevy::prelude::*;
-use nitidus_mail::Flags;
-use nucleo_matcher::pattern::{CaseMatching, Normalization, Pattern};
-use nucleo_matcher::{Config as MatcherConfig, Matcher};
-
+pub use crate::command::{complete_command, parse_command};
 use crate::index::{self, SortMode};
 use crate::keymap::{InputMode, Mode};
 use crate::shell::Tabs;
 use crate::status::StatusMessage;
+use bevy::app::AppExit;
+use bevy::prelude::*;
+use nitidus_mail::Flags;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Action {
     Quit,
-    OpenCommandLine,
+    /// Non-empty text pre-fills the command line (a trailing space is
+    /// appended so arguments type straight in).
+    OpenCommandLine(String),
     TabNext,
     TabPrev,
     Echo(String),
     Cursor(Motion),
     Sort(SortMode),
-    Flag { flag: Flags, op: FlagOp },
+    Flag {
+        flag: Flags,
+        op: FlagOp,
+    },
     ToggleThreads,
     Fold(FoldOp),
     OverlayConfirm,
     OverlayCancel,
     View,
     Pager(PagerOp),
+    Sidebar(SidebarOp),
+    FolderCreate(String),
+    FolderRename(String),
+    FolderDelete,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SidebarOp {
+    ToggleVisible,
+    ToggleFocus,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -71,238 +83,6 @@ pub enum FoldOp {
     ExpandAll,
 }
 
-struct CommandSpec {
-    name: &'static str,
-    aliases: &'static [&'static str],
-    parse: fn(&str) -> anyhow::Result<Action>,
-}
-
-const COMMANDS: &[CommandSpec] = &[
-    CommandSpec {
-        name: "quit",
-        aliases: &["q"],
-        parse: |args| no_args("quit", args, Action::Quit),
-    },
-    CommandSpec {
-        name: "command-line",
-        aliases: &[],
-        parse: |args| no_args("command-line", args, Action::OpenCommandLine),
-    },
-    CommandSpec {
-        name: "tab-next",
-        aliases: &[],
-        parse: |args| no_args("tab-next", args, Action::TabNext),
-    },
-    CommandSpec {
-        name: "tab-prev",
-        aliases: &[],
-        parse: |args| no_args("tab-prev", args, Action::TabPrev),
-    },
-    CommandSpec {
-        name: "echo",
-        aliases: &[],
-        parse: |args| Ok(Action::Echo(args.to_owned())),
-    },
-    CommandSpec {
-        name: "next",
-        aliases: &[],
-        parse: |args| no_args("next", args, Action::Cursor(Motion::Next)),
-    },
-    CommandSpec {
-        name: "prev",
-        aliases: &[],
-        parse: |args| no_args("prev", args, Action::Cursor(Motion::Prev)),
-    },
-    CommandSpec {
-        name: "next-page",
-        aliases: &[],
-        parse: |args| no_args("next-page", args, Action::Cursor(Motion::NextPage)),
-    },
-    CommandSpec {
-        name: "prev-page",
-        aliases: &[],
-        parse: |args| no_args("prev-page", args, Action::Cursor(Motion::PrevPage)),
-    },
-    CommandSpec {
-        name: "first",
-        aliases: &[],
-        parse: |args| no_args("first", args, Action::Cursor(Motion::First)),
-    },
-    CommandSpec {
-        name: "last",
-        aliases: &[],
-        parse: |args| no_args("last", args, Action::Cursor(Motion::Last)),
-    },
-    CommandSpec {
-        name: "sort",
-        aliases: &[],
-        parse: |args| Ok(Action::Sort(SortMode::parse(args)?)),
-    },
-    CommandSpec {
-        name: "read",
-        aliases: &[],
-        parse: |args| no_args("read", args, flag_action(Flags::SEEN, FlagOp::Set)),
-    },
-    CommandSpec {
-        name: "unread",
-        aliases: &[],
-        parse: |args| no_args("unread", args, flag_action(Flags::SEEN, FlagOp::Clear)),
-    },
-    CommandSpec {
-        name: "flag",
-        aliases: &[],
-        parse: |args| no_args("flag", args, flag_action(Flags::FLAGGED, FlagOp::Set)),
-    },
-    CommandSpec {
-        name: "unflag",
-        aliases: &[],
-        parse: |args| no_args("unflag", args, flag_action(Flags::FLAGGED, FlagOp::Clear)),
-    },
-    CommandSpec {
-        name: "toggle-read",
-        aliases: &[],
-        parse: |args| no_args("toggle-read", args, flag_action(Flags::SEEN, FlagOp::Toggle)),
-    },
-    CommandSpec {
-        name: "toggle-flag",
-        aliases: &[],
-        parse: |args| no_args("toggle-flag", args, flag_action(Flags::FLAGGED, FlagOp::Toggle)),
-    },
-    CommandSpec {
-        name: "threads",
-        aliases: &[],
-        parse: |args| no_args("threads", args, Action::ToggleThreads),
-    },
-    CommandSpec {
-        name: "fold",
-        aliases: &[],
-        parse: |args| no_args("fold", args, Action::Fold(FoldOp::Toggle)),
-    },
-    CommandSpec {
-        name: "fold-all",
-        aliases: &[],
-        parse: |args| no_args("fold-all", args, Action::Fold(FoldOp::CollapseAll)),
-    },
-    CommandSpec {
-        name: "unfold-all",
-        aliases: &[],
-        parse: |args| no_args("unfold-all", args, Action::Fold(FoldOp::ExpandAll)),
-    },
-    CommandSpec {
-        name: "parent",
-        aliases: &[],
-        parse: |args| no_args("parent", args, Action::Cursor(Motion::Parent)),
-    },
-    CommandSpec {
-        name: "confirm",
-        aliases: &[],
-        parse: |args| no_args("confirm", args, Action::OverlayConfirm),
-    },
-    CommandSpec {
-        name: "cancel",
-        aliases: &[],
-        parse: |args| no_args("cancel", args, Action::OverlayCancel),
-    },
-    CommandSpec {
-        name: "view",
-        aliases: &[],
-        parse: |args| no_args("view", args, Action::View),
-    },
-    CommandSpec {
-        name: "close",
-        aliases: &[],
-        parse: |args| no_args("close", args, Action::Pager(PagerOp::Close)),
-    },
-    CommandSpec {
-        name: "next-message",
-        aliases: &[],
-        parse: |args| no_args("next-message", args, Action::Pager(PagerOp::NextMessage)),
-    },
-    CommandSpec {
-        name: "prev-message",
-        aliases: &[],
-        parse: |args| no_args("prev-message", args, Action::Pager(PagerOp::PrevMessage)),
-    },
-    CommandSpec {
-        name: "headers",
-        aliases: &[],
-        parse: |args| no_args("headers", args, Action::Pager(PagerOp::ToggleHeaders)),
-    },
-    CommandSpec {
-        name: "skip-quoted",
-        aliases: &[],
-        parse: |args| no_args("skip-quoted", args, Action::Pager(PagerOp::SkipQuoted)),
-    },
-    CommandSpec {
-        name: "next-part",
-        aliases: &[],
-        parse: |args| no_args("next-part", args, Action::Pager(PagerOp::NextPart)),
-    },
-    CommandSpec {
-        name: "prev-part",
-        aliases: &[],
-        parse: |args| no_args("prev-part", args, Action::Pager(PagerOp::PrevPart)),
-    },
-    CommandSpec {
-        name: "save-part",
-        aliases: &[],
-        parse: |args| no_args("save-part", args, Action::Pager(PagerOp::SavePart)),
-    },
-    CommandSpec {
-        name: "open-part",
-        aliases: &[],
-        parse: |args| no_args("open-part", args, Action::Pager(PagerOp::OpenPart)),
-    },
-    CommandSpec {
-        name: "links",
-        aliases: &[],
-        parse: |args| no_args("links", args, Action::Pager(PagerOp::Links)),
-    },
-];
-
-fn flag_action(flag: Flags, op: FlagOp) -> Action {
-    Action::Flag { flag, op }
-}
-
-fn no_args(name: &str, args: &str, action: Action) -> anyhow::Result<Action> {
-    if args.is_empty() {
-        Ok(action)
-    } else {
-        bail!("{name} takes no arguments")
-    }
-}
-
-pub fn parse_command(input: &str) -> anyhow::Result<Action> {
-    let stripped = input.trim();
-    let stripped = stripped.strip_prefix(':').unwrap_or(stripped).trim();
-    if stripped.is_empty() {
-        bail!("empty command");
-    }
-    let (name, args) = match stripped.split_once(char::is_whitespace) {
-        Some((name, args)) => (name, args.trim()),
-        None => (stripped, ""),
-    };
-    let spec = COMMANDS
-        .iter()
-        .find(|spec| spec.name == name || spec.aliases.contains(&name))
-        .ok_or_else(|| anyhow::anyhow!("unknown command: {name:?}"))?;
-    (spec.parse)(args).with_context(|| format!("in command {name:?}"))
-}
-
-/// Fuzzy completion over command names, best match first.
-pub fn complete_command(input: &str) -> Vec<String> {
-    let names = COMMANDS.iter().map(|spec| spec.name);
-    if input.is_empty() {
-        return names.map(str::to_owned).collect();
-    }
-    let mut matcher = Matcher::new(MatcherConfig::DEFAULT);
-    Pattern::parse(input, CaseMatching::Ignore, Normalization::Smart)
-        .match_list(names, &mut matcher)
-        .into_iter()
-        .map(|(name, _)| name.to_owned())
-        .collect()
-}
-
 /// Applies an action immediately. Direct world mutation (rather than a
 /// message hop) keeps mode switches synchronous for burst input.
 pub fn apply_action(world: &mut World, action: &Action) {
@@ -310,7 +90,12 @@ pub fn apply_action(world: &mut World, action: &Action) {
         Action::Quit => {
             world.write_message(AppExit::Success);
         }
-        Action::OpenCommandLine => world.resource_mut::<Mode>().0 = InputMode::CommandLine,
+        Action::OpenCommandLine(prefill) => {
+            world.resource_mut::<Mode>().0 = InputMode::CommandLine;
+            world
+                .resource_mut::<crate::cmdline::CommandLineState>()
+                .prefill(prefill);
+        }
         Action::TabNext => world.resource_mut::<Tabs>().rotate(1),
         Action::TabPrev => world.resource_mut::<Tabs>().rotate(-1),
         Action::Echo(text) => {
@@ -323,22 +108,42 @@ pub fn apply_action(world: &mut World, action: &Action) {
         Action::Sort(mode) => index::set_sort(world, *mode),
         Action::Flag { flag, op } => index::flag_selected(world, *flag, *op),
         Action::ToggleThreads => index::toggle_threads(world),
-        Action::Fold(op) => index::fold(world, *op),
+        Action::Fold(op) => {
+            if crate::sidebar::is_focused(world) {
+                crate::sidebar::fold(world, *op);
+            } else {
+                index::fold(world, *op);
+            }
+        }
         Action::OverlayConfirm => crate::overlay::confirm(world),
         Action::OverlayCancel => crate::overlay::close(world),
-        Action::View => crate::pager::open_selected(world),
+        Action::View => {
+            if crate::sidebar::is_focused(world) {
+                crate::sidebar::select(world);
+            } else {
+                crate::pager::open_selected(world);
+            }
+        }
         Action::Pager(op) => crate::pager::dispatch(world, *op),
+        Action::Sidebar(SidebarOp::ToggleVisible) => crate::sidebar::toggle_visible(world),
+        Action::Sidebar(SidebarOp::ToggleFocus) => crate::sidebar::toggle_focus(world),
+        Action::FolderCreate(name) => crate::sidebar::folder_create(world, name),
+        Action::FolderRename(new_name) => crate::sidebar::folder_rename(world, new_name),
+        Action::FolderDelete => crate::sidebar::folder_delete(world),
     }
 }
 
-/// One motion vocabulary, three surfaces: the open overlay wins, then
-/// the active screen.
+/// One motion vocabulary, four surfaces: the open overlay wins, then
+/// the focused sidebar, then the active screen.
 fn dispatch_motion(world: &mut World, motion: Motion) {
     let overlay_open = world
         .get_resource::<crate::overlay::ActiveOverlay>()
         .is_some_and(crate::overlay::ActiveOverlay::is_open);
     if overlay_open {
         return crate::overlay::move_selection(world, motion);
+    }
+    if crate::sidebar::is_focused(world) {
+        return crate::sidebar::move_cursor(world, motion);
     }
     let screen = world
         .get_resource::<crate::screen::Screen>()
@@ -365,7 +170,7 @@ mod tests {
         assert_eq!(parse_command(":tab-prev").unwrap(), Action::TabPrev);
         assert_eq!(
             parse_command(":command-line").unwrap(),
-            Action::OpenCommandLine
+            Action::OpenCommandLine(String::new())
         );
     }
 
@@ -389,7 +194,10 @@ mod tests {
             parse_command(":prev-page").unwrap(),
             Action::Cursor(Motion::PrevPage)
         );
-        assert_eq!(parse_command(":last").unwrap(), Action::Cursor(Motion::Last));
+        assert_eq!(
+            parse_command(":last").unwrap(),
+            Action::Cursor(Motion::Last)
+        );
         assert_eq!(
             parse_command(":sort from -r").unwrap(),
             Action::Sort(SortMode {
@@ -415,6 +223,41 @@ mod tests {
     }
 
     #[test]
+    fn parses_sidebar_and_folder_commands() {
+        assert_eq!(
+            parse_command(":sidebar").unwrap(),
+            Action::Sidebar(SidebarOp::ToggleVisible)
+        );
+        assert_eq!(
+            parse_command(":sidebar-focus").unwrap(),
+            Action::Sidebar(SidebarOp::ToggleFocus)
+        );
+        assert_eq!(
+            parse_command(":folder-create Archive/2026").unwrap(),
+            Action::FolderCreate("Archive/2026".to_owned())
+        );
+        assert_eq!(
+            parse_command(":folder-rename Notes").unwrap(),
+            Action::FolderRename("Notes".to_owned())
+        );
+        assert_eq!(
+            parse_command(":folder-delete").unwrap(),
+            Action::FolderDelete
+        );
+        assert!(parse_command(":folder-create").is_err(), "name is required");
+        assert!(parse_command(":folder-rename").is_err(), "name is required");
+        assert!(parse_command(":folder-delete extra").is_err());
+    }
+
+    #[test]
+    fn command_line_carries_a_prefill() {
+        assert_eq!(
+            parse_command(":command-line folder-create").unwrap(),
+            Action::OpenCommandLine("folder-create".to_owned())
+        );
+    }
+
+    #[test]
     fn unknown_and_empty_commands_error_with_context() {
         let message = parse_command(":frobnicate").unwrap_err().to_string();
         assert!(message.contains("frobnicate"), "{message}");
@@ -431,7 +274,8 @@ mod tests {
     #[test]
     fn completion_ranks_fuzzy_matches() {
         let all = complete_command("");
-        assert_eq!(all.len(), COMMANDS.len());
+        assert!(all.len() > 30, "all commands list, got {}", all.len());
+        assert!(all.contains(&"folder-create".to_owned()));
         let tab = complete_command("tb");
         assert!(tab.contains(&"tab-next".to_owned()), "{tab:?}");
         assert!(complete_command("zzz").is_empty());

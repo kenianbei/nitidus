@@ -8,7 +8,7 @@ use crate::backend::MailBackend;
 use crate::error::MailError;
 use crate::types::{EnvelopeId, EnvelopeSummary, Flags, FolderId, FolderMeta};
 
-use super::{folders, message};
+use super::{folder_ops, folders, message};
 
 const SCAN_BATCH_SIZE: usize = 500;
 
@@ -82,6 +82,25 @@ impl MailBackend for MaildirBackend {
             Ok(())
         })
         .await
+    }
+
+    async fn create_folder(&mut self, name: &str) -> Result<(), MailError> {
+        let root = self.root.clone();
+        let name = name.to_owned();
+        run_blocking(move || folder_ops::create(&root, &name)).await
+    }
+
+    async fn delete_folder(&mut self, folder: &FolderId) -> Result<(), MailError> {
+        let root = self.root.clone();
+        let folder = folder.clone();
+        run_blocking(move || folder_ops::delete(&root, &folder)).await
+    }
+
+    async fn rename_folder(&mut self, folder: &FolderId, new_name: &str) -> Result<(), MailError> {
+        let root = self.root.clone();
+        let folder = folder.clone();
+        let new_name = new_name.to_owned();
+        run_blocking(move || folder_ops::rename(&root, &folder, &new_name)).await
     }
 }
 
