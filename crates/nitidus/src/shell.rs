@@ -260,6 +260,9 @@ fn left_segment(inputs: &StatuslineInputs<'_>) -> String {
     if !index_status.folder.is_empty() {
         segment = format!("{segment} ⋅ {}", index_status.folder);
     }
+    if !index_status.limits.is_empty() {
+        segment = format!("{segment} ⋅ limit: {}", index_status.limits);
+    }
     if let Some(summary) = engine_status.summary() {
         segment = format!("{segment} ⋅ {summary}");
     }
@@ -268,6 +271,9 @@ fn left_segment(inputs: &StatuslineInputs<'_>) -> String {
             "{segment} ⋅ {}/{}",
             index_status.selected, index_status.total
         );
+        if !index_status.limits.is_empty() {
+            segment = format!("{segment} ({})", index_status.folder_total);
+        }
     }
     segment
 }

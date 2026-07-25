@@ -16,7 +16,7 @@ pub(super) const DEFAULT_INDEX_BINDINGS: &[(&str, &str)] = &[
     ("<PageUp>", ":prev-page"),
     ("gg", ":first"),
     ("G", ":last"),
-    ("N", ":toggle-read"),
+    ("u", ":toggle-read"),
     ("F", ":toggle-flag"),
     ("T", ":threads"),
     ("za", ":fold"),
@@ -35,6 +35,10 @@ pub(super) const DEFAULT_INDEX_BINDINGS: &[(&str, &str)] = &[
     ("e", ":recall"),
     ("d", ":delete"),
     ("A", ":add-contact"),
+    ("l", ":command-line limit"),
+    ("/", ":search"),
+    ("n", ":search-next"),
+    ("N", ":search-prev"),
 ];
 
 pub(super) const DEFAULT_PAGER_BINDINGS: &[(&str, &str)] = &[

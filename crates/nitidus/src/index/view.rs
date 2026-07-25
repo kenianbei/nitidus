@@ -61,6 +61,13 @@ pub struct IndexView {
     /// Bumped by fold/threading toggles so the order rebuild can react
     /// without rebuilding on every cursor move.
     pub fold_epoch: u64,
+    /// Active `:limit` stack, lowercased; rows must match every entry.
+    pub limits: Vec<String>,
+    /// The live or accepted search query (lowercased) — drives the
+    /// match highlight and `n`/`N` repeats.
+    pub search: Option<String>,
+    /// Bumped whenever limits change, keying the order rebuild.
+    pub filter_epoch: u64,
 }
 
 impl Default for IndexView {
@@ -75,6 +82,9 @@ impl Default for IndexView {
             threaded: false,
             collapsed: std::collections::HashSet::new(),
             fold_epoch: 0,
+            limits: Vec::new(),
+            search: None,
+            filter_epoch: 0,
         }
     }
 }

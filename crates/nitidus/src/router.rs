@@ -83,6 +83,9 @@ pub fn route_key(world: &mut World, _entity: Entity, event: UiEvent) -> Result {
     if world.resource::<Mode>().0 == InputMode::Prompt {
         return crate::prompt::handle_key(world, key);
     }
+    if world.resource::<Mode>().0 == InputMode::Search {
+        return crate::index::search::handle_key(world, key);
+    }
     if world.resource::<crate::overlay::ActiveOverlay>().is_open() {
         return crate::overlay::handle_key(world, key);
     }

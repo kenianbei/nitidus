@@ -99,6 +99,36 @@ pub(super) const COMMANDS: &[CommandSpec] = &[
         parse: |args| Ok(Action::ExportContacts(optional_arg(args))),
     },
     CommandSpec {
+        name: "limit",
+        summary: "narrow the index to rows matching the text (stacks)",
+        aliases: &[],
+        parse: |args| named_arg("limit", args, Action::Limit(args.to_owned())),
+    },
+    CommandSpec {
+        name: "clear",
+        summary: "drop all limits and the search highlight",
+        aliases: &[],
+        parse: |args| no_args("clear", args, Action::ClearFilters),
+    },
+    CommandSpec {
+        name: "search",
+        summary: "incremental search over the index",
+        aliases: &[],
+        parse: |args| no_args("search", args, Action::SearchStart),
+    },
+    CommandSpec {
+        name: "search-next",
+        summary: "jump to the next search match",
+        aliases: &[],
+        parse: |args| no_args("search-next", args, Action::SearchNext),
+    },
+    CommandSpec {
+        name: "search-prev",
+        summary: "jump to the previous search match",
+        aliases: &[],
+        parse: |args| no_args("search-prev", args, Action::SearchPrev),
+    },
+    CommandSpec {
         name: "add-contact",
         summary: "add the selected message's sender to the contact book",
         aliases: &[],

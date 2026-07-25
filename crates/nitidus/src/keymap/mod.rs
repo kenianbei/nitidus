@@ -28,6 +28,7 @@ pub enum InputMode {
     Normal,
     CommandLine,
     Prompt,
+    Search,
 }
 
 /// The active input mode. A plain resource (not bevy `States`) so mode

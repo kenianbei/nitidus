@@ -28,6 +28,7 @@ pub struct IndexRow {
 pub struct RowStyles {
     pub normal: Style,
     pub selected: Style,
+    pub highlight: Style,
 }
 
 impl RowStyles {
@@ -36,6 +37,12 @@ impl RowStyles {
         Self {
             normal: states.normal.style(),
             selected: states.selected.style(),
+            highlight: theme
+                .base
+                .warning
+                .normal
+                .style()
+                .add_modifier(Modifier::BOLD),
         }
     }
 }
@@ -106,7 +113,12 @@ pub fn format_date(epoch_secs: i64, now: &Zoned) -> String {
     jiff::fmt::strtime::format(pattern, &zoned).unwrap_or_default()
 }
 
-pub fn row_line(row: &IndexRow, width: u16, styles: &RowStyles) -> Line<'static> {
+pub fn row_line(
+    row: &IndexRow,
+    width: u16,
+    styles: &RowStyles,
+    query: Option<&str>,
+) -> Line<'static> {
     let style = row_style(row, styles);
     let width = usize::from(width);
     let from_width = ((width * FROM_PERCENT) / 100).min(FROM_MAX);
@@ -118,7 +130,19 @@ pub fn row_line(row: &IndexRow, width: u16, styles: &RowStyles) -> Line<'static>
         fit(&row.from, from_width),
         fit(&row.subject, subject_width),
     );
-    Line::from(Span::styled(fit(&text, width), style))
+    let fitted = fit(&text, width);
+    // Highlight the first match in the rendered line — truncated-away
+    // matches simply do not light up.
+    if let Some(query) = query
+        && let Some((start, end)) = super::filter::match_range(&fitted, query)
+    {
+        return Line::from(vec![
+            Span::styled(fitted[..start].to_owned(), style),
+            Span::styled(fitted[start..end].to_owned(), style.patch(styles.highlight)),
+            Span::styled(fitted[end..].to_owned(), style),
+        ]);
+    }
+    Line::from(Span::styled(fitted, style))
 }
 
 fn row_style(row: &IndexRow, styles: &RowStyles) -> Style {
@@ -154,6 +178,37 @@ fn fit(text: &str, width: usize) -> String {
     let mut truncated: String = text.chars().take(width - 1).collect();
     truncated.push(ELLIPSIS);
     truncated
+}
+
+#[cfg(test)]
+mod tests_highlight {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
+
+    use super::*;
+
+    #[test]
+    fn matching_query_splits_the_row_into_highlight_spans() {
+        let row = IndexRow {
+            flag_cell: String::new(),
+            date: "Jul 25".to_owned(),
+            from: "Ada".to_owned(),
+            subject: "quarterly report".to_owned(),
+            unseen: false,
+            deleted: false,
+            selected: false,
+        };
+        let styles = RowStyles {
+            highlight: Style::default().add_modifier(Modifier::BOLD),
+            ..RowStyles::default()
+        };
+        let line = row_line(&row, 60, &styles, Some("report"));
+        assert_eq!(line.spans.len(), 3, "prefix, match, suffix");
+        assert_eq!(line.spans[1].content.as_ref(), "report");
+        assert!(line.spans[1].style.add_modifier.contains(Modifier::BOLD));
+
+        let unmatched = row_line(&row, 60, &styles, Some("nowhere"));
+        assert_eq!(unmatched.spans.len(), 1);
+    }
 }
 
 #[cfg(test)]
@@ -220,7 +275,7 @@ mod tests {
             subject: "a very long subject line that will not fit".to_owned(),
             ..IndexRow::default()
         };
-        let line = row_line(&row, 60, &RowStyles::default());
+        let line = row_line(&row, 60, &RowStyles::default(), None);
         let text: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
         assert_eq!(text.chars().count(), 60);
         assert!(text.starts_with("NF   Jul 24"), "{text:?}");

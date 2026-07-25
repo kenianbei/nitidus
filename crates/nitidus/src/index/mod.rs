@@ -2,12 +2,15 @@
 //! Only the visible rows are ever built; the render fn feeds the actual
 //! viewport height back through its widget state.
 
+mod filter;
 mod ops;
 mod remove;
 mod render;
+pub mod search;
 mod thread_view;
 mod view;
 
+pub use filter::{clear_filters, push_limit};
 pub use ops::{flag_selected, fold, move_cursor, set_sort, toggle_threads};
 pub use remove::{delete_selected, move_selected};
 pub use view::{IndexView, SortKey, SortMode, apply_motion, scrolled_top};
@@ -38,13 +41,20 @@ pub struct IndexPlugin;
 impl Plugin for IndexPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<IndexView>();
+        app.init_resource::<search::SearchState>();
         app.init_resource::<IndexOrder>();
         app.init_resource::<IndexStatus>();
         app.init_resource::<ThreadSet>();
         app.init_resource::<crate::screen::Screen>();
         app.add_systems(
             Startup,
-            (configure_view, first_view_sync, spawn_index).chain(),
+            (
+                configure_view,
+                first_view_sync,
+                spawn_index,
+                search::spawn_search_line,
+            )
+                .chain(),
         );
         app.add_systems(
             Update,
@@ -52,6 +62,7 @@ impl Plugin for IndexPlugin {
                 thread_view::refresh_threads,
                 thread_view::refresh_order,
                 refresh_index,
+                search::refresh_search_line,
             )
                 .chain(),
         );
@@ -63,8 +74,13 @@ impl Plugin for IndexPlugin {
 #[derive(Resource, Clone, Debug, Default, PartialEq, Eq)]
 pub struct IndexStatus {
     pub selected: usize,
+    /// Visible rows — the filtered count while a limit is active.
     pub total: usize,
     pub folder: String,
+    /// The whole folder's count; differs from `total` while limited.
+    pub folder_total: usize,
+    /// Joined `:limit` stack, empty when unlimited.
+    pub limits: String,
 }
 
 /// Cached display entry list; rebuilt when the store, thread rows, sort
@@ -72,7 +88,7 @@ pub struct IndexStatus {
 #[derive(Resource, Default)]
 struct IndexOrder {
     entries: Vec<OrderEntry>,
-    for_key: Option<(SortMode, bool, u64)>,
+    for_key: Option<(SortMode, bool, u64, u64)>,
 }
 
 #[derive(Component)]
@@ -87,6 +103,8 @@ struct IndexWindowState {
     rows: Vec<IndexRow>,
     empty_message: Option<String>,
     styles: RowStyles,
+    /// Retained search query — lights up matches in the rows.
+    search: Option<String>,
     last_height: u16,
 }
 
@@ -170,10 +188,17 @@ fn refresh_index(
     window.last_height = last_height;
     window.active = *screen == crate::screen::Screen::Index;
     widget.set_state(window)?;
+    let limited = !cached.limits.is_empty();
     let position = IndexStatus {
         selected: selected_row.map_or(0, |row| row + 1),
-        total: envelopes.len(),
+        total: if limited {
+            order.entries.len()
+        } else {
+            envelopes.len()
+        },
         folder: folder_display_name(&store, cached),
+        folder_total: envelopes.len(),
+        limits: cached.limits.join("+"),
     };
     if *status != position {
         *status = position;
@@ -253,6 +278,7 @@ fn build_window_state(
         rows,
         empty_message,
         styles: RowStyles::from_theme(theme),
+        search: index_view.search.clone(),
         last_height: 0,
     }
 }
@@ -273,7 +299,7 @@ fn render_index(frame: &mut ratatui::Frame, area: Rect, state: &mut IndexWindowS
         .rows
         .iter()
         .take(usize::from(area.height))
-        .map(|row| render::row_line(row, area.width, &state.styles))
+        .map(|row| render::row_line(row, area.width, &state.styles, state.search.as_deref()))
         .collect();
     frame.render_widget(Paragraph::new(lines).style(state.styles.normal), area);
     Ok(())

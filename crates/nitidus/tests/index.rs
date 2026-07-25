@@ -59,6 +59,7 @@ fn index_app(config: Config, envelopes: Vec<EnvelopeSummary>) -> App {
     app.insert_resource(store);
     app.init_resource::<SyncTracker>();
     app.init_resource::<StatusMessage>();
+    app.init_resource::<nitidus::keymap::Mode>();
     app.add_plugins(IndexPlugin);
     app.update();
     app
@@ -89,7 +90,9 @@ fn selection_defaults_to_first_and_motions_move_it() {
         IndexStatus {
             selected: 1,
             total: 3,
-            folder: "INBOX".to_owned()
+            folder: "INBOX".to_owned(),
+            folder_total: 3,
+            limits: String::new()
         }
     );
     assert_eq!(selected_id(&app).as_deref(), Some("newest"));
@@ -149,10 +152,180 @@ fn empty_configurations_report_zero_status() {
         IndexStatus {
             selected: 0,
             total: 0,
-            folder: "INBOX".to_owned()
+            folder: "INBOX".to_owned(),
+            folder_total: 0,
+            limits: String::new()
         },
         "a configured account shows its viewed folder even before folders load"
     );
+}
+
+fn envelope_from(id: &str, subject: &str, display: &str, addr: &str, date: i64) -> EnvelopeSummary {
+    EnvelopeSummary {
+        from_display: display.to_owned(),
+        from_addr: addr.to_owned(),
+        ..envelope(id, subject, date)
+    }
+}
+
+#[test]
+fn limits_stack_filter_counts_and_clear_restores() {
+    let mut app = index_app(
+        account_config("local"),
+        vec![
+            envelope_from("a", "quarterly report", "Ada", "ada@x.example", 300),
+            envelope_from("b", "report card", "Zed", "zed@y.example", 200),
+            envelope_from("c", "lunch plans", "Ada", "ada@x.example", 100),
+        ],
+    );
+
+    apply_action(app.world_mut(), &Action::Limit("report".to_owned()));
+    app.update();
+    let limited = status(&app);
+    assert_eq!(limited.total, 2, "one limit filters to matching rows");
+    assert_eq!(limited.folder_total, 3);
+    assert_eq!(limited.limits, "report");
+
+    apply_action(app.world_mut(), &Action::Limit("ada".to_owned()));
+    app.update();
+    let stacked = status(&app);
+    assert_eq!(stacked.total, 1, "stacked limits AND together");
+    assert_eq!(stacked.limits, "report+ada");
+    assert_eq!(selected_id(&app).as_deref(), Some("a"));
+
+    apply_action(app.world_mut(), &Action::ClearFilters);
+    app.update();
+    let cleared = status(&app);
+    assert_eq!(cleared.total, 3);
+    assert_eq!(cleared.limits, "");
+}
+
+#[test]
+fn limits_suspend_threading_and_clear_restores_it() {
+    let mut parent = envelope("p", "root subject", 300);
+    parent.message_id = "p@example".to_owned();
+    let mut child = envelope("c", "Re: root subject", 200);
+    child.message_id = "c@example".to_owned();
+    child.references = vec!["p@example".to_owned()];
+    let mut app = index_app(account_config("local"), vec![parent, child]);
+    apply_action(app.world_mut(), &Action::ToggleThreads);
+    for _ in 0..20 {
+        app.update();
+        std::thread::sleep(Duration::from_millis(5));
+    }
+
+    apply_action(app.world_mut(), &Action::Limit("root".to_owned()));
+    app.update();
+    assert_eq!(
+        status(&app).total,
+        2,
+        "both rows match; limited view is flat"
+    );
+
+    apply_action(app.world_mut(), &Action::ClearFilters);
+    app.update();
+    assert_eq!(status(&app).total, 2);
+    assert!(
+        app.world().resource::<IndexView>().threaded,
+        "threading preference survives the limit round-trip"
+    );
+}
+
+fn search_key(app: &mut App, code: bevy_ratatui::crossterm::event::KeyCode) {
+    nitidus::index::search::handle_key(
+        app.world_mut(),
+        bevy_ratatui::crossterm::event::KeyEvent::from(code),
+    )
+    .unwrap();
+    app.update();
+}
+
+fn search_type(app: &mut App, text: &str) {
+    for character in text.chars() {
+        search_key(
+            app,
+            bevy_ratatui::crossterm::event::KeyCode::Char(character),
+        );
+    }
+}
+
+fn searchable_app() -> App {
+    index_app(
+        account_config("local"),
+        vec![
+            envelope("a", "alpha subject", 300),
+            envelope("b", "beta subject", 200),
+            envelope("c", "gamma beta", 100),
+        ],
+    )
+}
+
+#[test]
+fn incremental_search_jumps_live_and_esc_restores() {
+    use bevy_ratatui::crossterm::event::KeyCode;
+    let mut app = searchable_app();
+    assert_eq!(selected_id(&app).as_deref(), Some("a"));
+
+    apply_action(app.world_mut(), &Action::SearchStart);
+    search_type(&mut app, "beta");
+    assert_eq!(selected_id(&app).as_deref(), Some("b"), "live jump");
+
+    search_type(&mut app, "x");
+    assert_eq!(
+        selected_id(&app).as_deref(),
+        Some("a"),
+        "an unmatched query returns to the origin"
+    );
+    search_key(&mut app, KeyCode::Backspace);
+    assert_eq!(
+        selected_id(&app).as_deref(),
+        Some("b"),
+        "backspace re-jumps"
+    );
+
+    search_key(&mut app, KeyCode::Esc);
+    assert_eq!(selected_id(&app).as_deref(), Some("a"), "Esc restores");
+    assert_eq!(app.world().resource::<IndexView>().search, None);
+}
+
+#[test]
+fn accepted_search_repeats_with_wrap_in_both_directions() {
+    use bevy_ratatui::crossterm::event::KeyCode;
+    let mut app = searchable_app();
+    apply_action(app.world_mut(), &Action::SearchStart);
+    search_type(&mut app, "beta");
+    search_key(&mut app, KeyCode::Enter);
+    assert_eq!(selected_id(&app).as_deref(), Some("b"));
+
+    apply_action(app.world_mut(), &Action::SearchNext);
+    app.update();
+    assert_eq!(selected_id(&app).as_deref(), Some("c"));
+    apply_action(app.world_mut(), &Action::SearchNext);
+    app.update();
+    assert_eq!(selected_id(&app).as_deref(), Some("b"), "next wraps");
+    apply_action(app.world_mut(), &Action::SearchPrev);
+    app.update();
+    assert_eq!(selected_id(&app).as_deref(), Some("c"), "prev wraps back");
+
+    apply_action(app.world_mut(), &Action::ClearFilters);
+    apply_action(app.world_mut(), &Action::SearchNext);
+    app.update();
+    let (message, _) = app.world().resource::<StatusMessage>().current().unwrap();
+    assert_eq!(message, "no search (press /)");
+}
+
+#[test]
+fn search_operates_within_the_active_limit() {
+    use bevy_ratatui::crossterm::event::KeyCode;
+    let mut app = searchable_app();
+    apply_action(app.world_mut(), &Action::Limit("beta".to_owned()));
+    app.update();
+    assert_eq!(status(&app).total, 2);
+
+    apply_action(app.world_mut(), &Action::SearchStart);
+    search_type(&mut app, "gamma");
+    search_key(&mut app, KeyCode::Enter);
+    assert_eq!(selected_id(&app).as_deref(), Some("c"));
 }
 
 fn make_maildir(root: &Path) {

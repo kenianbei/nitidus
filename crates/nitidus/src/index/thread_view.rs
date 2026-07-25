@@ -53,7 +53,12 @@ pub(super) fn refresh_order(
     threads: Res<ThreadSet>,
     mut order: ResMut<IndexOrder>,
 ) {
-    let key = (index_view.sort, index_view.threaded, index_view.fold_epoch);
+    let key = (
+        index_view.sort,
+        index_view.threaded,
+        index_view.fold_epoch,
+        index_view.filter_epoch,
+    );
     if !store.is_changed() && !threads.is_changed() && order.for_key == Some(key) {
         return;
     }
@@ -70,6 +75,18 @@ fn build_entries(
     threads: &ThreadSet,
     envelopes: &[EnvelopeSummary],
 ) -> Vec<OrderEntry> {
+    // Limits suspend threading: a filtered tree would show orphaned
+    // children under missing parents.
+    if !index_view.limits.is_empty() {
+        return flat_entries(envelopes, index_view.sort)
+            .into_iter()
+            .filter(|entry| {
+                envelopes.get(entry.index as usize).is_some_and(|envelope| {
+                    super::filter::matches_all(envelope, &index_view.limits)
+                })
+            })
+            .collect();
+    }
     if index_view.threaded
         && let Some(account) = &index_view.account
         && let Some(rows) = threads.rows(account, &index_view.folder)

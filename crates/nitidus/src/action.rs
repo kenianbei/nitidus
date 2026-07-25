@@ -31,6 +31,11 @@ pub enum Action {
     SetPhoto(Option<String>),
     AddContact,
     ComposeTo,
+    Limit(String),
+    ClearFilters,
+    SearchStart,
+    SearchNext,
+    SearchPrev,
     Echo(String),
     Cursor(Motion),
     Sort(SortMode),
@@ -154,6 +159,11 @@ pub fn apply_action(world: &mut World, action: &Action) {
         Action::SetPhoto(path) => crate::contacts::set_photo(world, path.as_deref()),
         Action::AddContact => crate::contacts::add_contact_from_sender(world),
         Action::ComposeTo => crate::contacts::compose_to_selected(world),
+        Action::Limit(text) => index::push_limit(world, text),
+        Action::ClearFilters => index::clear_filters(world),
+        Action::SearchStart => index::search::start_search(world),
+        Action::SearchNext => index::search::search_next(world),
+        Action::SearchPrev => index::search::search_prev(world),
         Action::Echo(text) => {
             let now = world.resource::<Time>().elapsed_secs_f64();
             world
