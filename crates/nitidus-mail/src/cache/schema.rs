@@ -39,8 +39,21 @@ ALTER TABLE envelopes ADD COLUMN message_id TEXT NOT NULL DEFAULT '';
 ALTER TABLE envelopes ADD COLUMN reference_ids TEXT NOT NULL DEFAULT '';
 ";
 
+const SCHEMA_V3_HARVEST: &str = "\
+CREATE TABLE harvested_addresses (
+    addr TEXT NOT NULL PRIMARY KEY,
+    display TEXT NOT NULL,
+    uses INTEGER NOT NULL,
+    last_seen_epoch INTEGER NOT NULL
+) STRICT;
+";
+
 fn migrations() -> Migrations<'static> {
-    Migrations::new(vec![M::up(SCHEMA_V1), M::up(SCHEMA_V2_THREADING)])
+    Migrations::new(vec![
+        M::up(SCHEMA_V1),
+        M::up(SCHEMA_V2_THREADING),
+        M::up(SCHEMA_V3_HARVEST),
+    ])
 }
 
 pub fn prepare(connection: &mut Connection) -> Result<(), CacheError> {

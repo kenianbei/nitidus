@@ -29,6 +29,27 @@ impl MailStore {
             .map_or(&[], |cached| cached.sorted.as_slice())
     }
 
+    /// Every cached envelope across accounts and folders (address
+    /// aggregation).
+    pub fn iter_envelopes(&self) -> impl Iterator<Item = &EnvelopeSummary> {
+        self.envelopes
+            .values()
+            .flat_map(|cached| cached.sorted.iter())
+    }
+
+    /// Changes whenever any folder's row set changes — a cheap probe
+    /// for derived-state staleness.
+    pub fn content_fingerprint(&self) -> u64 {
+        let generations: u64 = self
+            .envelopes
+            .values()
+            .map(|cached| cached.generation)
+            .sum();
+        generations
+            .wrapping_mul(1_000_003)
+            .wrapping_add(self.envelopes.len() as u64)
+    }
+
     /// `:remove-account` — drops every in-memory row of the account.
     pub fn remove_account(&mut self, account: &AccountId) {
         self.folders.remove(account);

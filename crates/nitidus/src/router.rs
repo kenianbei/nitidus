@@ -27,6 +27,7 @@ impl Plugin for RouterPlugin {
         app.init_resource::<StatusMessage>();
         app.init_resource::<crate::overlay::ActiveOverlay>();
         app.init_resource::<crate::explorer::ExplorerState>();
+        app.init_resource::<crate::addresses::AddressIndex>();
         app.init_resource::<crate::prompt::PromptState>();
         app.init_resource::<crate::sidebar::SidebarState>();
         app.init_resource::<Screen>();

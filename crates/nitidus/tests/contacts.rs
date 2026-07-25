@@ -8,7 +8,10 @@ use std::path::Path;
 use bevy::prelude::*;
 use bevy_ratatui::crossterm::event::{KeyCode, KeyEvent};
 use nitidus::action::{Action, apply_action};
+use nitidus::compose::{ComposeDir, ComposePlugin, ComposeState, EditorCommand};
+use nitidus::config::Config;
 use nitidus::config::RawKeymaps;
+use nitidus::config::account::AccountConfig;
 use nitidus::contacts::{ContactsDir, ContactsPlugin, ContactsStatus, ContactsView, PaneFocus};
 use nitidus::engine::StartupNotices;
 use nitidus::explorer::{ExplorerPlugin, ExplorerState};
@@ -20,6 +23,7 @@ use nitidus::screen::{MailScreenMemory, Screen};
 use nitidus::shell::Tabs;
 use nitidus::sidebar::SidebarState;
 use nitidus::status::StatusMessage;
+use nitidus::store::MailStore;
 use plurimus::{TachyonRegistry, UiEvent};
 
 fn write_contact(dir: &Path, uid: &str, name: &str, email: &str) {
@@ -54,6 +58,19 @@ fn harness(seed: impl FnOnce(&Path)) -> (App, tempfile::TempDir) {
     app.init_resource::<MailScreenMemory>();
     app.init_resource::<SidebarState>();
     app.init_resource::<StatusMessage>();
+    app.init_resource::<MailStore>();
+    app.init_resource::<nitidus::index::IndexView>();
+    app.init_resource::<nitidus::pager::PagerState>();
+    let mut config = Config::default();
+    config.accounts.push(AccountConfig {
+        name: "local".to_owned(),
+        email: "norman@example.com".to_owned(),
+        display_name: "Norman".to_owned(),
+        ..Default::default()
+    });
+    app.insert_resource(config);
+    app.insert_resource(ComposeDir(root.path().join("compose")));
+    app.insert_resource(EditorCommand("true ".to_owned()));
     app.insert_resource(Keymaps::compile(&RawKeymaps::default()).unwrap());
     app.add_plugins((
         RouterPlugin,
@@ -61,6 +78,7 @@ fn harness(seed: impl FnOnce(&Path)) -> (App, tempfile::TempDir) {
         OverlayPlugin,
         ExplorerPlugin,
         ContactsPlugin,
+        ComposePlugin,
     ));
     app.update();
     (app, root)
@@ -510,6 +528,101 @@ fn set_photo_without_argument_browses() {
     assert!(app.world().resource::<ExplorerState>().is_open());
     press(&mut app, KeyCode::Esc);
     assert!(!app.world().resource::<ExplorerState>().is_open());
+}
+
+fn seed_inbox_selection(app: &mut App, display: &str, addr: &str) {
+    use nitidus_mail::{AccountId, EnvelopeId, EnvelopeSummary, Flags, FolderId};
+    let account = AccountId::new("local");
+    let folder = FolderId::new("INBOX");
+    let envelope = EnvelopeSummary {
+        id: EnvelopeId::new("7"),
+        subject: "hello".to_owned(),
+        from_display: display.to_owned(),
+        from_addr: addr.to_owned(),
+        date_epoch_secs: 1_700_000_000,
+        flags: Flags::default(),
+        message_id: "m@x".to_owned(),
+        references: Vec::new(),
+    };
+    let world = app.world_mut();
+    world
+        .resource_mut::<MailStore>()
+        .hydrate(account.clone(), folder.clone(), vec![envelope]);
+    let mut view = world.resource_mut::<nitidus::index::IndexView>();
+    view.account = Some(account);
+    view.folder = folder;
+    view.selected = Some(nitidus_mail::EnvelopeId::new("7"));
+}
+
+#[test]
+fn add_contact_from_sender_prefills_and_saves() {
+    let (mut app, root) = harness(|_| {});
+    seed_inbox_selection(&mut app, "Katherine Johnson", "kj@nasa.example");
+
+    apply_action(app.world_mut(), &Action::AddContact);
+    app.update();
+    assert_eq!(
+        app.world().resource::<PromptState>().value(),
+        Some("Katherine Johnson"),
+        "the name prompt prefills the sender display"
+    );
+    press(&mut app, KeyCode::Enter);
+
+    let world = app.world();
+    let store = world.resource::<nitidus::contacts::ContactStore>();
+    assert_eq!(store.0.len(), 1);
+    let contact = store.0.get(0).unwrap();
+    assert_eq!(contact.display_name(), "Katherine Johnson");
+    assert_eq!(contact.primary_email(), Some("kj@nasa.example"));
+    assert!(root.path().join(format!("{}.vcf", contact.uid())).exists());
+
+    // A second A on the same sender refuses politely.
+    apply_action(app.world_mut(), &Action::AddContact);
+    app.update();
+    assert!(!app.world().resource::<PromptState>().is_open());
+    let (message, _) = app.world().resource::<StatusMessage>().current().unwrap();
+    assert!(message.contains("already in the contact book"), "{message}");
+}
+
+#[test]
+fn address_candidates_rank_contacts_above_harvested_senders() {
+    let (mut app, _root) = harness(|dir| {
+        write_contact(dir, "uid-a", "Ada", "ada@example.com");
+    });
+    seed_inbox_selection(&mut app, "Ada Imposter", "sender@elsewhere.example");
+    app.update();
+
+    let candidates = nitidus::addresses::snapshot_candidates(app.world_mut());
+    let ranked = nitidus::addresses::rank(&candidates, "");
+    assert_eq!(ranked[0], "Ada <ada@example.com>");
+    assert!(
+        ranked.contains(&"Ada Imposter <sender@elsewhere.example>".to_owned()),
+        "the seeded envelope's sender is harvested: {ranked:?}"
+    );
+}
+
+#[test]
+fn mail_to_bridges_into_a_prefilled_composition() {
+    let (mut app, _root) = harness(|dir| {
+        write_contact(dir, "uid-a", "Ada", "ada@example.com");
+    });
+    open_contacts(&mut app);
+    press(&mut app, KeyCode::Char('m'));
+
+    assert_eq!(app.world().resource::<Tabs>().active_label(), "mail");
+    assert_eq!(app.world().resource::<PromptState>().label(), Some("To: "));
+    assert_eq!(
+        app.world().resource::<PromptState>().value(),
+        Some("Ada <ada@example.com>"),
+        "the To prompt prefills the contact"
+    );
+    press(&mut app, KeyCode::Enter);
+    let to = app
+        .world()
+        .resource::<ComposeState>()
+        .session()
+        .map(|session| session.to.clone());
+    assert_eq!(to.as_deref(), Some("Ada <ada@example.com>"));
 }
 
 #[test]

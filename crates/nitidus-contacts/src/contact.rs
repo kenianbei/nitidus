@@ -93,6 +93,15 @@ impl Contact {
         self.property_text(&VCardProperty::Tel)
     }
 
+    /// Every EMAIL value, in card order.
+    pub fn emails(&self) -> impl Iterator<Item = &str> {
+        self.card
+            .entries
+            .iter()
+            .filter(|entry| entry.name == VCardProperty::Email)
+            .filter_map(first_text)
+    }
+
     pub fn organization(&self) -> Option<&str> {
         self.card.property(&VCardProperty::Org).and_then(first_text)
     }

@@ -12,6 +12,7 @@ use super::mutate::{
     selected_contact, warn,
 };
 use super::view::ContactsView;
+use crate::addresses::format_entry;
 use crate::overlay::{PickerItem, PickerSpec, open_picker};
 use crate::prompt::{PromptRequest, open_prompt};
 
@@ -169,6 +170,73 @@ fn new_contact_email_prompt(world: &mut World, name: String) {
         }),
     );
     open_prompt(world, request);
+}
+
+/// `A`/`:add-contact`: the selected message's sender into the book —
+/// the pager's open message wins over the index selection.
+pub fn add_contact_from_sender(world: &mut World) {
+    let Some((display, addr)) = selected_sender(world) else {
+        return warn(world, "no message selected".to_owned());
+    };
+    let already_known = world.resource::<ContactStore>().0.iter().any(|contact| {
+        contact
+            .emails()
+            .any(|email| email.eq_ignore_ascii_case(&addr))
+    });
+    if already_known {
+        return info(world, format!("{addr} is already in the contact book"));
+    }
+    let request = PromptRequest::new(
+        "Name: ",
+        Box::new(move |world: &mut World, name: String| {
+            let name = if name.trim().is_empty() {
+                addr.clone()
+            } else {
+                name.trim().to_owned()
+            };
+            let mut contact = Contact::new(&name);
+            if let Err(error) = contact.add_entry_line(&format!("EMAIL:{addr}")) {
+                return warn(world, error.to_string());
+            }
+            persist_and_upsert(world, contact);
+        }),
+    )
+    .with_initial(display);
+    open_prompt(world, request);
+}
+
+fn selected_sender(world: &World) -> Option<(String, String)> {
+    let store = world.resource::<crate::store::MailStore>();
+    if let Some(open) = world.resource::<crate::pager::PagerState>().open_message() {
+        return store
+            .position_of(&open.account, &open.folder, &open.id)
+            .map(|position| &store.envelopes(&open.account, &open.folder)[position])
+            .map(|envelope| (envelope.from_display.clone(), envelope.from_addr.clone()))
+            .filter(|(_, addr)| !addr.is_empty());
+    }
+    let view = world.resource::<crate::index::IndexView>();
+    let account = view.account.clone()?;
+    let selected = view.selected.clone()?;
+    let position = store.position_of(&account, &view.folder, &selected)?;
+    let envelope = &store.envelopes(&account, &view.folder)[position];
+    (!envelope.from_addr.is_empty())
+        .then(|| (envelope.from_display.clone(), envelope.from_addr.clone()))
+}
+
+/// `m`/`:compose-to`: from a contact into a composition, To prefilled.
+pub fn compose_to_selected(world: &mut World) {
+    let Some(contact) = selected_contact(world) else {
+        return;
+    };
+    let Some(email) = contact.primary_email().map(str::to_owned) else {
+        return warn(
+            world,
+            format!("{} has no email address", contact.display_name()),
+        );
+    };
+    let to = format_entry(contact.display_name(), &email);
+    crate::shell::activate_tab(world, crate::shell::MAIL_TAB);
+    crate::compose::start_compose_to(world, to);
 }
 
 pub fn delete_selected_contact(world: &mut World) {

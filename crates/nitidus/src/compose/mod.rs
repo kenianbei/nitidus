@@ -14,7 +14,7 @@ mod render;
 pub mod reply;
 
 pub use editor::EditorCommand;
-pub use ops::{dispatch, scroll, start_compose};
+pub use ops::{dispatch, scroll, start_compose, start_compose_to};
 pub use persist::recover;
 pub use recall::recall_selected;
 pub use render::ComposeWidget;

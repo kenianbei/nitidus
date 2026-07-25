@@ -34,6 +34,7 @@ pub(super) const DEFAULT_INDEX_BINDINGS: &[(&str, &str)] = &[
     ("f", ":forward"),
     ("e", ":recall"),
     ("d", ":delete"),
+    ("A", ":add-contact"),
 ];
 
 pub(super) const DEFAULT_PAGER_BINDINGS: &[(&str, &str)] = &[
@@ -63,6 +64,7 @@ pub(super) const DEFAULT_PAGER_BINDINGS: &[(&str, &str)] = &[
     ("r", ":reply"),
     ("R", ":reply-all"),
     ("f", ":forward"),
+    ("A", ":add-contact"),
 ];
 
 pub(super) const DEFAULT_CONTACTS_BINDINGS: &[(&str, &str)] = &[
@@ -83,6 +85,7 @@ pub(super) const DEFAULT_CONTACTS_BINDINGS: &[(&str, &str)] = &[
     ("n", ":new-contact"),
     ("D", ":delete-contact"),
     ("P", ":set-photo"),
+    ("m", ":mail-to"),
     ("?", ":help"),
 ];
 

@@ -29,6 +29,8 @@ pub enum Action {
     ImportContacts(Option<String>),
     ExportContacts(Option<String>),
     SetPhoto(Option<String>),
+    AddContact,
+    ComposeTo,
     Echo(String),
     Cursor(Motion),
     Sort(SortMode),
@@ -150,6 +152,8 @@ pub fn apply_action(world: &mut World, action: &Action) {
         Action::ImportContacts(path) => crate::contacts::import_contacts(world, path.as_deref()),
         Action::ExportContacts(path) => crate::contacts::export_contacts(world, path.as_deref()),
         Action::SetPhoto(path) => crate::contacts::set_photo(world, path.as_deref()),
+        Action::AddContact => crate::contacts::add_contact_from_sender(world),
+        Action::ComposeTo => crate::contacts::compose_to_selected(world),
         Action::Echo(text) => {
             let now = world.resource::<Time>().elapsed_secs_f64();
             world

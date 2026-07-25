@@ -25,6 +25,9 @@ enum CacheOp {
     PurgeAccount {
         account: AccountId,
     },
+    Harvest {
+        entries: Vec<super::HarvestedAddress>,
+    },
 }
 
 pub struct CacheWriter {
@@ -66,6 +69,17 @@ impl CacheWriter {
         };
         if self.ops.send(op).is_err() {
             tracing::warn!("cache writer thread gone; dropping cache update");
+        }
+    }
+
+    /// Records addresses the user just mailed; uses accumulate, the
+    /// newest sighting wins, a display name fills in once known.
+    pub fn harvest(&self, entries: Vec<super::HarvestedAddress>) {
+        if entries.is_empty() {
+            return;
+        }
+        if self.ops.send(CacheOp::Harvest { entries }).is_err() {
+            tracing::warn!("cache writer thread gone; dropping harvest");
         }
     }
 
@@ -148,6 +162,28 @@ fn apply(connection: &mut Connection, op: &CacheOp) -> Result<(), CacheError> {
                 "DELETE FROM envelopes WHERE account = ?1",
                 [account.as_str()],
             )?;
+        }
+        CacheOp::Harvest { entries } => {
+            for entry in entries {
+                tx.execute(
+                    "INSERT INTO harvested_addresses
+                         (addr, display, uses, last_seen_epoch)
+                     VALUES (?1, ?2, ?3, ?4)
+                     ON CONFLICT (addr) DO UPDATE SET
+                         uses = uses + excluded.uses,
+                         last_seen_epoch = MAX(last_seen_epoch, excluded.last_seen_epoch),
+                         display = CASE
+                             WHEN excluded.display <> '' THEN excluded.display
+                             ELSE display
+                         END",
+                    (
+                        &entry.addr,
+                        &entry.display,
+                        entry.uses,
+                        entry.last_seen_epoch,
+                    ),
+                )?;
+            }
         }
     }
     tx.commit().map_err(Into::into)

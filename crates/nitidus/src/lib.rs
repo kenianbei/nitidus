@@ -2,6 +2,7 @@
 
 pub mod accounts;
 pub mod action;
+pub mod addresses;
 pub mod app;
 pub mod bootstrap;
 pub mod cmdline;

@@ -8,6 +8,16 @@ mod writer;
 
 pub use writer::CacheWriter;
 
+/// One address seen in mail traffic, with its usage history — the
+/// frecency inputs for completion ranking.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct HarvestedAddress {
+    pub addr: String,
+    pub display: String,
+    pub uses: u32,
+    pub last_seen_epoch: i64,
+}
+
 use std::path::Path;
 
 use rusqlite::Connection;
@@ -75,6 +85,23 @@ impl MailCache {
                 flags: Flags::from_bits(row.get(5)?),
                 message_id: row.get(6)?,
                 references: split_references(&row.get::<_, String>(7)?),
+            })
+        })?;
+        rows.collect::<Result<_, _>>().map_err(Into::into)
+    }
+
+    /// Send-recipient history for completion, most-recent first.
+    pub fn load_addresses(&self) -> Result<Vec<HarvestedAddress>, CacheError> {
+        let mut statement = self.connection.prepare(
+            "SELECT addr, display, uses, last_seen_epoch
+             FROM harvested_addresses ORDER BY last_seen_epoch DESC",
+        )?;
+        let rows = statement.query_map([], |row| {
+            Ok(HarvestedAddress {
+                addr: row.get(0)?,
+                display: row.get(1)?,
+                uses: row.get(2)?,
+                last_seen_epoch: row.get(3)?,
             })
         })?;
         rows.collect::<Result<_, _>>().map_err(Into::into)

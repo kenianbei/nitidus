@@ -99,6 +99,18 @@ pub(super) const COMMANDS: &[CommandSpec] = &[
         parse: |args| Ok(Action::ExportContacts(optional_arg(args))),
     },
     CommandSpec {
+        name: "add-contact",
+        summary: "add the selected message's sender to the contact book",
+        aliases: &[],
+        parse: |args| no_args("add-contact", args, Action::AddContact),
+    },
+    CommandSpec {
+        name: "mail-to",
+        summary: "compose a message to the selected contact",
+        aliases: &[],
+        parse: |args| no_args("mail-to", args, Action::ComposeTo),
+    },
+    CommandSpec {
         name: "set-photo",
         summary: "set the selected contact's photo from an image file",
         aliases: &[],

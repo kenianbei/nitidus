@@ -51,6 +51,7 @@ pub fn build_app(loaded: LoadedConfig, keymaps: Keymaps, setup: EngineSetup) -> 
     app.insert_resource(setup.store);
     app.insert_resource(setup.tracker);
     app.insert_resource(StartupNotices(setup.notices));
+    app.insert_resource(crate::addresses::AddressIndex::from_loaded(setup.addresses));
     if let Some(cache) = setup.cache {
         app.insert_resource(CacheResource(cache));
     }

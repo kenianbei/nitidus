@@ -12,7 +12,10 @@ mod render;
 mod transfer;
 mod view;
 
-pub use add::{add_property, delete_selected_contact, new_contact};
+pub use add::{
+    add_contact_from_sender, add_property, compose_to_selected, delete_selected_contact,
+    new_contact,
+};
 pub use edit::{edit_selected, edit_selected_raw, remove_selected_property};
 pub use photo::{PhotoPicker, set_photo};
 pub use transfer::{export_contacts, import_contacts};

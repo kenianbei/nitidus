@@ -24,14 +24,20 @@ pub struct EngineSetup {
     pub store: MailStore,
     pub tracker: SyncTracker,
     pub notices: Vec<String>,
+    pub addresses: Vec<nitidus_mail::cache::HarvestedAddress>,
 }
 
 pub fn bootstrap(config: &Config) -> anyhow::Result<EngineSetup> {
     let mut notices = Vec::new();
     let mut store = MailStore::default();
     let cache = open_default_cache(&mut notices);
+    let mut addresses = Vec::new();
     if let Some(cache) = &cache {
         warm_load(cache, config, &mut store);
+        match cache.load_addresses() {
+            Ok(loaded) => addresses = loaded,
+            Err(error) => tracing::warn!("harvested-address load failed: {error}"),
+        }
     }
     let mut engine = MailEngine::new(config.accounts.len())?;
     let mut tracker = SyncTracker::default();
@@ -42,6 +48,7 @@ pub fn bootstrap(config: &Config) -> anyhow::Result<EngineSetup> {
         store,
         tracker,
         notices,
+        addresses,
     })
 }
 

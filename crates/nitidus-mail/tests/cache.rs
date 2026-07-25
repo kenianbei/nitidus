@@ -277,3 +277,33 @@ fn purge_account_drops_only_that_accounts_rows() {
     assert_eq!(cache.load_folders(&kept).unwrap().len(), 1);
     assert_eq!(cache.load_envelopes(&kept, &inbox).unwrap().len(), 1);
 }
+
+#[test]
+fn harvest_accumulates_uses_and_fills_display_names() {
+    let tmp = tempfile::tempdir().unwrap();
+    let path = tmp.path().join("mail.db");
+    let entry = |display: &str, uses: u32, seen: i64| nitidus_mail::cache::HarvestedAddress {
+        addr: "kj@nasa.example".to_owned(),
+        display: display.to_owned(),
+        uses,
+        last_seen_epoch: seen,
+    };
+
+    let writer = MailCache::open(&path).unwrap().into_writer();
+    writer.harvest(vec![entry("", 1, 100)]);
+    writer.harvest(vec![entry("Katherine Johnson", 2, 50)]);
+    writer.close();
+
+    let loaded = MailCache::open(&path).unwrap().load_addresses().unwrap();
+    assert_eq!(loaded.len(), 1);
+    assert_eq!(loaded[0].addr, "kj@nasa.example");
+    assert_eq!(
+        loaded[0].display, "Katherine Johnson",
+        "a later display name fills the blank"
+    );
+    assert_eq!(loaded[0].uses, 3, "uses accumulate across harvests");
+    assert_eq!(
+        loaded[0].last_seen_epoch, 100,
+        "the newest sighting wins even when harvested later"
+    );
+}

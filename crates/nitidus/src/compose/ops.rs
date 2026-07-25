@@ -16,6 +16,15 @@ const FALLBACK_PAGE_ROWS: usize = 20;
 /// `m` / `:compose`: a new session runs the prompt chain; an existing
 /// one resumes at review.
 pub fn start_compose(world: &mut World) {
+    start_compose_with(world, None);
+}
+
+/// The `:compose-to` bridge: a fresh composition with To prefilled.
+pub fn start_compose_to(world: &mut World, to: String) {
+    start_compose_with(world, Some(to));
+}
+
+fn start_compose_with(world: &mut World, to: Option<String>) {
     if world.resource::<ComposeState>().is_active() {
         *world.resource_mut::<Screen>() = Screen::Compose;
         notice(world, "resuming the staged message (Esc discards)");
@@ -30,7 +39,8 @@ pub fn start_compose(world: &mut World) {
         Err(error) => return notice(world, format!("compose: {error:#}")),
     };
     match ComposeSession::create(&account_config, &directory, "") {
-        Ok(session) => {
+        Ok(mut session) => {
+            session.to = to.unwrap_or_default();
             world.resource_mut::<ComposeState>().0 = Some(session);
             prompt_to(world);
         }
@@ -39,6 +49,11 @@ pub fn start_compose(world: &mut World) {
 }
 
 fn prompt_to(world: &mut World) {
+    let initial = world
+        .resource::<ComposeState>()
+        .session()
+        .map(|session| session.to.clone())
+        .unwrap_or_default();
     let request = PromptRequest::new(
         "To: ",
         Box::new(|world, value| {
@@ -48,8 +63,18 @@ fn prompt_to(world: &mut World) {
             prompt_initial_subject(world);
         }),
     )
+    .with_initial(initial)
     .with_cancel(Box::new(abandon_new_session));
+    let request = address_completed(world, request);
     open_prompt(world, request);
+}
+
+/// Attaches the address index snapshot to an address-field prompt.
+fn address_completed(world: &mut World, request: PromptRequest) -> PromptRequest {
+    let candidates = crate::addresses::snapshot_candidates(world);
+    request.with_completions(std::sync::Arc::new(move |segment: &str| {
+        crate::addresses::rank(&candidates, segment)
+    }))
 }
 
 fn prompt_initial_subject(world: &mut World) {
@@ -134,7 +159,7 @@ fn prompt_header(world: &mut World, field: HeaderField) {
         .session()
         .map(|session| field.get(session).to_owned())
         .unwrap_or_default();
-    let request = PromptRequest::new(
+    let mut request = PromptRequest::new(
         field.label(),
         Box::new(move |world, value| {
             if let Some(session) = world.resource_mut::<ComposeState>().0.as_mut() {
@@ -143,6 +168,9 @@ fn prompt_header(world: &mut World, field: HeaderField) {
         }),
     )
     .with_initial(initial);
+    if matches!(field, HeaderField::To | HeaderField::Cc | HeaderField::Bcc) {
+        request = address_completed(world, request);
+    }
     open_prompt(world, request);
 }
 
@@ -165,6 +193,7 @@ pub(super) fn queue_send(world: &mut World) {
     };
     match crate::outbox::queue(world, &session, &built.envelope, &built.bytes) {
         Ok(()) => {
+            crate::addresses::harvest_recipients(world, &[&session.to, &session.cc, &session.bcc]);
             *world.resource_mut::<Screen>() = Screen::Index;
             let seconds = world.resource::<crate::outbox::SendDelay>().0.as_secs();
             notice(world, format!("sending in {seconds}s — z undoes"));
