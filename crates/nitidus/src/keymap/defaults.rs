@@ -27,10 +27,11 @@ pub(super) const DEFAULT_INDEX_BINDINGS: &[(&str, &str)] = &[
     ("b", ":sidebar"),
     ("<Tab>", ":sidebar-focus"),
     ("?", ":help"),
+    ("m", ":compose"),
 ];
 
 pub(super) const DEFAULT_PAGER_BINDINGS: &[(&str, &str)] = &[
-    ("q", ":close"),
+    ("<Esc>", ":close"),
     ("j", ":next"),
     ("k", ":prev"),
     ("<Down>", ":next"),
@@ -87,4 +88,28 @@ pub(super) const DEFAULT_PICKER_BINDINGS: &[(&str, &str)] = &[
     ("<Enter>", ":confirm"),
     ("<Esc>", ":cancel"),
     ("<Tab>", ":help-scope"),
+];
+
+/// Review-screen bindings; the cheat-sheet footer is generated from
+/// this context, so summaries double as its captions.
+pub(super) const DEFAULT_COMPOSE_BINDINGS: &[(&str, &str)] = &[
+    ("j", ":next"),
+    ("k", ":prev"),
+    ("<Down>", ":next"),
+    ("<Up>", ":prev"),
+    ("<PageDown>", ":next-page"),
+    ("<PageUp>", ":prev-page"),
+    ("gg", ":first"),
+    ("G", ":last"),
+    ("e", ":compose-edit"),
+    ("t", ":compose-to"),
+    ("c", ":compose-cc"),
+    ("b", ":compose-bcc"),
+    ("s", ":compose-subject"),
+    ("y", ":send"),
+    ("P", ":postpone"),
+    ("<Esc>", ":discard"),
+    ("b", ":sidebar"),
+    ("<Tab>", ":sidebar-focus"),
+    ("?", ":help"),
 ];

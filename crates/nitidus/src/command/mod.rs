@@ -5,8 +5,10 @@
 use anyhow::{Context, bail};
 use nitidus_mail::Flags;
 
+mod compose_table;
 mod table;
 
+use compose_table::COMPOSE_COMMANDS;
 use nucleo_matcher::pattern::{CaseMatching, Normalization, Pattern};
 use nucleo_matcher::{Config as MatcherConfig, Matcher};
 use table::COMMANDS;
@@ -50,8 +52,7 @@ pub fn parse_command(input: &str) -> anyhow::Result<Action> {
         Some((name, args)) => (name, args.trim()),
         None => (stripped, ""),
     };
-    let spec = COMMANDS
-        .iter()
+    let spec = commands()
         .find(|spec| spec.name == name || spec.aliases.contains(&name))
         .ok_or_else(|| anyhow::anyhow!("unknown command: {name:?}"))?;
     (spec.parse)(args).with_context(|| format!("in command {name:?}"))
@@ -62,15 +63,18 @@ pub fn describe(input: &str) -> Option<&'static str> {
     let stripped = input.trim();
     let stripped = stripped.strip_prefix(':').unwrap_or(stripped).trim();
     let name = stripped.split_whitespace().next()?;
-    COMMANDS
-        .iter()
+    commands()
         .find(|spec| spec.name == name || spec.aliases.contains(&name))
         .map(|spec| spec.summary)
 }
 
+fn commands() -> impl Iterator<Item = &'static CommandSpec> {
+    COMMANDS.iter().chain(COMPOSE_COMMANDS.iter())
+}
+
 /// Fuzzy completion over command names, best match first.
 pub fn complete_command(input: &str) -> Vec<String> {
-    let names = COMMANDS.iter().map(|spec| spec.name);
+    let names = commands().map(|spec| spec.name);
     if input.is_empty() {
         return names.map(str::to_owned).collect();
     }

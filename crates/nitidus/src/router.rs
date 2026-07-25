@@ -10,7 +10,8 @@ use plurimus::{UiActions, UiEvent, UiInputBinding, Widget};
 
 use crate::action::apply_action;
 use crate::keymap::{
-    CONTEXT_INDEX, CONTEXT_PAGER, CONTEXT_SIDEBAR, InputMode, KeymapMatch, Keymaps, Mode,
+    CONTEXT_COMPOSE, CONTEXT_INDEX, CONTEXT_PAGER, CONTEXT_SIDEBAR, InputMode, KeymapMatch,
+    Keymaps, Mode,
 };
 use crate::screen::Screen;
 use crate::status::{StatusMessage, expire_status_messages};
@@ -25,6 +26,7 @@ impl Plugin for RouterPlugin {
         app.init_resource::<PendingKeys>();
         app.init_resource::<StatusMessage>();
         app.init_resource::<crate::overlay::ActiveOverlay>();
+        app.init_resource::<crate::prompt::PromptState>();
         app.init_resource::<crate::sidebar::SidebarState>();
         app.init_resource::<Screen>();
         app.add_systems(Startup, spawn_router);
@@ -76,6 +78,9 @@ pub fn route_key(world: &mut World, _entity: Entity, event: UiEvent) -> Result {
     if world.resource::<Mode>().0 == InputMode::CommandLine {
         return crate::cmdline::handle_key(world, key);
     }
+    if world.resource::<Mode>().0 == InputMode::Prompt {
+        return crate::prompt::handle_key(world, key);
+    }
     if world.resource::<crate::overlay::ActiveOverlay>().is_open() {
         return crate::overlay::handle_key(world, key);
     }
@@ -97,6 +102,7 @@ fn resolve_now(world: &mut World, now: f64) {
             match world.resource::<Screen>() {
                 Screen::Index => CONTEXT_INDEX,
                 Screen::Pager => CONTEXT_PAGER,
+                Screen::Compose => CONTEXT_COMPOSE,
             }
         };
         let keymaps = world.resource::<Keymaps>();

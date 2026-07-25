@@ -95,7 +95,7 @@ fn sync_mode_visibility(
         state.reset_input();
     }
     set_enabled(&mut widgets.p0(), show);
-    set_enabled(&mut widgets.p1(), !show);
+    set_enabled(&mut widgets.p1(), mode.0 == InputMode::Normal);
 }
 
 fn set_enabled(

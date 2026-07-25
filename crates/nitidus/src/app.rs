@@ -11,6 +11,8 @@ use plurimus::PlurimusPlugin;
 
 use crate::bootstrap::EngineSetup;
 use crate::cmdline::CommandLinePlugin;
+use crate::compose::ComposePlugin;
+use crate::prompt::PromptPlugin;
 use crate::config::LoadedConfig;
 use crate::engine::{CacheResource, EnginePlugin, EngineResource, StartupNotices};
 use crate::index::IndexPlugin;
@@ -56,6 +58,8 @@ pub fn build_app(loaded: LoadedConfig, keymaps: Keymaps, setup: EngineSetup) -> 
         OverlayPlugin,
         RouterPlugin,
         CommandLinePlugin,
+        PromptPlugin,
+        ComposePlugin,
         EnginePlugin,
     ));
     app

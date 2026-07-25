@@ -5,6 +5,7 @@ use bevy::prelude::Resource;
 
 #[derive(Resource, Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Screen {
+    Compose,
     #[default]
     Index,
     Pager,

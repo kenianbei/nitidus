@@ -17,8 +17,8 @@ mod rows;
 pub use rows::{BindingRow, HelpRow};
 
 use defaults::{
-    DEFAULT_GLOBAL_BINDINGS, DEFAULT_INDEX_BINDINGS, DEFAULT_PAGER_BINDINGS,
-    DEFAULT_PICKER_BINDINGS, DEFAULT_SIDEBAR_BINDINGS,
+    DEFAULT_COMPOSE_BINDINGS, DEFAULT_GLOBAL_BINDINGS, DEFAULT_INDEX_BINDINGS,
+    DEFAULT_PAGER_BINDINGS, DEFAULT_PICKER_BINDINGS, DEFAULT_SIDEBAR_BINDINGS,
 };
 
 #[derive(Clone, Copy, Debug, Default, Hash, PartialEq, Eq)]
@@ -26,6 +26,7 @@ pub enum InputMode {
     #[default]
     Normal,
     CommandLine,
+    Prompt,
 }
 
 /// The active input mode. A plain resource (not bevy `States`) so mode
@@ -39,6 +40,7 @@ pub const CONTEXT_INDEX: &str = "index";
 pub const CONTEXT_PAGER: &str = "pager";
 pub const CONTEXT_PICKER: &str = "picker";
 pub const CONTEXT_SIDEBAR: &str = "sidebar";
+pub const CONTEXT_COMPOSE: &str = "compose";
 
 /// Contexts accepted in keys.toml. Screens activate theirs as they land;
 /// binding an inactive context is allowed, a typo is not.
@@ -48,7 +50,7 @@ pub const KNOWN_CONTEXTS: &[&str] = &[
     CONTEXT_PAGER,
     CONTEXT_PICKER,
     CONTEXT_SIDEBAR,
-    "compose",
+    CONTEXT_COMPOSE,
     "contacts",
     "command_line",
 ];
@@ -91,6 +93,9 @@ impl Keymaps {
         }
         for (sequence, command) in DEFAULT_SIDEBAR_BINDINGS {
             keymaps.bind(CONTEXT_SIDEBAR, sequence, command)?;
+        }
+        for (sequence, command) in DEFAULT_COMPOSE_BINDINGS {
+            keymaps.bind(CONTEXT_COMPOSE, sequence, command)?;
         }
         for (context, bindings) in &raw.0 {
             if !KNOWN_CONTEXTS.contains(&context.as_str()) {

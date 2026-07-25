@@ -38,6 +38,20 @@ pub enum Action {
     FolderDelete,
     Help,
     HelpScope,
+    Compose,
+    ComposeAction(ComposeOp),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ComposeOp {
+    EditBody,
+    To,
+    Cc,
+    Bcc,
+    Subject,
+    Send,
+    Postpone,
+    Discard,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -134,6 +148,8 @@ pub fn apply_action(world: &mut World, action: &Action) {
         Action::FolderDelete => crate::sidebar::folder_delete(world),
         Action::Help => crate::help::open(world, crate::help::HelpScope::Current),
         Action::HelpScope => crate::help::toggle_scope(world),
+        Action::Compose => crate::compose::start_compose(world),
+        Action::ComposeAction(op) => crate::compose::dispatch(world, *op),
     }
 }
 
@@ -155,6 +171,7 @@ fn dispatch_motion(world: &mut World, motion: Motion) {
         .unwrap_or_default();
     match screen {
         crate::screen::Screen::Pager => crate::pager::scroll(world, motion),
+        crate::screen::Screen::Compose => crate::compose::scroll(world, motion),
         crate::screen::Screen::Index => index::move_cursor(world, motion),
     }
 }
