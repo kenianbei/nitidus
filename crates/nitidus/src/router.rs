@@ -202,7 +202,7 @@ mod tests {
     }
 
     #[test]
-    fn tab_toggles_sidebar_focus_shadowing_global_tab_next() {
+    fn tab_toggles_sidebar_focus_and_never_switches_tabs() {
         let mut app = router_app();
         app.world_mut().resource_mut::<Tabs>().labels =
             vec!["mail".to_owned(), "contacts".to_owned()];
@@ -210,7 +210,7 @@ mod tests {
         assert_eq!(
             app.world().resource::<Tabs>().active,
             0,
-            "the index-context Tab binding must shadow the global tab-next"
+            "Tab is the local focus key, never tab switching"
         );
         assert!(
             app.world()

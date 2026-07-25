@@ -60,6 +60,12 @@ pub fn set_sort(world: &mut World, mode: SortMode) {
     world.resource_mut::<IndexView>().sort = mode;
 }
 
+/// `,r` — flip the current sort's direction without changing its key.
+pub fn reverse_sort(world: &mut World) {
+    let mut index_view = world.resource_mut::<IndexView>();
+    index_view.sort.reverse = !index_view.sort.reverse;
+}
+
 pub fn toggle_threads(world: &mut World) {
     let mut index_view = world.resource_mut::<IndexView>();
     index_view.threaded = !index_view.threaded;

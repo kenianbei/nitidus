@@ -111,6 +111,42 @@ pub(super) const COMMANDS: &[CommandSpec] = &[
         parse: |args| no_args("clear", args, Action::ClearFilters),
     },
     CommandSpec {
+        name: "tab",
+        summary: "jump to a tab by position",
+        aliases: &[],
+        parse: |args| {
+            let position: usize = args
+                .trim()
+                .parse()
+                .map_err(|_| anyhow::anyhow!("tab needs a position (1-9)"))?;
+            Ok(Action::TabJump(position))
+        },
+    },
+    CommandSpec {
+        name: "delete-permanent",
+        summary: "permanently delete the selection (confirmed)",
+        aliases: &[],
+        parse: |args| no_args("delete-permanent", args, Action::DeletePermanent),
+    },
+    CommandSpec {
+        name: "sort-reverse",
+        summary: "flip the current sort direction",
+        aliases: &[],
+        parse: |args| no_args("sort-reverse", args, Action::SortReverse),
+    },
+    CommandSpec {
+        name: "focus-left",
+        summary: "move focus left (sidebar, or out of the pager)",
+        aliases: &[],
+        parse: |args| no_args("focus-left", args, Action::FocusLeft),
+    },
+    CommandSpec {
+        name: "focus-right",
+        summary: "move focus right (into the list, selection, or detail)",
+        aliases: &[],
+        parse: |args| no_args("focus-right", args, Action::FocusRight),
+    },
+    CommandSpec {
         name: "search",
         summary: "incremental search over the index",
         aliases: &[],

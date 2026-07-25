@@ -11,8 +11,8 @@ mod thread_view;
 mod view;
 
 pub use filter::{clear_filters, push_limit};
-pub use ops::{flag_selected, fold, move_cursor, set_sort, toggle_threads};
-pub use remove::{delete_selected, move_selected};
+pub use ops::{flag_selected, fold, move_cursor, reverse_sort, set_sort, toggle_threads};
+pub use remove::{delete_permanent_selected, delete_selected, move_selected};
 pub use view::{IndexView, SortKey, SortMode, apply_motion, scrolled_top};
 
 use bevy::prelude::*;

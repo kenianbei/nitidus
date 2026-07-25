@@ -3,8 +3,11 @@
 pub(super) const DEFAULT_GLOBAL_BINDINGS: &[(&str, &str)] = &[
     ("q", ":quit"),
     (":", ":command-line"),
-    ("<Tab>", ":tab-next"),
-    ("<BackTab>", ":tab-prev"),
+    ("]", ":tab-next"),
+    ("[", ":tab-prev"),
+    ("1", ":tab 1"),
+    ("2", ":tab 2"),
+    ("?", ":help"),
 ];
 
 pub(super) const DEFAULT_INDEX_BINDINGS: &[(&str, &str)] = &[
@@ -17,7 +20,15 @@ pub(super) const DEFAULT_INDEX_BINDINGS: &[(&str, &str)] = &[
     ("gg", ":first"),
     ("G", ":last"),
     ("u", ":toggle-read"),
-    ("F", ":toggle-flag"),
+    ("*", ":toggle-flag"),
+    ("D", ":delete-permanent"),
+    (",d", ":sort date"),
+    (",f", ":sort from"),
+    (",s", ":sort subject"),
+    (",u", ":sort unread"),
+    (",F", ":sort flagged"),
+    (",r", ":sort-reverse"),
+    (",,", ":sort"),
     ("T", ":threads"),
     ("za", ":fold"),
     ("zM", ":fold-all"),
@@ -26,7 +37,6 @@ pub(super) const DEFAULT_INDEX_BINDINGS: &[(&str, &str)] = &[
     ("<Enter>", ":view"),
     ("b", ":sidebar"),
     ("<Tab>", ":sidebar-focus"),
-    ("?", ":help"),
     ("m", ":compose"),
     ("z", ":undo-send"),
     ("r", ":reply"),
@@ -39,6 +49,8 @@ pub(super) const DEFAULT_INDEX_BINDINGS: &[(&str, &str)] = &[
     ("/", ":search"),
     ("n", ":search-next"),
     ("N", ":search-prev"),
+    ("<Left>", ":focus-left"),
+    ("<Right>", ":focus-right"),
 ];
 
 pub(super) const DEFAULT_PAGER_BINDINGS: &[(&str, &str)] = &[
@@ -56,19 +68,20 @@ pub(super) const DEFAULT_PAGER_BINDINGS: &[(&str, &str)] = &[
     ("K", ":prev-message"),
     ("H", ":headers"),
     ("S", ":skip-quoted"),
-    ("]", ":next-part"),
-    ("[", ":prev-part"),
+    ("}", ":next-part"),
+    ("{", ":prev-part"),
+    ("D", ":delete-permanent"),
     ("s", ":save-part"),
     ("o", ":open-part"),
     ("l", ":links"),
     ("d", ":delete"),
     ("b", ":sidebar"),
     ("<Tab>", ":sidebar-focus"),
-    ("?", ":help"),
     ("r", ":reply"),
     ("R", ":reply-all"),
     ("f", ":forward"),
     ("A", ":add-contact"),
+    ("<Left>", ":focus-left"),
 ];
 
 pub(super) const DEFAULT_CONTACTS_BINDINGS: &[(&str, &str)] = &[
@@ -90,10 +103,12 @@ pub(super) const DEFAULT_CONTACTS_BINDINGS: &[(&str, &str)] = &[
     ("D", ":delete-contact"),
     ("P", ":set-photo"),
     ("m", ":mail-to"),
-    ("?", ":help"),
+    ("<Left>", ":focus-left"),
+    ("<Right>", ":focus-right"),
 ];
 
 pub(super) const DEFAULT_SIDEBAR_BINDINGS: &[(&str, &str)] = &[
+    ("<Right>", ":focus-right"),
     ("j", ":next"),
     ("k", ":prev"),
     ("<Down>", ":next"),
@@ -113,7 +128,6 @@ pub(super) const DEFAULT_SIDEBAR_BINDINGS: &[(&str, &str)] = &[
     ("c", ":command-line folder-create"),
     ("r", ":command-line folder-rename"),
     ("D", ":command-line folder-delete"),
-    ("?", ":help"),
 ];
 
 /// Only single-key bindings are meaningful here: the picker resolves
@@ -150,5 +164,4 @@ pub(super) const DEFAULT_COMPOSE_BINDINGS: &[(&str, &str)] = &[
     ("x", ":detach"),
     ("<Esc>", ":discard"),
     ("<Tab>", ":sidebar-focus"),
-    ("?", ":help"),
 ];

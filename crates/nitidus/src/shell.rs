@@ -91,6 +91,19 @@ pub fn activate_tab(world: &mut World, label: &str) {
     apply_active_tab(world);
 }
 
+/// `1`/`2`/`:tab <n>` — positional jump, 1-based.
+pub fn jump_tab(world: &mut World, position: usize) {
+    if refuse_while_composing(world) {
+        return;
+    }
+    let count = world.resource::<Tabs>().labels.len();
+    if position == 0 || position > count {
+        return;
+    }
+    world.resource_mut::<Tabs>().active = position - 1;
+    apply_active_tab(world);
+}
+
 /// The composer stays modal until sent, postponed, or discarded —
 /// tabbing away would orphan an open editing session.
 fn refuse_while_composing(world: &mut World) -> bool {

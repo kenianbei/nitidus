@@ -36,6 +36,11 @@ pub enum Action {
     SearchStart,
     SearchNext,
     SearchPrev,
+    TabJump(usize),
+    DeletePermanent,
+    SortReverse,
+    FocusLeft,
+    FocusRight,
     Echo(String),
     Cursor(Motion),
     Sort(SortMode),
@@ -164,6 +169,11 @@ pub fn apply_action(world: &mut World, action: &Action) {
         Action::SearchStart => index::search::start_search(world),
         Action::SearchNext => index::search::search_next(world),
         Action::SearchPrev => index::search::search_prev(world),
+        Action::TabJump(position) => crate::shell::jump_tab(world, *position),
+        Action::DeletePermanent => index::delete_permanent_selected(world),
+        Action::SortReverse => index::reverse_sort(world),
+        Action::FocusLeft => dispatch_focus(world, FocusDirection::Left),
+        Action::FocusRight => dispatch_focus(world, FocusDirection::Right),
         Action::Echo(text) => {
             let now = world.resource::<Time>().elapsed_secs_f64();
             world
@@ -213,6 +223,51 @@ pub fn apply_action(world: &mut World, action: &Action) {
         Action::RemoveAccount => crate::accounts::manage::remove_account(world),
         Action::Delete => crate::index::delete_selected(world),
         Action::Move(folder) => crate::index::move_selected(world, folder),
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum FocusDirection {
+    Left,
+    Right,
+}
+
+/// The yazi reflex: left goes out (sidebar, closing the pager), right
+/// goes in (back to the list, opening the selection, the detail pane).
+fn dispatch_focus(world: &mut World, direction: FocusDirection) {
+    let screen = world
+        .get_resource::<crate::screen::Screen>()
+        .copied()
+        .unwrap_or_default();
+    if screen == crate::screen::Screen::Contacts {
+        let mut view = world.resource_mut::<crate::contacts::ContactsView>();
+        view.focus = match direction {
+            FocusDirection::Left => crate::contacts::PaneFocus::Table,
+            FocusDirection::Right => crate::contacts::PaneFocus::Detail,
+        };
+        return;
+    }
+    if crate::sidebar::is_focused(world) {
+        // Right = enter, exactly like Enter: opening a folder hands
+        // focus back; expanding a group keeps you in the sidebar.
+        if direction == FocusDirection::Right {
+            crate::sidebar::select(world);
+        }
+        return;
+    }
+    match (screen, direction) {
+        (crate::screen::Screen::Index, FocusDirection::Left) => {
+            let mut sidebar = world.resource_mut::<crate::sidebar::SidebarState>();
+            sidebar.visible = true;
+            sidebar.focused = true;
+        }
+        (crate::screen::Screen::Index, FocusDirection::Right) => {
+            crate::pager::open_selected(world);
+        }
+        (crate::screen::Screen::Pager, FocusDirection::Left) => {
+            crate::pager::dispatch(world, PagerOp::Close);
+        }
+        _ => {}
     }
 }
 

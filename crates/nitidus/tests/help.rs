@@ -72,9 +72,14 @@ fn question_mark_opens_current_context_bindings_with_summaries() {
             .ends_with("(global)"),
         "{quit:?}"
     );
+    let tab_next = items
+        .iter()
+        .find(|item| item.label.contains("tab-next"))
+        .expect("] tab-next is an unshadowed global now");
     assert!(
-        !items.iter().any(|item| item.label.contains("tab-next")),
-        "the shadowed global Tab binding must not appear"
+        tab_next.label.starts_with(']'),
+        "tab switching moved to the brackets: {}",
+        tab_next.label
     );
 }
 

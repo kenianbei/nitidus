@@ -33,6 +33,14 @@ pub fn delete_selected(world: &mut World) {
     dispatch(world, target, Removal::Move(trash));
 }
 
+/// `D`/`:delete-permanent` — the confirmed purge, from any folder.
+pub fn delete_permanent_selected(world: &mut World) {
+    let Some(target) = current_target(world) else {
+        return;
+    };
+    confirm_permanent(world, target);
+}
+
 pub fn move_selected(world: &mut World, destination: &str) {
     let Some(target) = current_target(world) else {
         return;
