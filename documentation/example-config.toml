@@ -12,6 +12,15 @@
 # Theme preset. Available: "tailwind-dark".
 theme = "tailwind-dark"
 
+[ui.index]
+# Message-index columns, rendered in order. Any subset of:
+# "flags", "date", "from", "subject". Widths are built in; the last
+# column stretches to fill the pane.
+columns = ["flags", "date", "from", "subject"]
+# Date display: "auto" (time today, "Jul 24" this year, ISO otherwise),
+# or force "time" | "short" | "iso".
+date = "auto"
+
 # Accounts are an array of tables — repeat [[accounts]] per account.
 [[accounts]]
 name = "personal"

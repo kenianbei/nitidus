@@ -7,6 +7,6 @@ mod presets;
 mod states;
 
 pub use color::ThemeColor;
-pub use palette::{Theme, ThemePalette};
+pub use palette::{Theme, ThemeIndexStyles, ThemePalette};
 pub use presets::tailwind_dark;
 pub use states::{ThemeColorStates, ThemeColors};

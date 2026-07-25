@@ -113,7 +113,7 @@ struct IndexWindowState {
     active: bool,
     rows: Vec<IndexRow>,
     empty_message: Option<String>,
-    styles: RowStyles,
+    context: render::RowContext,
     /// Retained search query — lights up matches in the rows.
     search: Option<String>,
     last_height: u16,
@@ -168,15 +168,14 @@ fn current_envelopes<'a>(store: &'a MailStore, index_view: &IndexView) -> &'a [E
 }
 
 fn refresh_index(
-    theme: Res<Theme>,
-    store: Res<MailStore>,
-    order: Res<IndexOrder>,
-    screen: Res<crate::screen::Screen>,
+    (theme, config): (Res<Theme>, Res<Config>),
+    (store, order, screen): (Res<MailStore>, Res<IndexOrder>, Res<crate::screen::Screen>),
     mut index_view: ResMut<IndexView>,
     mut status: ResMut<IndexStatus>,
     mut widgets: Query<&mut Widget, With<IndexWidget>>,
 ) -> Result {
     let changed = theme.is_changed()
+        || config.is_changed()
         || store.is_changed()
         || index_view.is_changed()
         || order.is_changed()
@@ -195,7 +194,16 @@ fn refresh_index(
     // a tracked write here would re-trigger this system every frame.
     let cached = index_view.bypass_change_detection();
     anchor_selection(cached, envelopes, &order.entries, selected_row, viewport);
-    let mut window = build_window_state(&theme, envelopes, &order.entries, cached, viewport);
+    let mut window = build_window_state(
+        &theme,
+        &config.ui.index,
+        WindowSource {
+            envelopes,
+            entries: &order.entries,
+            index_view: cached,
+            viewport,
+        },
+    );
     window.last_height = last_height;
     window.active = *screen == crate::screen::Screen::Index;
     widget.set_state(window)?;
@@ -256,47 +264,63 @@ fn anchor_selection(
     }
 }
 
+struct WindowSource<'a> {
+    envelopes: &'a [EnvelopeSummary],
+    entries: &'a [OrderEntry],
+    index_view: &'a IndexView,
+    viewport: usize,
+}
+
 fn build_window_state(
     theme: &Theme,
-    envelopes: &[EnvelopeSummary],
-    entries: &[OrderEntry],
-    index_view: &IndexView,
-    viewport: usize,
+    index_config: &crate::config::IndexUiConfig,
+    source: WindowSource<'_>,
 ) -> IndexWindowState {
-    let empty_message = if index_view.account.is_none() {
+    let empty_message = if source.index_view.account.is_none() {
         Some("no accounts configured".to_owned())
-    } else if envelopes.is_empty() {
+    } else if source.envelopes.is_empty() {
         Some("empty folder".to_owned())
     } else {
         None
     };
+    IndexWindowState {
+        active: false,
+        rows: build_window_rows(&source, index_config.date),
+        empty_message,
+        context: render::RowContext {
+            styles: RowStyles::from_theme(theme),
+            columns: index_config.columns.clone(),
+        },
+        search: source.index_view.search.clone(),
+        last_height: 0,
+    }
+}
+
+fn build_window_rows(source: &WindowSource<'_>, date: crate::config::DateFormat) -> Vec<IndexRow> {
+    let index_view = source.index_view;
     let now = jiff::Zoned::now();
     // `entries` can be a frame staler than `envelopes` after a row
     // removal — clamp the window and resolve rows leniently.
-    let window_top = index_view.top.min(entries.len());
-    let window_end = (window_top + viewport.max(MIN_WINDOW_ROWS)).min(entries.len());
-    let rows = entries[window_top..window_end]
+    let window_top = index_view.top.min(source.entries.len());
+    let window_end = (window_top + source.viewport.max(MIN_WINDOW_ROWS)).min(source.entries.len());
+    source.entries[window_top..window_end]
         .iter()
         .enumerate()
         .filter_map(|(offset, entry)| {
             let row = window_top + offset;
-            let selected = row == index_view.selected_row;
             let visual = marks::visual_rows(index_view);
-            envelopes.get(entry.index as usize).map(|envelope| {
-                let marked = index_view.marked.contains(&envelope.id)
-                    || visual.is_some_and(|range| range.contains(&row));
-                render::build_row(envelope, entry, selected, marked, &now)
+            source.envelopes.get(entry.index as usize).map(|envelope| {
+                let context = render::RowBuildContext {
+                    now: &now,
+                    date,
+                    selected: row == index_view.selected_row,
+                    marked: index_view.marked.contains(&envelope.id)
+                        || visual.is_some_and(|range| range.contains(&row)),
+                };
+                render::build_row(envelope, entry, &context)
             })
         })
-        .collect();
-    IndexWindowState {
-        active: false,
-        rows,
-        empty_message,
-        styles: RowStyles::from_theme(theme),
-        search: index_view.search.clone(),
-        last_height: 0,
-    }
+        .collect()
 }
 
 fn marked_row_count(
@@ -325,7 +349,7 @@ fn render_index(frame: &mut ratatui::Frame, area: Rect, state: &mut IndexWindowS
     }
     if let Some(message) = &state.empty_message {
         let paragraph = Paragraph::new(message.as_str())
-            .style(state.styles.normal)
+            .style(state.context.styles.normal)
             .centered();
         frame.render_widget(paragraph, area);
         return Ok(());
@@ -334,8 +358,11 @@ fn render_index(frame: &mut ratatui::Frame, area: Rect, state: &mut IndexWindowS
         .rows
         .iter()
         .take(usize::from(area.height))
-        .map(|row| render::row_line(row, area.width, &state.styles, state.search.as_deref()))
+        .map(|row| render::row_line(row, area.width, &state.context, state.search.as_deref()))
         .collect();
-    frame.render_widget(Paragraph::new(lines).style(state.styles.normal), area);
+    frame.render_widget(
+        Paragraph::new(lines).style(state.context.styles.normal),
+        area,
+    );
     Ok(())
 }

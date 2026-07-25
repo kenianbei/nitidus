@@ -1,14 +1,21 @@
-use ratatui::style::Color;
 use ratatui::style::palette::tailwind;
+use ratatui::style::{Color, Modifier, Style};
 
 use super::color::ThemeColor;
-use super::palette::{Theme, ThemePalette};
+use super::palette::{Theme, ThemeIndexStyles, ThemePalette};
 use super::states::{ThemeColorStates, ThemeColors};
 
 pub fn tailwind_dark() -> Theme {
+    let base = dark_palette(tailwind::SLATE.c900, tailwind::SLATE.c300);
     Theme {
-        base: dark_palette(tailwind::SLATE.c900, tailwind::SLATE.c300),
+        base,
         paper: dark_palette(tailwind::SLATE.c800, tailwind::SLATE.c200),
+        index: ThemeIndexStyles {
+            unseen: Style::new().add_modifier(Modifier::BOLD),
+            flagged: Style::new().fg(base.warning.normal.fg.into()),
+            deleted: Style::new().add_modifier(Modifier::DIM),
+            marked: base.info.normal.style(),
+        },
     }
 }
 
@@ -61,6 +68,26 @@ mod tests {
                 assert_ne!(a, b, "palette accents must be distinguishable");
             }
         }
+    }
+
+    #[test]
+    fn index_roles_match_the_established_look() {
+        let theme = tailwind_dark();
+        assert_eq!(
+            theme.index.unseen,
+            Style::new().add_modifier(Modifier::BOLD)
+        );
+        assert_eq!(
+            theme.index.deleted,
+            Style::new().add_modifier(Modifier::DIM)
+        );
+        assert_eq!(theme.index.marked, theme.base.info.normal.style());
+        assert_eq!(
+            theme.index.flagged.fg,
+            Some(theme.base.warning.normal.fg.into()),
+            "flagged rows carry the warning tint"
+        );
+        assert_eq!(theme.index.flagged.bg, None, "a tint patches fg only");
     }
 
     #[test]

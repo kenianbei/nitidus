@@ -7,10 +7,13 @@ use nitidus_ui_kit::theme::Theme;
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 
+use crate::config::{DateFormat, IndexColumn, IndexUiConfig};
+
 const FLAGS_WIDTH: usize = 4;
 const DATE_WIDTH: usize = 12;
 const FROM_PERCENT: usize = 30;
 const FROM_MAX: usize = 30;
+const COLUMN_GAP: usize = 1;
 const ELLIPSIS: char = '…';
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -20,6 +23,7 @@ pub struct IndexRow {
     pub from: String,
     pub subject: String,
     pub unseen: bool,
+    pub flagged: bool,
     pub deleted: bool,
     pub selected: bool,
     pub marked: bool,
@@ -31,6 +35,9 @@ pub struct RowStyles {
     pub selected: Style,
     pub highlight: Style,
     pub marked: Style,
+    pub unseen: Style,
+    pub flagged: Style,
+    pub deleted: Style,
 }
 
 impl RowStyles {
@@ -45,7 +52,34 @@ impl RowStyles {
                 .normal
                 .style()
                 .add_modifier(Modifier::BOLD),
-            marked: theme.base.info.normal.style(),
+            marked: theme.index.marked,
+            unseen: theme.index.unseen,
+            flagged: theme.index.flagged,
+            deleted: theme.index.deleted,
+        }
+    }
+}
+
+pub(super) struct RowBuildContext<'a> {
+    pub now: &'a Zoned,
+    pub date: DateFormat,
+    pub selected: bool,
+    pub marked: bool,
+}
+
+/// Column order and styles resolved once per refresh, shared by every
+/// row of the window.
+#[derive(Clone, Debug)]
+pub struct RowContext {
+    pub styles: RowStyles,
+    pub columns: Vec<IndexColumn>,
+}
+
+impl Default for RowContext {
+    fn default() -> Self {
+        Self {
+            styles: RowStyles::default(),
+            columns: IndexUiConfig::default().columns,
         }
     }
 }
@@ -53,23 +87,22 @@ impl RowStyles {
 pub(super) fn build_row(
     envelope: &EnvelopeSummary,
     entry: &super::thread_view::OrderEntry,
-    selected: bool,
-    marked: bool,
-    now: &Zoned,
+    context: &RowBuildContext<'_>,
 ) -> IndexRow {
     IndexRow {
-        flag_cell: if marked {
+        flag_cell: if context.marked {
             format!("*{}", flag_cell(envelope.flags))
         } else {
             flag_cell(envelope.flags)
         },
-        date: format_date(envelope.date_epoch_secs, now),
+        date: format_date(envelope.date_epoch_secs, context.now, context.date),
         from: envelope.from_display.clone(),
         subject: threaded_subject(&envelope.subject, entry.depth, entry.collapsed_children),
         unseen: !envelope.flags.contains(Flags::SEEN),
+        flagged: envelope.flags.contains(Flags::FLAGGED),
         deleted: envelope.flags.contains(Flags::DELETED),
-        selected,
-        marked,
+        selected: context.selected,
+        marked: context.marked,
     }
 }
 
@@ -106,40 +139,93 @@ pub fn flag_cell(flags: Flags) -> String {
     cell
 }
 
-/// `HH:MM` today, `Jul 24` this year, `2024-02-15` otherwise.
-pub fn format_date(epoch_secs: i64, now: &Zoned) -> String {
+const TIME_PATTERN: &str = "%H:%M";
+const SHORT_PATTERN: &str = "%b %d";
+const ISO_PATTERN: &str = "%Y-%m-%d";
+
+pub fn format_date(epoch_secs: i64, now: &Zoned, format: DateFormat) -> String {
     let Ok(timestamp) = jiff::Timestamp::from_second(epoch_secs) else {
         return String::new();
     };
     let zoned = timestamp.to_zoned(now.time_zone().clone());
-    let pattern = if zoned.date() == now.date() {
-        "%H:%M"
-    } else if zoned.year() == now.year() {
-        "%b %d"
-    } else {
-        "%Y-%m-%d"
+    let pattern = match format {
+        DateFormat::Time => TIME_PATTERN,
+        DateFormat::Short => SHORT_PATTERN,
+        DateFormat::Iso => ISO_PATTERN,
+        DateFormat::Auto => auto_pattern(&zoned, now),
     };
     jiff::fmt::strtime::format(pattern, &zoned).unwrap_or_default()
+}
+
+/// Time today, `Jul 24` this year, ISO otherwise.
+fn auto_pattern(zoned: &Zoned, now: &Zoned) -> &'static str {
+    if zoned.date() == now.date() {
+        TIME_PATTERN
+    } else if zoned.year() == now.year() {
+        SHORT_PATTERN
+    } else {
+        ISO_PATTERN
+    }
+}
+
+fn cell_text(row: &IndexRow, column: IndexColumn) -> &str {
+    match column {
+        IndexColumn::Flags => &row.flag_cell,
+        IndexColumn::Date => &row.date,
+        IndexColumn::From => &row.from,
+        IndexColumn::Subject => &row.subject,
+    }
+}
+
+fn cell_width(column: IndexColumn, columns: &[IndexColumn], pane: usize) -> usize {
+    match column {
+        IndexColumn::Flags => FLAGS_WIDTH,
+        IndexColumn::Date => DATE_WIDTH,
+        IndexColumn::From => from_width(pane),
+        IndexColumn::Subject => subject_width(columns, pane),
+    }
+}
+
+fn from_width(pane: usize) -> usize {
+    ((pane * FROM_PERCENT) / 100).min(FROM_MAX)
+}
+
+/// Subject absorbs whatever the fixed columns and gaps leave over.
+fn subject_width(columns: &[IndexColumn], pane: usize) -> usize {
+    let gaps = columns.len().saturating_sub(1) * COLUMN_GAP;
+    let fixed: usize = columns
+        .iter()
+        .map(|column| match column {
+            IndexColumn::Flags => FLAGS_WIDTH,
+            IndexColumn::Date => DATE_WIDTH,
+            IndexColumn::From => from_width(pane),
+            IndexColumn::Subject => 0,
+        })
+        .sum();
+    pane.saturating_sub(fixed + gaps)
 }
 
 pub fn row_line(
     row: &IndexRow,
     width: u16,
-    styles: &RowStyles,
+    context: &RowContext,
     query: Option<&str>,
 ) -> Line<'static> {
-    let style = row_style(row, styles);
+    let style = row_style(row, &context.styles);
     let width = usize::from(width);
-    let from_width = ((width * FROM_PERCENT) / 100).min(FROM_MAX);
-    let subject_width = width.saturating_sub(FLAGS_WIDTH + DATE_WIDTH + from_width + 3);
-    let text = format!(
-        "{} {} {} {}",
-        fit(&row.flag_cell, FLAGS_WIDTH),
-        fit(&row.date, DATE_WIDTH),
-        fit(&row.from, from_width),
-        fit(&row.subject, subject_width),
-    );
-    let fitted = fit(&text, width);
+    let cells: Vec<String> = context
+        .columns
+        .iter()
+        .map(|&column| {
+            fit(
+                cell_text(row, column),
+                cell_width(column, &context.columns, width),
+            )
+        })
+        .collect();
+    // The trailing fit pads the line to pane width, so the last column
+    // always stretches even without a subject.
+    let fitted = fit(&cells.join(&" ".repeat(COLUMN_GAP)), width);
     // Highlight the first match in the rendered line — truncated-away
     // matches simply do not light up.
     if let Some(query) = query
@@ -147,13 +233,18 @@ pub fn row_line(
     {
         return Line::from(vec![
             Span::styled(fitted[..start].to_owned(), style),
-            Span::styled(fitted[start..end].to_owned(), style.patch(styles.highlight)),
+            Span::styled(
+                fitted[start..end].to_owned(),
+                style.patch(context.styles.highlight),
+            ),
             Span::styled(fitted[end..].to_owned(), style),
         ]);
     }
     Line::from(Span::styled(fitted, style))
 }
 
+/// Base by selection state, then the theme's role patches in a fixed
+/// order so precedence is deterministic: unseen, flagged, deleted.
 fn row_style(row: &IndexRow, styles: &RowStyles) -> Style {
     let mut style = if row.selected {
         styles.selected
@@ -163,10 +254,13 @@ fn row_style(row: &IndexRow, styles: &RowStyles) -> Style {
         styles.normal
     };
     if row.unseen {
-        style = style.add_modifier(Modifier::BOLD);
+        style = style.patch(styles.unseen);
+    }
+    if row.flagged {
+        style = style.patch(styles.flagged);
     }
     if row.deleted {
-        style = style.add_modifier(Modifier::DIM);
+        style = style.patch(styles.deleted);
     }
     style
 }
@@ -205,20 +299,24 @@ mod tests_highlight {
             from: "Ada".to_owned(),
             subject: "quarterly report".to_owned(),
             unseen: false,
+            flagged: false,
             deleted: false,
             selected: false,
             marked: false,
         };
-        let styles = RowStyles {
-            highlight: Style::default().add_modifier(Modifier::BOLD),
-            ..RowStyles::default()
+        let context = RowContext {
+            styles: RowStyles {
+                highlight: Style::default().add_modifier(Modifier::BOLD),
+                ..RowStyles::default()
+            },
+            ..RowContext::default()
         };
-        let line = row_line(&row, 60, &styles, Some("report"));
+        let line = row_line(&row, 60, &context, Some("report"));
         assert_eq!(line.spans.len(), 3, "prefix, match, suffix");
         assert_eq!(line.spans[1].content.as_ref(), "report");
         assert!(line.spans[1].style.add_modifier.contains(Modifier::BOLD));
 
-        let unmatched = row_line(&row, 60, &styles, Some("nowhere"));
+        let unmatched = row_line(&row, 60, &context, Some("nowhere"));
         assert_eq!(unmatched.spans.len(), 1);
     }
 }
@@ -253,21 +351,49 @@ mod tests {
     }
 
     #[test]
-    fn dates_shorten_by_recency() {
+    fn auto_dates_shorten_by_recency() {
         let now = zoned("2026-07-24T15:00:00+00:00[UTC]");
         let same_day = zoned("2026-07-24T09:30:00+00:00[UTC]");
         let same_year = zoned("2026-02-15T12:00:00+00:00[UTC]");
         let older = zoned("2024-02-15T12:00:00+00:00[UTC]");
-        assert_eq!(format_date(same_day.timestamp().as_second(), &now), "09:30");
+        let auto = |epoch| format_date(epoch, &now, DateFormat::Auto);
+        assert_eq!(auto(same_day.timestamp().as_second()), "09:30");
+        assert_eq!(auto(same_year.timestamp().as_second()), "Feb 15");
+        assert_eq!(auto(older.timestamp().as_second()), "2024-02-15");
+        assert_eq!(auto(i64::MAX), "");
+    }
+
+    #[test]
+    fn forced_date_formats_ignore_recency() {
+        let now = zoned("2026-07-24T15:00:00+00:00[UTC]");
+        let today = zoned("2026-07-24T09:30:00+00:00[UTC]")
+            .timestamp()
+            .as_second();
+        assert_eq!(format_date(today, &now, DateFormat::Time), "09:30");
+        assert_eq!(format_date(today, &now, DateFormat::Short), "Jul 24");
+        assert_eq!(format_date(today, &now, DateFormat::Iso), "2026-07-24");
+    }
+
+    #[test]
+    fn flagged_rows_are_tinted_but_keep_the_selected_background() {
+        let styles = RowStyles::from_theme(&nitidus_ui_kit::theme::tailwind_dark());
+        let flagged = IndexRow {
+            flagged: true,
+            ..IndexRow::default()
+        };
+        assert_ne!(row_style(&flagged, &styles), styles.normal);
+
+        let selected_flagged = IndexRow {
+            flagged: true,
+            selected: true,
+            ..IndexRow::default()
+        };
+        assert_eq!(row_style(&selected_flagged, &styles).bg, styles.selected.bg);
         assert_eq!(
-            format_date(same_year.timestamp().as_second(), &now),
-            "Feb 15"
+            row_style(&selected_flagged, &styles).fg,
+            styles.flagged.fg,
+            "the tint patches fg over the selected base"
         );
-        assert_eq!(
-            format_date(older.timestamp().as_second(), &now),
-            "2024-02-15"
-        );
-        assert_eq!(format_date(i64::MAX, &now), "");
     }
 
     #[test]
@@ -278,8 +404,12 @@ mod tests {
         assert_eq!(fit("abc", 0), "");
     }
 
+    fn line_text(line: &Line<'static>) -> String {
+        line.spans.iter().map(|s| s.content.as_ref()).collect()
+    }
+
     #[test]
-    fn row_line_fills_exact_width() {
+    fn default_columns_fill_exact_width_in_the_established_order() {
         let row = IndexRow {
             flag_cell: "NF".to_owned(),
             date: "Jul 24".to_owned(),
@@ -287,9 +417,35 @@ mod tests {
             subject: "a very long subject line that will not fit".to_owned(),
             ..IndexRow::default()
         };
-        let line = row_line(&row, 60, &RowStyles::default(), None);
-        let text: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
+        let text = line_text(&row_line(&row, 60, &RowContext::default(), None));
         assert_eq!(text.chars().count(), 60);
         assert!(text.starts_with("NF   Jul 24"), "{text:?}");
+    }
+
+    #[test]
+    fn configured_columns_render_in_order_and_subset() {
+        let row = IndexRow {
+            flag_cell: "N".to_owned(),
+            date: "Jul 24".to_owned(),
+            from: "Alice".to_owned(),
+            subject: "hello".to_owned(),
+            ..IndexRow::default()
+        };
+        let reordered = RowContext {
+            columns: vec![IndexColumn::Date, IndexColumn::Subject, IndexColumn::From],
+            ..RowContext::default()
+        };
+        let text = line_text(&row_line(&row, 40, &reordered, None));
+        assert_eq!(text.chars().count(), 40);
+        assert!(text.starts_with("Jul 24       hello"), "{text:?}");
+        assert!(!text.contains('N'), "flags column was dropped: {text:?}");
+
+        let no_subject = RowContext {
+            columns: vec![IndexColumn::Flags, IndexColumn::From],
+            ..RowContext::default()
+        };
+        let text = line_text(&row_line(&row, 40, &no_subject, None));
+        assert_eq!(text.chars().count(), 40, "line still fills the pane");
+        assert!(!text.contains("hello"), "{text:?}");
     }
 }

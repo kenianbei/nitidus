@@ -13,4 +13,4 @@ pub mod write;
 
 pub use keymaps::{RawKeymaps, parse_key_sequence};
 pub use load::{CONFIG_FILE_NAME, KEYS_FILE_NAME, LoadedConfig, load};
-pub use schema::{Config, THEME_TAILWIND_DARK, UiConfig};
+pub use schema::{Config, DateFormat, IndexColumn, IndexUiConfig, THEME_TAILWIND_DARK, UiConfig};

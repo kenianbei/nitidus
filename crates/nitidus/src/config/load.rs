@@ -47,6 +47,12 @@ pub(crate) fn validate(config: &Config) -> anyhow::Result<()> {
             config.ui.theme
         );
     }
+    let mut columns = BTreeSet::new();
+    for column in &config.ui.index.columns {
+        if !columns.insert(column) {
+            bail!("duplicate index column {column:?}");
+        }
+    }
     let mut names = BTreeSet::new();
     for account in &config.accounts {
         if account.name.is_empty() {
@@ -116,6 +122,22 @@ mod tests {
     #[test]
     fn empty_account_name_is_rejected() {
         assert!(validate(&config_with_accounts(&[""])).is_err());
+    }
+
+    #[test]
+    fn duplicate_index_column_is_rejected() {
+        use crate::config::schema::IndexColumn;
+        let mut config = Config::default();
+        config.ui.index.columns = vec![IndexColumn::Date, IndexColumn::Date];
+        let message = validate(&config).unwrap_err().to_string();
+        assert!(message.contains("duplicate index column"), "{message}");
+    }
+
+    #[test]
+    fn empty_index_columns_are_allowed() {
+        let mut config = Config::default();
+        config.ui.index.columns.clear();
+        assert!(validate(&config).is_ok());
     }
 
     #[test]

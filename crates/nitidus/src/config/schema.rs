@@ -20,14 +20,56 @@ pub struct Config {
 #[serde(default, deny_unknown_fields)]
 pub struct UiConfig {
     pub theme: String,
+    pub index: IndexUiConfig,
 }
 
 impl Default for UiConfig {
     fn default() -> Self {
         Self {
             theme: THEME_TAILWIND_DARK.to_owned(),
+            index: IndexUiConfig::default(),
         }
     }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct IndexUiConfig {
+    pub columns: Vec<IndexColumn>,
+    pub date: DateFormat,
+}
+
+impl Default for IndexUiConfig {
+    fn default() -> Self {
+        Self {
+            columns: vec![
+                IndexColumn::Flags,
+                IndexColumn::Date,
+                IndexColumn::From,
+                IndexColumn::Subject,
+            ],
+            date: DateFormat::default(),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum IndexColumn {
+    Flags,
+    Date,
+    From,
+    Subject,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum DateFormat {
+    #[default]
+    Auto,
+    Time,
+    Short,
+    Iso,
 }
 
 #[cfg(test)]
@@ -48,6 +90,49 @@ mod tests {
     fn sections_overlay_field_by_field() {
         let config: Config = toml::from_str("[ui]\n").unwrap();
         assert_eq!(config.ui.theme, THEME_TAILWIND_DARK);
+        assert_eq!(config.ui.index, IndexUiConfig::default());
+
+        let partial: Config = toml::from_str("[ui.index]\ndate = \"iso\"\n").unwrap();
+        assert_eq!(partial.ui.index.date, DateFormat::Iso);
+        assert_eq!(
+            partial.ui.index.columns,
+            IndexUiConfig::default().columns,
+            "unset columns keep the default order"
+        );
+    }
+
+    #[test]
+    fn index_columns_parse_subset_in_order() {
+        let config: Config =
+            toml::from_str("[ui.index]\ncolumns = [\"date\", \"subject\"]\n").unwrap();
+        assert_eq!(
+            config.ui.index.columns,
+            vec![IndexColumn::Date, IndexColumn::Subject]
+        );
+    }
+
+    #[test]
+    fn unknown_index_column_is_rejected_with_the_valid_set() {
+        let message = toml::from_str::<Config>("[ui.index]\ncolumns = [\"size\"]\n")
+            .unwrap_err()
+            .to_string();
+        assert!(
+            message.contains("size"),
+            "error should name the value: {message}"
+        );
+        assert!(
+            message.contains("subject"),
+            "error should list options: {message}"
+        );
+    }
+
+    #[test]
+    fn unknown_date_format_is_rejected_with_the_valid_set() {
+        let message = toml::from_str::<Config>("[ui.index]\ndate = \"strftime\"\n")
+            .unwrap_err()
+            .to_string();
+        assert!(message.contains("strftime"), "{message}");
+        assert!(message.contains("iso"), "{message}");
     }
 
     #[test]
