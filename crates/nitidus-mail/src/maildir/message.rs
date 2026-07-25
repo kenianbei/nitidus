@@ -5,8 +5,6 @@ use std::fs;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 
-use mail_parser::MessageParser;
-
 use crate::error::MailError;
 use crate::types::{EnvelopeId, EnvelopeSummary, Flags};
 
@@ -17,72 +15,17 @@ pub fn parse_envelope(path: &Path, in_new: bool) -> Result<EnvelopeSummary, Mail
     let file_name = file_name_of(path)?;
     let (unique, flags) = split_flags(&file_name);
     let window = read_header_window(path)?;
-    let parsed = MessageParser::default().parse(&window);
-    let (subject, from_display, from_addr, date, message_id, references) = match &parsed {
-        Some(message) => (
-            message.subject().unwrap_or("(no subject)").to_owned(),
-            message
-                .from()
-                .and_then(|from| from.first())
-                .and_then(|addr| addr.name())
-                .unwrap_or_default()
-                .to_owned(),
-            message
-                .from()
-                .and_then(|from| from.first())
-                .and_then(|addr| addr.address())
-                .unwrap_or_default()
-                .to_owned(),
-            message.date().map(|date| date.to_timestamp()),
-            message.message_id().unwrap_or_default().to_owned(),
-            parse_references(message),
-        ),
-        None => (
-            "(unparseable message)".to_owned(),
-            String::new(),
-            String::new(),
-            None,
-            String::new(),
-            Vec::new(),
-        ),
+    let effective_flags = if in_new {
+        flags.without(Flags::SEEN)
+    } else {
+        flags
     };
-    let date_epoch_secs = date.unwrap_or_else(|| mtime_epoch(path));
-    Ok(EnvelopeSummary {
-        id: EnvelopeId::new(unique),
-        subject,
-        from_display,
-        from_addr,
-        date_epoch_secs,
-        flags: if in_new {
-            flags.without(Flags::SEEN)
-        } else {
-            flags
-        },
-        message_id,
-        references,
-    })
-}
-
-/// `References` oldest-first; `In-Reply-To` only fills in when the
-/// `References` header is missing entirely.
-fn parse_references(message: &mail_parser::Message) -> Vec<String> {
-    let references: Vec<String> = message
-        .references()
-        .as_text_list()
-        .unwrap_or_default()
-        .iter()
-        .map(|id| id.as_ref().to_owned())
-        .collect();
-    if !references.is_empty() {
-        return references;
-    }
-    message
-        .in_reply_to()
-        .as_text_list()
-        .unwrap_or_default()
-        .iter()
-        .map(|id| id.as_ref().to_owned())
-        .collect()
+    Ok(crate::envelope::summarize_headers(
+        &window,
+        EnvelopeId::new(unique),
+        effective_flags,
+        mtime_epoch(path),
+    ))
 }
 
 /// Finds the file for a maildir unique name in `cur/` then `new/`.

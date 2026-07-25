@@ -99,8 +99,17 @@ pub enum Encryption {
 pub enum Auth {
     #[default]
     Keyring,
+    PasswordFile(PasswordFileAuth),
     PasswordCmd(PasswordCmdAuth),
     Oauth2(Oauth2Auth),
+}
+
+/// A plaintext password file; `~` expands, and a relative path resolves
+/// against the nitidus config directory.
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct PasswordFileAuth {
+    pub path: PathBuf,
 }
 
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]

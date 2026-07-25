@@ -1,5 +1,11 @@
 # Rust Libraries — Ecosystem Review
 
+> **Note (2026-07-24):** This file is historical research, not authority.
+> Library choices follow [specification.md](specification.md) and
+> [roadmap.md](roadmap.md); where this file disagrees with them (e.g. its
+> async-imap recommendation), the specification wins. The same applies to
+> every file in `documentation/` other than those two.
+
 Comprehensive review of Rust crates for nitidus's feature set. All versions and
 dates verified against the crates.io API and GitHub on 2026-07-23. The UI stack
 (bevy 0.18 + bevy_ratatui + plurimus + ratatui 0.30 + ratatui-image

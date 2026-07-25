@@ -186,9 +186,9 @@ fn toggle_collapse(world: &mut World, row: &SidebarRow) {
     }
 }
 
-/// Switching abandons the outgoing folder's in-flight scan; the target
-/// folder syncs lazily on first view (`request_sync` supersedes on
-/// return visits).
+/// Switching abandons the outgoing folder's in-flight scan and always
+/// re-requests the target — cheap for maildir, an incremental
+/// CHANGEDSINCE round for IMAP — so folders are fresh on entry.
 fn open_folder(world: &mut World, account: AccountId, folder: FolderId) {
     cancel_outgoing_scan(world);
     if world.resource::<crate::pager::PagerState>().is_open() {
@@ -206,7 +206,7 @@ fn open_folder(world: &mut World, account: AccountId, folder: FolderId) {
     }
     *world.resource_mut::<Screen>() = Screen::Index;
     world.resource_mut::<SidebarState>().focused = false;
-    sync_if_untracked(world, &account, &folder);
+    sync_target(world, &account, &folder);
 }
 
 fn cancel_outgoing_scan(world: &mut World) {
@@ -228,10 +228,7 @@ fn cancel_outgoing_scan(world: &mut World) {
     }
 }
 
-fn sync_if_untracked(world: &mut World, account: &AccountId, folder: &FolderId) {
-    if world.resource::<SyncTracker>().is_tracked(account, folder) {
-        return;
-    }
+fn sync_target(world: &mut World, account: &AccountId, folder: &FolderId) {
     world.resource_scope(|world, mut tracker: Mut<SyncTracker>| {
         let Some(engine) = world.get_resource::<EngineResource>() else {
             return;

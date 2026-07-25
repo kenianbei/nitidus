@@ -5,10 +5,12 @@
 mod actor;
 mod backend;
 pub mod cache;
+mod envelope;
 mod command;
 mod engine;
 mod error;
 mod event;
+pub mod imap;
 pub mod maildir;
 pub mod message;
 pub mod thread;

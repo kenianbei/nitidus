@@ -33,6 +33,7 @@ impl MailEngine {
             .worker_threads(workers)
             .thread_name("nitidus-mail")
             .enable_time()
+            .enable_io()
             .build()?;
         let (events_tx, events_rx) = flume::bounded(EVENT_CHANNEL_CAPACITY);
         Ok(Self {

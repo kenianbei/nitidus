@@ -7,11 +7,12 @@ use std::path::{Path, PathBuf};
 
 use anyhow::Context;
 use nitidus_mail::cache::{CacheError, CacheWriter, MailCache};
+use nitidus_mail::imap::{ImapConfig, ImapEncryption};
 use nitidus_mail::maildir::{self, MaildirBackend};
 use nitidus_mail::{AccountId, FolderId, MailCommand, MailEngine};
 
 use crate::config::Config;
-use crate::config::account::Backend;
+use crate::config::account::{Backend, Encryption};
 use crate::dirs;
 use crate::store::{MailStore, SyncTracker};
 
@@ -82,12 +83,55 @@ pub fn register_accounts(
                 register_maildir(engine, tracker, &account.name, &settings.path)
                     .with_context(|| format!("account {:?}", account.name))?;
             }
-            Some(Backend::Imap(_)) => {
-                notices.push(format!("{}: imap not yet supported", account.name));
-            }
+            Some(Backend::Imap(settings)) => match build_imap_config(account, settings) {
+                Ok(imap_config) => register_imap(engine, tracker, &account.name, imap_config)
+                    .with_context(|| format!("account {:?}", account.name))?,
+                Err(error) => notices.push(format!("{}: {error:#}", account.name)),
+            },
             None => notices.push(format!("{}: no backend configured", account.name)),
         }
     }
+    Ok(())
+}
+
+fn build_imap_config(
+    account: &crate::config::account::AccountConfig,
+    settings: &crate::config::account::ImapBackend,
+) -> anyhow::Result<ImapConfig> {
+    let config_dir = dirs::config_dir()?;
+    let password = crate::config::secrets::resolve_password(&account.auth, &config_dir)?;
+    Ok(ImapConfig {
+        host: settings.host.clone(),
+        port: settings.port,
+        encryption: match settings.encryption {
+            Encryption::Tls => ImapEncryption::Tls,
+            Encryption::Starttls => ImapEncryption::StartTls,
+            Encryption::None => ImapEncryption::None,
+        },
+        user: account.email.clone(),
+        password,
+    })
+}
+
+/// Same registration shape as maildir: push watch, folder list, eager
+/// INBOX scan.
+fn register_imap(
+    engine: &mut MailEngine,
+    tracker: &mut SyncTracker,
+    name: &str,
+    config: ImapConfig,
+) -> anyhow::Result<()> {
+    if config.encryption == ImapEncryption::None {
+        tracing::warn!("account {name}: plaintext IMAP connection configured");
+    }
+    let id = AccountId::new(name);
+    engine.add_account(
+        id.clone(),
+        nitidus_mail::imap::ImapBackend::new(config.clone()),
+    );
+    engine.watch_imap(id.clone(), config);
+    engine.send(&id, MailCommand::ListFolders)?;
+    request_sync(engine, tracker, &id, &FolderId::new(maildir::INBOX))?;
     Ok(())
 }
 
@@ -283,7 +327,7 @@ mod tests {
     }
 
     #[test]
-    fn unsupported_accounts_produce_notices_not_errors() {
+    fn unsupported_auth_produces_a_notice_while_password_file_registers() {
         let mut config = config_with_account("work");
         config.accounts[0].backend = Some(Backend::Imap(Default::default()));
         let mut engine = MailEngine::new(1).unwrap();
@@ -296,15 +340,38 @@ mod tests {
         )
         .unwrap();
         assert_eq!(notices.len(), 1);
-        assert!(notices[0].contains("imap"), "{notices:?}");
+        assert!(
+            notices[0].contains("keyring"),
+            "default keyring auth must notice until 1d: {notices:?}"
+        );
+
+        let secret = tempfile::NamedTempFile::new().unwrap();
+        std::fs::write(secret.path(), "hunter2\n").unwrap();
+        config.accounts[0].auth =
+            crate::config::account::Auth::PasswordFile(crate::config::account::PasswordFileAuth {
+                path: secret.path().to_path_buf(),
+            });
+        let mut notices = Vec::new();
+        register_accounts(
+            &mut engine,
+            &config,
+            &mut SyncTracker::default(),
+            &mut notices,
+        )
+        .unwrap();
+        assert!(
+            notices.is_empty(),
+            "password_file imap accounts must register: {notices:?}"
+        );
     }
 
     #[test]
     fn missing_maildir_path_fails_registration() {
         let mut config = config_with_account("broken");
-        config.accounts[0].backend = Some(Backend::Maildir(crate::config::account::MaildirBackend {
-            path: "/definitely/not/a/maildir".into(),
-        }));
+        config.accounts[0].backend =
+            Some(Backend::Maildir(crate::config::account::MaildirBackend {
+                path: "/definitely/not/a/maildir".into(),
+            }));
         let mut engine = MailEngine::new(1).unwrap();
         let error = register_accounts(
             &mut engine,
