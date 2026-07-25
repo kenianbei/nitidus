@@ -41,6 +41,11 @@ pub enum Action {
     SortReverse,
     FocusLeft,
     FocusRight,
+    Mark,
+    VisualToggle,
+    MarkThread,
+    UnmarkAll,
+    Undo,
     Echo(String),
     Cursor(Motion),
     Sort(SortMode),
@@ -174,6 +179,15 @@ pub fn apply_action(world: &mut World, action: &Action) {
         Action::SortReverse => index::reverse_sort(world),
         Action::FocusLeft => dispatch_focus(world, FocusDirection::Left),
         Action::FocusRight => dispatch_focus(world, FocusDirection::Right),
+        Action::Mark => index::toggle_mark(world),
+        Action::VisualToggle => index::toggle_visual(world),
+        Action::MarkThread => index::mark_thread(world),
+        Action::UnmarkAll => index::unmark_all(world),
+        Action::Undo => {
+            if !index::staged::undo_last(world) {
+                crate::outbox::undo_send(world);
+            }
+        }
         Action::Echo(text) => {
             let now = world.resource::<Time>().elapsed_secs_f64();
             world

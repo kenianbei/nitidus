@@ -3,16 +3,20 @@
 //! viewport height back through its widget state.
 
 mod filter;
+pub mod marks;
 mod ops;
 mod remove;
 mod render;
 pub mod search;
+pub mod staged;
 mod thread_view;
 mod view;
 
 pub use filter::{clear_filters, push_limit};
+pub use marks::{batch_ids, mark_thread, toggle_mark, toggle_visual, unmark_all};
 pub use ops::{flag_selected, fold, move_cursor, reverse_sort, set_sort, toggle_threads};
 pub use remove::{delete_permanent_selected, delete_selected, move_selected};
+pub use staged::{OpDelay, StagedOps};
 pub use view::{IndexView, SortKey, SortMode, apply_motion, scrolled_top};
 
 use bevy::prelude::*;
@@ -42,6 +46,8 @@ impl Plugin for IndexPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<IndexView>();
         app.init_resource::<search::SearchState>();
+        app.init_resource::<staged::OpDelay>();
+        app.init_resource::<staged::StagedOps>();
         app.init_resource::<IndexOrder>();
         app.init_resource::<IndexStatus>();
         app.init_resource::<ThreadSet>();
@@ -56,11 +62,14 @@ impl Plugin for IndexPlugin {
             )
                 .chain(),
         );
+        app.add_systems(Last, staged::flush_on_exit);
         app.add_systems(
             Update,
             (
                 thread_view::refresh_threads,
                 thread_view::refresh_order,
+                marks::clear_marks_on_folder_change,
+                staged::tick_staged,
                 refresh_index,
                 search::refresh_search_line,
             )
@@ -81,6 +90,8 @@ pub struct IndexStatus {
     pub folder_total: usize,
     /// Joined `:limit` stack, empty when unlimited.
     pub limits: String,
+    /// Marked rows (sticky + visual), for the statusline.
+    pub marked: usize,
 }
 
 /// Cached display entry list; rebuilt when the store, thread rows, sort
@@ -199,6 +210,7 @@ fn refresh_index(
         folder: folder_display_name(&store, cached),
         folder_total: envelopes.len(),
         limits: cached.limits.join("+"),
+        marked: marked_row_count(&order.entries, envelopes, cached),
     };
     if *status != position {
         *status = position;
@@ -267,10 +279,14 @@ fn build_window_state(
         .iter()
         .enumerate()
         .filter_map(|(offset, entry)| {
-            let selected = window_top + offset == index_view.selected_row;
-            envelopes
-                .get(entry.index as usize)
-                .map(|envelope| render::build_row(envelope, entry, selected, &now))
+            let row = window_top + offset;
+            let selected = row == index_view.selected_row;
+            let visual = marks::visual_rows(index_view);
+            envelopes.get(entry.index as usize).map(|envelope| {
+                let marked = index_view.marked.contains(&envelope.id)
+                    || visual.is_some_and(|range| range.contains(&row));
+                render::build_row(envelope, entry, selected, marked, &now)
+            })
         })
         .collect();
     IndexWindowState {
@@ -281,6 +297,25 @@ fn build_window_state(
         search: index_view.search.clone(),
         last_height: 0,
     }
+}
+
+fn marked_row_count(
+    entries: &[self::thread_view::OrderEntry],
+    envelopes: &[EnvelopeSummary],
+    index_view: &IndexView,
+) -> usize {
+    let visual = marks::visual_rows(index_view);
+    entries
+        .iter()
+        .enumerate()
+        .filter(|(row, entry)| {
+            let in_visual = visual.as_ref().is_some_and(|range| range.contains(row));
+            in_visual
+                || envelopes
+                    .get(entry.index as usize)
+                    .is_some_and(|envelope| index_view.marked.contains(&envelope.id))
+        })
+        .count()
 }
 
 fn render_index(frame: &mut ratatui::Frame, area: Rect, state: &mut IndexWindowState) -> Result {

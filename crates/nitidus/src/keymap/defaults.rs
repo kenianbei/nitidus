@@ -38,7 +38,7 @@ pub(super) const DEFAULT_INDEX_BINDINGS: &[(&str, &str)] = &[
     ("b", ":sidebar"),
     ("<Tab>", ":sidebar-focus"),
     ("m", ":compose"),
-    ("z", ":undo-send"),
+    ("z", ":undo"),
     ("r", ":reply"),
     ("R", ":reply-all"),
     ("f", ":forward"),
@@ -51,6 +51,10 @@ pub(super) const DEFAULT_INDEX_BINDINGS: &[(&str, &str)] = &[
     ("N", ":search-prev"),
     ("<Left>", ":focus-left"),
     ("<Right>", ":focus-right"),
+    ("<Space>", ":mark"),
+    ("v", ":visual"),
+    ("t", ":mark-thread"),
+    ("<Esc>", ":unmark-all"),
 ];
 
 pub(super) const DEFAULT_PAGER_BINDINGS: &[(&str, &str)] = &[

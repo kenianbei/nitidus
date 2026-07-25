@@ -22,6 +22,7 @@ pub struct IndexRow {
     pub unseen: bool,
     pub deleted: bool,
     pub selected: bool,
+    pub marked: bool,
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -29,6 +30,7 @@ pub struct RowStyles {
     pub normal: Style,
     pub selected: Style,
     pub highlight: Style,
+    pub marked: Style,
 }
 
 impl RowStyles {
@@ -43,6 +45,7 @@ impl RowStyles {
                 .normal
                 .style()
                 .add_modifier(Modifier::BOLD),
+            marked: theme.base.info.normal.style(),
         }
     }
 }
@@ -51,16 +54,22 @@ pub(super) fn build_row(
     envelope: &EnvelopeSummary,
     entry: &super::thread_view::OrderEntry,
     selected: bool,
+    marked: bool,
     now: &Zoned,
 ) -> IndexRow {
     IndexRow {
-        flag_cell: flag_cell(envelope.flags),
+        flag_cell: if marked {
+            format!("*{}", flag_cell(envelope.flags))
+        } else {
+            flag_cell(envelope.flags)
+        },
         date: format_date(envelope.date_epoch_secs, now),
         from: envelope.from_display.clone(),
         subject: threaded_subject(&envelope.subject, entry.depth, entry.collapsed_children),
         unseen: !envelope.flags.contains(Flags::SEEN),
         deleted: envelope.flags.contains(Flags::DELETED),
         selected,
+        marked,
     }
 }
 
@@ -148,6 +157,8 @@ pub fn row_line(
 fn row_style(row: &IndexRow, styles: &RowStyles) -> Style {
     let mut style = if row.selected {
         styles.selected
+    } else if row.marked {
+        styles.marked
     } else {
         styles.normal
     };
@@ -196,6 +207,7 @@ mod tests_highlight {
             unseen: false,
             deleted: false,
             selected: false,
+            marked: false,
         };
         let styles = RowStyles {
             highlight: Style::default().add_modifier(Modifier::BOLD),

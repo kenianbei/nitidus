@@ -135,6 +135,36 @@ pub(super) const COMMANDS: &[CommandSpec] = &[
         parse: |args| no_args("sort-reverse", args, Action::SortReverse),
     },
     CommandSpec {
+        name: "undo",
+        summary: "undo the newest staged delete/move, else the queued send",
+        aliases: &[],
+        parse: |args| no_args("undo", args, Action::Undo),
+    },
+    CommandSpec {
+        name: "mark",
+        summary: "toggle the mark on the selection and advance",
+        aliases: &[],
+        parse: |args| no_args("mark", args, Action::Mark),
+    },
+    CommandSpec {
+        name: "visual",
+        summary: "toggle a visual mark range from the selection",
+        aliases: &[],
+        parse: |args| no_args("visual", args, Action::VisualToggle),
+    },
+    CommandSpec {
+        name: "mark-thread",
+        summary: "mark the selection's whole thread",
+        aliases: &[],
+        parse: |args| no_args("mark-thread", args, Action::MarkThread),
+    },
+    CommandSpec {
+        name: "unmark-all",
+        summary: "clear every mark and the visual range",
+        aliases: &[],
+        parse: |args| no_args("unmark-all", args, Action::UnmarkAll),
+    },
+    CommandSpec {
         name: "focus-left",
         summary: "move focus left (sidebar, or out of the pager)",
         aliases: &[],

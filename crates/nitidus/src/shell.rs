@@ -276,6 +276,9 @@ fn left_segment(inputs: &StatuslineInputs<'_>) -> String {
     if !index_status.limits.is_empty() {
         segment = format!("{segment} ⋅ limit: {}", index_status.limits);
     }
+    if index_status.marked > 0 {
+        segment = format!("{segment} ⋅ {} marked", index_status.marked);
+    }
     if let Some(summary) = engine_status.summary() {
         segment = format!("{segment} ⋅ {summary}");
     }

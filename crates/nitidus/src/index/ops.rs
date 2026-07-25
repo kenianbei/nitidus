@@ -130,6 +130,10 @@ fn set_all_folds(world: &mut World, collapse: bool) {
 }
 
 pub fn flag_selected(world: &mut World, flag: Flags, op: FlagOp) {
+    let batch = super::marks::batch_ids(world);
+    if !batch.is_empty() {
+        return flag_batch(world, flag, op, batch);
+    }
     let index_view = world.resource::<IndexView>();
     let (Some(account), Some(id)) = (index_view.account.clone(), index_view.selected.clone())
     else {
@@ -156,6 +160,39 @@ pub fn flag_selected(world: &mut World, flag: Flags, op: FlagOp) {
         .resource_mut::<MailStore>()
         .set_flags(&account, &folder, &id, updated);
     send_flag_write(world, &account, folder, id, updated);
+}
+
+/// Toggles resolve per message; flags are their own undo, so the
+/// writes go immediately and the marks are consumed.
+fn flag_batch(world: &mut World, flag: Flags, op: FlagOp, ids: Vec<nitidus_mail::EnvelopeId>) {
+    let index_view = world.resource::<IndexView>();
+    let Some(account) = index_view.account.clone() else {
+        return;
+    };
+    let folder = index_view.folder.clone();
+    for id in ids {
+        let current = world
+            .resource::<MailStore>()
+            .envelopes(&account, &folder)
+            .iter()
+            .find(|envelope| envelope.id == id)
+            .map(|envelope| envelope.flags);
+        let Some(current) = current else { continue };
+        let updated = match op {
+            FlagOp::Set => current.with(flag),
+            FlagOp::Clear => current.without(flag),
+            FlagOp::Toggle if current.contains(flag) => current.without(flag),
+            FlagOp::Toggle => current.with(flag),
+        };
+        if updated == current {
+            continue;
+        }
+        world
+            .resource_mut::<MailStore>()
+            .set_flags(&account, &folder, &id, updated);
+        send_flag_write(world, &account, folder.clone(), id, updated);
+    }
+    super::marks::unmark_all(world);
 }
 
 fn send_flag_write(

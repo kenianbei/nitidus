@@ -68,6 +68,10 @@ pub struct IndexView {
     pub search: Option<String>,
     /// Bumped whenever limits change, keying the order rebuild.
     pub filter_epoch: u64,
+    /// Sticky batch marks; consumed and cleared by batch verbs.
+    pub marked: std::collections::HashSet<EnvelopeId>,
+    /// Visual-range anchor row while `v` is active.
+    pub visual_anchor: Option<usize>,
 }
 
 impl Default for IndexView {
@@ -85,6 +89,8 @@ impl Default for IndexView {
             limits: Vec::new(),
             search: None,
             filter_epoch: 0,
+            marked: std::collections::HashSet::new(),
+            visual_anchor: None,
         }
     }
 }
@@ -125,10 +131,14 @@ pub(super) fn resolve_selection(
     if entries.is_empty() {
         return None;
     }
+    // `entries` can be a frame staler than `envelopes` after a folder
+    // switch or row removal — resolve leniently, never index.
     if let Some(id) = &view.selected
-        && let Some(row) = entries
-            .iter()
-            .position(|entry| &envelopes[entry.index as usize].id == id)
+        && let Some(row) = entries.iter().position(|entry| {
+            envelopes
+                .get(entry.index as usize)
+                .is_some_and(|envelope| &envelope.id == id)
+        })
     {
         return Some(row);
     }

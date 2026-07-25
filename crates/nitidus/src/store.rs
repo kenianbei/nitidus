@@ -81,6 +81,27 @@ impl MailStore {
 
     /// Optimistic single-envelope removal (delete/move verbs); the
     /// next scan reconciles.
+    /// Puts an optimistically removed row back (undo). Stamped warm so
+    /// the next completed scan reconciles it against the server.
+    pub fn restore_envelope(
+        &mut self,
+        account: &AccountId,
+        folder: &FolderId,
+        envelope: EnvelopeSummary,
+    ) {
+        let cached = self
+            .envelopes
+            .entry((account.clone(), folder.clone()))
+            .or_default();
+        if cached.index.contains_key(&envelope.id) {
+            return;
+        }
+        cached.stamps.insert(envelope.id.clone(), WARM_JOB);
+        cached.sorted.push(envelope);
+        cached.generation += 1;
+        cached.resort();
+    }
+
     pub fn remove_envelope(&mut self, account: &AccountId, folder: &FolderId, id: &EnvelopeId) {
         if let Some(cached) = self.envelopes.get_mut(&(account.clone(), folder.clone())) {
             let before = cached.sorted.len();

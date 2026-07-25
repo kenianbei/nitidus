@@ -87,6 +87,7 @@ fn harness() -> Harness {
     app.insert_resource(Keymaps::compile(&RawKeymaps::default()).unwrap());
     app.insert_resource(EngineResource(engine));
     app.insert_resource(tracker);
+    app.insert_resource(nitidus::index::OpDelay(Duration::ZERO));
     app.add_plugins((
         RouterPlugin,
         IndexPlugin,
@@ -218,6 +219,196 @@ fn delete_inside_trash_confirms_and_declining_keeps() {
             ".Trash"
         ) == 0),
         "confirm must purge the message"
+    );
+}
+
+#[test]
+fn undo_restores_the_row_before_anything_reaches_disk() {
+    let mut harness = harness();
+    wait_inbox(&mut harness.app, 2);
+    harness
+        .app
+        .insert_resource(nitidus::index::OpDelay(Duration::from_secs(600)));
+
+    press(&mut harness.app, KeyCode::Char('d'));
+    assert_eq!(
+        harness.app.world().resource::<IndexStatus>().total,
+        1,
+        "the row leaves the view instantly"
+    );
+    std::thread::sleep(Duration::from_millis(30));
+    harness.app.update();
+    assert_eq!(
+        file_count(&harness.mail_root, ".Trash"),
+        0,
+        "the backend command is staged, not sent"
+    );
+
+    press(&mut harness.app, KeyCode::Char('z'));
+    assert_eq!(
+        harness.app.world().resource::<IndexStatus>().total,
+        2,
+        "undo restores the row"
+    );
+    assert_eq!(file_count(&harness.mail_root, ""), 2, "nothing moved");
+    assert_eq!(
+        harness
+            .app
+            .world()
+            .resource::<nitidus::index::StagedOps>()
+            .pending(),
+        0
+    );
+}
+
+#[test]
+fn undo_is_lifo_across_staged_ops() {
+    let mut harness = harness();
+    wait_inbox(&mut harness.app, 2);
+    harness
+        .app
+        .insert_resource(nitidus::index::OpDelay(Duration::from_secs(600)));
+
+    press(&mut harness.app, KeyCode::Char('d'));
+    press(&mut harness.app, KeyCode::Char('d'));
+    assert_eq!(harness.app.world().resource::<IndexStatus>().total, 0);
+
+    press(&mut harness.app, KeyCode::Char('z'));
+    assert_eq!(
+        harness.app.world().resource::<IndexStatus>().total,
+        1,
+        "one op undone at a time, newest first"
+    );
+    press(&mut harness.app, KeyCode::Char('z'));
+    assert_eq!(harness.app.world().resource::<IndexStatus>().total, 2);
+
+    press(&mut harness.app, KeyCode::Char('z'));
+    harness.app.update();
+    // Nothing staged: z falls back to undo-send, which reports
+    // "nothing to undo" rather than touching the store.
+    assert_eq!(harness.app.world().resource::<IndexStatus>().total, 2);
+}
+
+#[test]
+fn batch_delete_trashes_every_marked_row_and_one_undo_restores_all() {
+    let mut harness = harness();
+    wait_inbox(&mut harness.app, 2);
+    harness
+        .app
+        .insert_resource(nitidus::index::OpDelay(Duration::from_secs(600)));
+
+    press(&mut harness.app, KeyCode::Char(' '));
+    press(&mut harness.app, KeyCode::Char(' '));
+    press(&mut harness.app, KeyCode::Char('d'));
+    assert_eq!(
+        harness.app.world().resource::<IndexStatus>().total,
+        0,
+        "both marked rows leave the view"
+    );
+    assert!(
+        harness
+            .app
+            .world()
+            .resource::<nitidus::index::IndexView>()
+            .marked
+            .is_empty(),
+        "the batch verb consumes the marks"
+    );
+
+    press(&mut harness.app, KeyCode::Char('z'));
+    assert_eq!(
+        harness.app.world().resource::<IndexStatus>().total,
+        2,
+        "one undo restores the whole batch"
+    );
+    assert_eq!(file_count(&harness.mail_root, ""), 2);
+}
+
+#[test]
+fn batch_delete_expiry_moves_every_file() {
+    let mut harness = harness();
+    wait_inbox(&mut harness.app, 2);
+    press(&mut harness.app, KeyCode::Char(' '));
+    press(&mut harness.app, KeyCode::Char(' '));
+    press(&mut harness.app, KeyCode::Char('d'));
+    assert!(
+        wait_for(&mut harness.app, |_| file_count(
+            &harness.mail_root,
+            ".Trash"
+        ) == 2),
+        "expiry dispatches the whole batch"
+    );
+}
+
+#[test]
+fn batch_permanent_delete_confirms_with_the_count() {
+    let mut harness = harness();
+    wait_inbox(&mut harness.app, 2);
+    press(&mut harness.app, KeyCode::Char(' '));
+    press(&mut harness.app, KeyCode::Char(' '));
+    press(&mut harness.app, KeyCode::Char('D'));
+    assert_eq!(
+        harness.app.world().resource::<PromptState>().label(),
+        Some("Delete 2 permanently? (y/n): ")
+    );
+    type_text(&mut harness.app, "y");
+    press(&mut harness.app, KeyCode::Enter);
+    assert!(
+        wait_for(&mut harness.app, |_| file_count(&harness.mail_root, "")
+            == 0),
+        "confirmed batch purge removes both files"
+    );
+    assert_eq!(file_count(&harness.mail_root, ".Trash"), 0, "no trash copy");
+}
+
+#[test]
+fn batch_move_files_every_marked_row() {
+    let mut harness = harness();
+    wait_inbox(&mut harness.app, 2);
+    assert!(
+        wait_for(&mut harness.app, |world| {
+            !world
+                .resource::<MailStore>()
+                .folders(&AccountId::new("local"))
+                .is_empty()
+        }),
+        "the folder list never arrived"
+    );
+    press(&mut harness.app, KeyCode::Char(' '));
+    press(&mut harness.app, KeyCode::Char(' '));
+    press(&mut harness.app, KeyCode::Char(':'));
+    type_text(&mut harness.app, "move .Archive");
+    press(&mut harness.app, KeyCode::Enter);
+    assert!(
+        wait_for(&mut harness.app, |_| {
+            file_count(&harness.mail_root, ".Archive") == 2
+        }),
+        "both marked rows land in the archive"
+    );
+}
+
+#[test]
+fn app_exit_flushes_staged_ops_to_the_backend() {
+    let mut harness = harness();
+    wait_inbox(&mut harness.app, 2);
+    harness
+        .app
+        .insert_resource(nitidus::index::OpDelay(Duration::from_secs(600)));
+
+    press(&mut harness.app, KeyCode::Char('d'));
+    assert_eq!(file_count(&harness.mail_root, ".Trash"), 0);
+
+    harness
+        .app
+        .world_mut()
+        .write_message(bevy::app::AppExit::Success);
+    harness.app.update();
+    assert!(
+        wait_for(&mut harness.app, |_| file_count(
+            &harness.mail_root,
+            ".Trash"
+        ) == 1),
+        "exit must dispatch the staged op, never drop it"
     );
 }
 

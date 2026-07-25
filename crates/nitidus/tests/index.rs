@@ -92,7 +92,8 @@ fn selection_defaults_to_first_and_motions_move_it() {
             total: 3,
             folder: "INBOX".to_owned(),
             folder_total: 3,
-            limits: String::new()
+            limits: String::new(),
+            marked: 0
         }
     );
     assert_eq!(selected_id(&app).as_deref(), Some("newest"));
@@ -154,7 +155,8 @@ fn empty_configurations_report_zero_status() {
             total: 0,
             folder: "INBOX".to_owned(),
             folder_total: 0,
-            limits: String::new()
+            limits: String::new(),
+            marked: 0
         },
         "a configured account shows its viewed folder even before folders load"
     );
@@ -326,6 +328,103 @@ fn search_operates_within_the_active_limit() {
     search_type(&mut app, "gamma");
     search_key(&mut app, KeyCode::Enter);
     assert_eq!(selected_id(&app).as_deref(), Some("c"));
+}
+
+#[test]
+fn space_marks_advance_and_escape_clears() {
+    let mut app = searchable_app();
+    apply_action(app.world_mut(), &Action::Mark);
+    apply_action(app.world_mut(), &Action::Mark);
+    app.update();
+    assert_eq!(status(&app).marked, 2);
+    assert_eq!(
+        selected_id(&app).as_deref(),
+        Some("c"),
+        "each mark advances one row"
+    );
+    let ids = nitidus::index::batch_ids(app.world());
+    assert_eq!(ids.len(), 2, "batch set in visible order: {ids:?}");
+    assert_eq!(ids[0].as_str(), "a");
+    assert_eq!(ids[1].as_str(), "b");
+
+    apply_action(app.world_mut(), &Action::UnmarkAll);
+    app.update();
+    assert_eq!(status(&app).marked, 0);
+    assert!(nitidus::index::batch_ids(app.world()).is_empty());
+}
+
+#[test]
+fn visual_range_follows_the_cursor_and_merges_with_sticky_marks() {
+    let mut app = searchable_app();
+    apply_action(app.world_mut(), &Action::VisualToggle);
+    apply_action(app.world_mut(), &Action::Cursor(Motion::Next));
+    app.update();
+    assert_eq!(status(&app).marked, 2, "anchor..cursor renders marked");
+    apply_action(app.world_mut(), &Action::Cursor(Motion::Next));
+    app.update();
+    assert_eq!(status(&app).marked, 3);
+    assert_eq!(nitidus::index::batch_ids(app.world()).len(), 3);
+
+    apply_action(app.world_mut(), &Action::VisualToggle);
+    app.update();
+    assert_eq!(status(&app).marked, 0, "v again drops the range");
+}
+
+#[test]
+fn mark_thread_toggles_the_whole_reference_chain() {
+    let mut parent = envelope("p", "root subject", 300);
+    parent.message_id = "p@example".to_owned();
+    let mut child = envelope("c", "Re: root subject", 200);
+    child.message_id = "c@example".to_owned();
+    child.references = vec!["p@example".to_owned()];
+    let lone = envelope("x", "unrelated", 100);
+    let mut app = index_app(account_config("local"), vec![parent, child, lone]);
+
+    apply_action(app.world_mut(), &Action::MarkThread);
+    app.update();
+    assert_eq!(status(&app).marked, 2, "parent and child, not the loner");
+    apply_action(app.world_mut(), &Action::MarkThread);
+    app.update();
+    assert_eq!(status(&app).marked, 0, "t again unmarks the thread");
+}
+
+#[test]
+fn folder_switch_clears_marks() {
+    let mut app = searchable_app();
+    apply_action(app.world_mut(), &Action::Mark);
+    app.update();
+    assert_eq!(status(&app).marked, 1);
+    app.world_mut().resource_mut::<IndexView>().folder = FolderId::new("Other");
+    app.update();
+    assert!(
+        app.world().resource::<IndexView>().marked.is_empty(),
+        "marks are per-folder working state"
+    );
+}
+
+#[test]
+fn batch_flag_toggles_every_marked_row_and_consumes_marks() {
+    let mut app = searchable_app();
+    apply_action(app.world_mut(), &Action::Mark);
+    apply_action(app.world_mut(), &Action::Mark);
+    apply_action(
+        app.world_mut(),
+        &Action::Flag {
+            flag: Flags::FLAGGED,
+            op: FlagOp::Toggle,
+        },
+    );
+    app.update();
+    let world = app.world();
+    let store = world.resource::<MailStore>();
+    let envelopes = store.envelopes(&AccountId::new("local"), &FolderId::new("INBOX"));
+    let flagged: Vec<bool> = envelopes
+        .iter()
+        .map(|envelope| envelope.flags.contains(Flags::FLAGGED))
+        .collect();
+    assert_eq!(flagged, [true, true, false], "only the marked pair toggles");
+    assert!(world.resource::<IndexView>().marked.is_empty());
+    assert_eq!(status(&app).marked, 0);
 }
 
 fn make_maildir(root: &Path) {
