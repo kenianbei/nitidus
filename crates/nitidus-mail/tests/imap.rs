@@ -416,6 +416,7 @@ async fn append_message_runs_the_append_command() {
         .unwrap();
 }
 
+/// Without UIDPLUS the old whole-folder EXPUNGE remains.
 #[tokio::test]
 async fn delete_message_flags_and_expunges() {
     let port = spawn_server(vec![ImapScript::new(vec![
@@ -426,6 +427,59 @@ async fn delete_message_flags_and_expunges() {
             &["{tag} OK STORE completed"],
         ),
         step("EXPUNGE", &["* 1 EXPUNGE", "{tag} OK EXPUNGE completed"]),
+    ])])
+    .await;
+
+    let mut backend = ImapBackend::new(config(port));
+    backend
+        .delete_message(&FolderId::new("INBOX"), &EnvelopeId::new("7"))
+        .await
+        .unwrap();
+}
+
+#[tokio::test]
+async fn move_message_issues_uid_move() {
+    let port = spawn_server(vec![ImapScript::new(vec![
+        login_ok(),
+        step("SELECT", &select_lines(1, 5, 1)),
+        step(
+            "UID MOVE 7 [Gmail]/Trash",
+            &["{tag} OK [COPYUID 5 7 3] moved"],
+        ),
+    ])])
+    .await;
+
+    let mut backend = ImapBackend::new(config(port));
+    backend
+        .move_message(
+            &FolderId::new("INBOX"),
+            &EnvelopeId::new("7"),
+            &FolderId::new("[Gmail]/Trash"),
+        )
+        .await
+        .unwrap();
+}
+
+/// With UIDPLUS advertised, only the target UID is expunged — a
+/// bystander with `\Deleted` pending survives (the scripted server
+/// forbids a bare EXPUNGE).
+#[tokio::test]
+async fn delete_message_uses_uid_expunge_when_uidplus_is_advertised() {
+    let port = spawn_server(vec![ImapScript::new(vec![
+        step(
+            "LOGIN",
+            &["* CAPABILITY IMAP4rev1 UIDPLUS", "{tag} OK LOGIN completed"],
+        ),
+        step("SELECT", &select_lines(2, 4, 1)),
+        step(
+            "UID STORE 7 +FLAGS.SILENT (\\Deleted)",
+            &["{tag} OK STORE completed"],
+        ),
+        step_forbidding(
+            "UID EXPUNGE 7",
+            "UID EXPUNGE 7:",
+            &["* 1 EXPUNGE", "{tag} OK expunged"],
+        ),
     ])])
     .await;
 

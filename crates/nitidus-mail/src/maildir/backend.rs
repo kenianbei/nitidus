@@ -118,6 +118,34 @@ impl MailBackend for MaildirBackend {
         .await
     }
 
+    async fn move_message(
+        &mut self,
+        folder: &FolderId,
+        id: &EnvelopeId,
+        target: &FolderId,
+    ) -> Result<(), MailError> {
+        let source_dir = folders::folder_dir(&self.root, folder);
+        let target_dir = folders::folder_dir(&self.root, target);
+        let id = id.clone();
+        run_blocking(move || {
+            let path = message::find_message(&source_dir, &id)?;
+            let file_name = path
+                .file_name()
+                .ok_or_else(|| MailError::Backend("message path has no file name".to_owned()))?;
+            let destination = target_dir.join("cur").join(file_name);
+            if !target_dir.join("cur").is_dir() {
+                return Err(MailError::Backend(format!(
+                    "target folder missing: {}",
+                    target_dir.display()
+                )));
+            }
+            fs::rename(&path, &destination).map_err(|error| {
+                MailError::Backend(format!("move to {}: {error}", destination.display()))
+            })
+        })
+        .await
+    }
+
     async fn append_message(
         &mut self,
         folder: &FolderId,

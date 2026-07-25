@@ -127,6 +127,14 @@ impl ImapSession {
         self.run(make).await
     }
 
+    /// Whether the (connected) server advertises UIDPLUS; `false`
+    /// before the first connect.
+    pub fn advertises_uidplus(&self) -> bool {
+        self.connection.as_ref().is_some_and(|connection| {
+            io_imap::has_imap_capability!(connection.capabilities, UidPlus)
+        })
+    }
+
     async fn ensure_connected(&mut self) -> Result<&mut Connection, MailError> {
         if self.connection.is_none() {
             self.connection = Some(connect(&self.config).await?);

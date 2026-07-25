@@ -3,11 +3,13 @@
 //! viewport height back through its widget state.
 
 mod ops;
+mod remove;
 mod render;
 mod thread_view;
 mod view;
 
 pub use ops::{flag_selected, fold, move_cursor, set_sort, toggle_threads};
+pub use remove::{delete_selected, move_selected};
 pub use view::{IndexView, SortKey, SortMode, apply_motion};
 
 use bevy::prelude::*;
@@ -200,9 +202,12 @@ fn anchor_selection(
 ) {
     match selected_row {
         Some(row) => {
+            // `entries` can be a frame staler than `envelopes` when a
+            // row was just removed — resolve leniently, never index.
             index_view.selected = entries
                 .get(row)
-                .map(|entry| envelopes[entry.index as usize].id.clone());
+                .and_then(|entry| envelopes.get(entry.index as usize))
+                .map(|envelope| envelope.id.clone());
             index_view.selected_row = row;
             index_view.top = view::scrolled_top(index_view.top, row, viewport);
         }
@@ -229,13 +234,18 @@ fn build_window_state(
         None
     };
     let now = jiff::Zoned::now();
-    let window_end = (index_view.top + viewport.max(MIN_WINDOW_ROWS)).min(entries.len());
-    let rows = entries[index_view.top..window_end]
+    // `entries` can be a frame staler than `envelopes` after a row
+    // removal — clamp the window and resolve rows leniently.
+    let window_top = index_view.top.min(entries.len());
+    let window_end = (window_top + viewport.max(MIN_WINDOW_ROWS)).min(entries.len());
+    let rows = entries[window_top..window_end]
         .iter()
         .enumerate()
-        .map(|(offset, entry)| {
-            let selected = index_view.top + offset == index_view.selected_row;
-            render::build_row(&envelopes[entry.index as usize], entry, selected, &now)
+        .filter_map(|(offset, entry)| {
+            let selected = window_top + offset == index_view.selected_row;
+            envelopes
+                .get(entry.index as usize)
+                .map(|envelope| render::build_row(envelope, entry, selected, &now))
         })
         .collect();
     IndexWindowState {

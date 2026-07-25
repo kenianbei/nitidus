@@ -9,8 +9,10 @@ use io_imap::rfc3501::create::ImapMailboxCreate;
 use io_imap::rfc3501::delete::ImapMailboxDelete;
 use io_imap::rfc3501::expunge::ImapMailboxExpunge;
 use io_imap::rfc3501::fetch::{ImapMessageFetch, ImapMessageFetchOptions};
+use io_imap::rfc3501::raw::ImapRaw;
 use io_imap::rfc3501::rename::ImapMailboxRename;
 use io_imap::rfc3501::store::{ImapMessageStoreOptions, ImapMessageStoreSilent};
+use io_imap::rfc6851::r#move::{ImapMessageMove, ImapMessageMoveOptions};
 use io_imap::types::flag::StoreType;
 
 use super::envelopes::{
@@ -163,8 +165,30 @@ impl MailBackend for ImapBackend {
         Ok(())
     }
 
-    /// `\Deleted` + whole-folder EXPUNGE — scoped to draft
-    /// replacement, where stray deleted-flag collateral is acceptable.
+    async fn move_message(
+        &mut self,
+        folder: &FolderId,
+        id: &EnvelopeId,
+        target: &FolderId,
+    ) -> Result<(), MailError> {
+        let uid = parse_uid(id)?;
+        let set = single_uid(uid)?;
+        let mailbox = parse_mailbox(target.as_str())?;
+        self.session
+            .run_selected(folder.as_str(), || {
+                ImapMessageMove::new(
+                    set.clone(),
+                    mailbox.clone(),
+                    ImapMessageMoveOptions { uid: true },
+                )
+            })
+            .await
+            .map(|_copyuid| ())
+    }
+
+    /// `\Deleted`, then `UID EXPUNGE` scoped to the one message when
+    /// the server advertises UIDPLUS; the whole-folder EXPUNGE
+    /// fallback can purge other `\Deleted`-flagged bystanders.
     async fn delete_message(
         &mut self,
         folder: &FolderId,
@@ -183,10 +207,20 @@ impl MailBackend for ImapBackend {
                 )
             })
             .await?;
-        self.session
-            .run_selected(folder.as_str(), ImapMailboxExpunge::new)
-            .await
-            .map(|_expunged| ())?;
+        if self.session.advertises_uidplus() {
+            self.session
+                .run_selected(folder.as_str(), || {
+                    ImapRaw::new(format!("UID EXPUNGE {uid}"))
+                })
+                .await
+                .map(|_response| ())?;
+        } else {
+            tracing::warn!("server lacks UIDPLUS; whole-folder EXPUNGE may purge bystanders");
+            self.session
+                .run_selected(folder.as_str(), ImapMailboxExpunge::new)
+                .await
+                .map(|_expunged| ())?;
+        }
         if let Some(state) = self.folders.get_mut(folder) {
             state.envelopes.remove(&uid);
         }

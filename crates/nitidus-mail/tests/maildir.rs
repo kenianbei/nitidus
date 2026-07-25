@@ -232,3 +232,48 @@ async fn delete_message_removes_the_file() {
         "deleting a missing message errors"
     );
 }
+
+#[tokio::test]
+async fn move_message_renames_into_the_target_folder() {
+    let tmp = tempfile::tempdir().unwrap();
+    make_maildir(tmp.path());
+    std::fs::create_dir_all(tmp.path().join(".Trash/cur")).unwrap();
+    std::fs::create_dir_all(tmp.path().join(".Trash/new")).unwrap();
+    std::fs::create_dir_all(tmp.path().join(".Trash/tmp")).unwrap();
+    write_message(tmp.path(), "cur", "mover.host:2,S", "on the move");
+
+    let mut backend = MaildirBackend::new(tmp.path().to_path_buf()).unwrap();
+    backend
+        .move_message(
+            &FolderId::new("INBOX"),
+            &EnvelopeId::new("mover.host"),
+            &FolderId::new(".Trash"),
+        )
+        .await
+        .unwrap();
+    assert!(
+        fs::read_dir(tmp.path().join("cur"))
+            .unwrap()
+            .next()
+            .is_none(),
+        "the source file must be gone"
+    );
+    let landed: Vec<_> = fs::read_dir(tmp.path().join(".Trash/cur"))
+        .unwrap()
+        .collect();
+    assert_eq!(landed.len(), 1);
+    let name = landed[0].as_ref().unwrap().file_name();
+    assert!(
+        name.to_string_lossy().ends_with(":2,S"),
+        "the flag suffix survives the move: {name:?}"
+    );
+
+    let missing_target = backend
+        .move_message(
+            &FolderId::new("INBOX"),
+            &EnvelopeId::new("absent"),
+            &FolderId::new(".Nowhere"),
+        )
+        .await;
+    assert!(missing_target.is_err());
+}

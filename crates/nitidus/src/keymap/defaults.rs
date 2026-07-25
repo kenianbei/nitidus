@@ -33,6 +33,7 @@ pub(super) const DEFAULT_INDEX_BINDINGS: &[(&str, &str)] = &[
     ("R", ":reply-all"),
     ("f", ":forward"),
     ("e", ":recall"),
+    ("d", ":delete"),
 ];
 
 pub(super) const DEFAULT_PAGER_BINDINGS: &[(&str, &str)] = &[
@@ -55,6 +56,7 @@ pub(super) const DEFAULT_PAGER_BINDINGS: &[(&str, &str)] = &[
     ("s", ":save-part"),
     ("o", ":open-part"),
     ("l", ":links"),
+    ("d", ":delete"),
     ("b", ":sidebar"),
     ("<Tab>", ":sidebar-focus"),
     ("?", ":help"),

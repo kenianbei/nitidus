@@ -321,6 +321,18 @@ pub(super) const COMMANDS: &[CommandSpec] = &[
         parse: |args| no_args("remove-account", args, Action::RemoveAccount),
     },
     CommandSpec {
+        name: "delete",
+        summary: "move the selection to trash (permanent inside trash)",
+        aliases: &[],
+        parse: |args| no_args("delete", args, Action::Delete),
+    },
+    CommandSpec {
+        name: "move",
+        summary: "move the selection: :move <folder>",
+        aliases: &[],
+        parse: |args| named_arg("move", args, Action::Move(args.to_owned())),
+    },
+    CommandSpec {
         name: "folder-delete",
         summary: "delete the selected empty folder",
         aliases: &[],

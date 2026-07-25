@@ -33,6 +33,16 @@ pub trait MailBackend: Send + 'static {
         flags: Flags,
     ) -> impl Future<Output = Result<(), MailError>> + Send;
 
+    /// Moves one message to another folder of the same account. The
+    /// message's id in the target folder is backend-assigned; consumers
+    /// re-sync rather than track it.
+    fn move_message(
+        &mut self,
+        folder: &FolderId,
+        id: &EnvelopeId,
+        target: &FolderId,
+    ) -> impl Future<Output = Result<(), MailError>> + Send;
+
     /// `name` is a display path (`Archive/2024`); each backend encodes
     /// it into its own folder-id scheme.
     fn create_folder(&mut self, name: &str) -> impl Future<Output = Result<(), MailError>> + Send;

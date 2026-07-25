@@ -167,6 +167,28 @@ impl crate::backend::MailBackend for MockBackend {
         Ok(())
     }
 
+    async fn move_message(
+        &mut self,
+        folder: &FolderId,
+        id: &EnvelopeId,
+        target: &FolderId,
+    ) -> Result<(), MailError> {
+        let source = self
+            .envelopes
+            .get_mut(folder)
+            .ok_or_else(|| MailError::Backend(format!("no such folder: {folder}")))?;
+        let position = source
+            .iter()
+            .position(|envelope| &envelope.id == id)
+            .ok_or_else(|| MailError::Backend(format!("no such message: {id}")))?;
+        let moved = source.remove(position);
+        self.envelopes
+            .get_mut(target)
+            .ok_or_else(|| MailError::Backend(format!("no such folder: {target}")))?
+            .push(moved);
+        Ok(())
+    }
+
     async fn append_message(
         &mut self,
         folder: &FolderId,

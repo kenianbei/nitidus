@@ -4,7 +4,7 @@
 
 mod body;
 mod html;
-mod ops;
+pub(crate) mod ops;
 mod render;
 mod save;
 

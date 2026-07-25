@@ -37,6 +37,13 @@ pub enum MailCommand {
         folder: FolderId,
         id: EnvelopeId,
     },
+    /// Fire-and-forget move to another folder of the same account;
+    /// errors surface as `JobFailed`.
+    MoveMessage {
+        folder: FolderId,
+        id: EnvelopeId,
+        target: FolderId,
+    },
     /// Fire-and-forget message write (Sent copies); errors surface as
     /// `JobFailed`.
     AppendMessage {

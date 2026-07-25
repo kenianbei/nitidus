@@ -51,6 +51,8 @@ pub enum Action {
     NewAccount,
     EditAccount,
     RemoveAccount,
+    Delete,
+    Move(String),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -174,6 +176,8 @@ pub fn apply_action(world: &mut World, action: &Action) {
         Action::NewAccount => crate::accounts::wizard::start(world),
         Action::EditAccount => crate::accounts::manage::edit_account(world),
         Action::RemoveAccount => crate::accounts::manage::remove_account(world),
+        Action::Delete => crate::index::delete_selected(world),
+        Action::Move(folder) => crate::index::move_selected(world, folder),
     }
 }
 

@@ -100,6 +100,11 @@ async fn handle_command<B: MailBackend>(
                 let _sent = events.send_async(job_failed(account, None, error)).await;
             }
         }
+        MailCommand::MoveMessage { folder, id, target } => {
+            if let Err(error) = backend.move_message(&folder, &id, &target).await {
+                let _sent = events.send_async(job_failed(account, None, error)).await;
+            }
+        }
         MailCommand::AppendMessage {
             folder,
             bytes,

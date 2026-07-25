@@ -64,7 +64,7 @@ pub fn dispatch(world: &mut World, op: PagerOp) {
     }
 }
 
-fn close(world: &mut World) {
+pub(crate) fn close(world: &mut World) {
     {
         let mut pager = world.resource_mut::<PagerState>();
         pager.open = None;

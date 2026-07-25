@@ -58,6 +58,20 @@ impl MailStore {
             .upsert(job, batch, done);
     }
 
+    /// Optimistic single-envelope removal (delete/move verbs); the
+    /// next scan reconciles.
+    pub fn remove_envelope(&mut self, account: &AccountId, folder: &FolderId, id: &EnvelopeId) {
+        if let Some(cached) = self.envelopes.get_mut(&(account.clone(), folder.clone())) {
+            let before = cached.sorted.len();
+            cached.sorted.retain(|envelope| &envelope.id != id);
+            cached.stamps.remove(id);
+            if cached.sorted.len() != before {
+                cached.generation += 1;
+                cached.resort();
+            }
+        }
+    }
+
     /// Optimistic in-memory flag write; the backend write and its
     /// re-sync confirm or correct it. Flags never affect date order, so
     /// no re-sort is needed.
