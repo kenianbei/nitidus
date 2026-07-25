@@ -4,6 +4,7 @@
 
 use std::collections::HashMap;
 
+use io_imap::rfc3501::append::{ImapMessageAppend, ImapMessageAppendOptions};
 use io_imap::rfc3501::create::ImapMailboxCreate;
 use io_imap::rfc3501::delete::ImapMailboxDelete;
 use io_imap::rfc3501::fetch::{ImapMessageFetch, ImapMessageFetchOptions};
@@ -159,6 +160,23 @@ impl MailBackend for ImapBackend {
             .await?;
         self.folders.remove(folder);
         Ok(())
+    }
+
+    async fn append_message(
+        &mut self,
+        folder: &FolderId,
+        bytes: Vec<u8>,
+        flags: Flags,
+    ) -> Result<(), MailError> {
+        let mailbox = parse_mailbox(folder.as_str())?;
+        let options = ImapMessageAppendOptions {
+            flags: super::envelopes::imap_flags(flags),
+            ..Default::default()
+        };
+        self.session
+            .run(|| ImapMessageAppend::new(mailbox.clone(), bytes.clone(), options.clone()))
+            .await
+            .map(|_uidplus| ())
     }
 
     async fn rename_folder(&mut self, folder: &FolderId, new_name: &str) -> Result<(), MailError> {

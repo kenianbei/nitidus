@@ -17,6 +17,7 @@ etcetera.workspace = true
 html2text.workspace = true
 jiff.workspace = true
 mail-builder.workspace = true
+mail-parser.workspace = true
 ratatui-comfy-toaster.workspace = true
 nitidus-mail.workspace = true
 nitidus-ui-kit.workspace = true

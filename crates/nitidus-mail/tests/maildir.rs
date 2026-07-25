@@ -166,3 +166,42 @@ fn watcher_emits_one_folder_changed_per_burst() {
     );
     let _keep_alive = engine.send(&AccountId::new("local"), MailCommand::ListFolders);
 }
+
+#[tokio::test]
+async fn append_message_delivers_into_cur_with_flags() {
+    let tmp = tempfile::tempdir().unwrap();
+    make_maildir(tmp.path());
+    let sent_dir = tmp.path().join(".Sent");
+    make_maildir(&sent_dir);
+
+    let mut backend = MaildirBackend::new(tmp.path().to_path_buf()).unwrap();
+    backend
+        .append_message(
+            &FolderId::new(".Sent"),
+            b"From: me@x.com\r\nSubject: sent copy\r\n\r\nhello\r\n".to_vec(),
+            Flags::SEEN,
+        )
+        .await
+        .unwrap();
+
+    let files: Vec<_> = fs::read_dir(sent_dir.join("cur"))
+        .unwrap()
+        .flatten()
+        .collect();
+    assert_eq!(files.len(), 1);
+    let name = files[0].file_name().into_string().unwrap();
+    assert!(name.ends_with(":2,S"), "seen flag expected: {name}");
+    assert!(
+        fs::read_dir(sent_dir.join("tmp")).unwrap().next().is_none(),
+        "tmp must be empty after delivery"
+    );
+    let (batch_tx, batch_rx) = flume::unbounded();
+    backend
+        .scan_envelopes(&FolderId::new(".Sent"), batch_tx)
+        .await
+        .unwrap();
+    let envelopes: Vec<_> = batch_rx.drain().flatten().collect();
+    assert_eq!(envelopes.len(), 1);
+    assert_eq!(envelopes[0].subject, "sent copy");
+    assert!(envelopes[0].flags.contains(Flags::SEEN));
+}

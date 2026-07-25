@@ -29,6 +29,9 @@ pub(super) const DEFAULT_INDEX_BINDINGS: &[(&str, &str)] = &[
     ("?", ":help"),
     ("m", ":compose"),
     ("z", ":undo-send"),
+    ("r", ":reply"),
+    ("R", ":reply-all"),
+    ("f", ":forward"),
 ];
 
 pub(super) const DEFAULT_PAGER_BINDINGS: &[(&str, &str)] = &[
@@ -54,6 +57,9 @@ pub(super) const DEFAULT_PAGER_BINDINGS: &[(&str, &str)] = &[
     ("b", ":sidebar"),
     ("<Tab>", ":sidebar-focus"),
     ("?", ":help"),
+    ("r", ":reply"),
+    ("R", ":reply-all"),
+    ("f", ":forward"),
 ];
 
 pub(super) const DEFAULT_SIDEBAR_BINDINGS: &[(&str, &str)] = &[

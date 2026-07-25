@@ -138,6 +138,9 @@ pub struct Folders {
     pub sent: String,
     pub trash: String,
     pub archive: String,
+    /// Copy sent mail into `sent`. Gmail files SMTP-sent mail itself,
+    /// so Gmail accounts set this false to avoid duplicates.
+    pub save_sent: bool,
 }
 
 impl Default for Folders {
@@ -147,6 +150,7 @@ impl Default for Folders {
             sent: "Sent".to_owned(),
             trash: "Trash".to_owned(),
             archive: "Archive".to_owned(),
+            save_sent: true,
         }
     }
 }

@@ -29,7 +29,7 @@ pub fn start_compose(world: &mut World) {
         Ok(directory) => directory,
         Err(error) => return notice(world, format!("compose: {error:#}")),
     };
-    match ComposeSession::create(&account_config, &directory) {
+    match ComposeSession::create(&account_config, &directory, "") {
         Ok(session) => {
             world.resource_mut::<ComposeState>().0 = Some(session);
             prompt_to(world);

@@ -95,6 +95,15 @@ async fn handle_command<B: MailBackend>(
                 let _sent = events.send_async(job_failed(account, None, error)).await;
             }
         }
+        MailCommand::AppendMessage {
+            folder,
+            bytes,
+            flags,
+        } => {
+            if let Err(error) = backend.append_message(&folder, bytes, flags).await {
+                let _sent = events.send_async(job_failed(account, None, error)).await;
+            }
+        }
     }
     ControlFlow::Continue(())
 }

@@ -295,3 +295,26 @@ async fn transport_failure_reconnects_and_retries_once() {
         "LIST must succeed on the second connection"
     );
 }
+
+#[tokio::test]
+async fn append_message_runs_the_append_command() {
+    let body = "From: me@x.com\r\n\r\nsent\r\n";
+    let port = spawn_server(vec![ImapScript::new(vec![
+        login_ok(),
+        step(
+            "APPEND \"[Gmail]/Sent Mail\" (\\Seen)",
+            &["+ go ahead", "{tag} OK APPEND completed"],
+        ),
+    ])])
+    .await;
+
+    let mut backend = ImapBackend::new(config(port));
+    backend
+        .append_message(
+            &FolderId::new("[Gmail]/Sent Mail"),
+            body.as_bytes().to_vec(),
+            Flags::SEEN,
+        )
+        .await
+        .unwrap();
+}

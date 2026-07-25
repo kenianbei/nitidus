@@ -102,6 +102,16 @@ impl MailBackend for MaildirBackend {
         let new_name = new_name.to_owned();
         run_blocking(move || folder_ops::rename(&root, &folder, &new_name)).await
     }
+
+    async fn append_message(
+        &mut self,
+        folder: &FolderId,
+        bytes: Vec<u8>,
+        flags: Flags,
+    ) -> Result<(), MailError> {
+        let dir = folders::folder_dir(&self.root, folder);
+        run_blocking(move || message::deliver(&dir, &bytes, flags).map(|_id| ())).await
+    }
 }
 
 async fn run_blocking<T, F>(work: F) -> Result<T, MailError>

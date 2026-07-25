@@ -41,6 +41,7 @@ pub enum Action {
     Compose,
     ComposeAction(ComposeOp),
     UndoSend,
+    Reply(crate::compose::ReplyKind),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -152,6 +153,7 @@ pub fn apply_action(world: &mut World, action: &Action) {
         Action::Compose => crate::compose::start_compose(world),
         Action::ComposeAction(op) => crate::compose::dispatch(world, *op),
         Action::UndoSend => crate::outbox::undo_send(world),
+        Action::Reply(kind) => crate::compose::start_reply(world, *kind),
     }
 }
 

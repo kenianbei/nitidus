@@ -18,6 +18,8 @@ use crate::status::StatusMessage;
 
 mod delivery;
 
+pub use delivery::{after_send, fail_send};
+
 const OUTBOX_DIR_NAME: &str = "outbox";
 pub const SEND_DELAY: Duration = Duration::from_secs(10);
 /// A failed or unresolvable entry parks this far in the future — no
@@ -61,6 +63,21 @@ pub struct OutboxMeta {
     pub envelope_from: String,
     pub recipients: Vec<String>,
     pub send_at_epoch_ms: u128,
+    #[serde(default)]
+    pub in_reply_to: Option<String>,
+    #[serde(default)]
+    pub references: Vec<String>,
+    /// `account/folder/id` of the message being answered.
+    #[serde(default)]
+    pub reply_source: Option<(String, String, String)>,
+    #[serde(default = "default_save_sent")]
+    pub save_sent: bool,
+    #[serde(default)]
+    pub sent_folder: String,
+}
+
+fn default_save_sent() -> bool {
+    true
 }
 
 pub struct PendingSend {
@@ -122,6 +139,7 @@ pub fn queue(
     let stem = format!("{}-{}", epoch_ms(), std::process::id());
     let eml_path = directory.join(format!("{stem}.eml"));
     let meta_path = directory.join(format!("{stem}.toml"));
+    let (save_sent, sent_folder) = delivery::sent_policy(world, session.account.as_str());
     let meta = OutboxMeta {
         account: session.account.as_str().to_owned(),
         from: session.from.clone(),
@@ -133,6 +151,17 @@ pub fn queue(
         envelope_from: envelope.from.clone(),
         recipients: envelope.recipients.clone(),
         send_at_epoch_ms: epoch_ms() + delay.as_millis(),
+        in_reply_to: session.in_reply_to.clone(),
+        references: session.references.clone(),
+        reply_source: session.reply_source.as_ref().map(|source| {
+            (
+                source.account.as_str().to_owned(),
+                source.folder.as_str().to_owned(),
+                source.id.as_str().to_owned(),
+            )
+        }),
+        save_sent,
+        sent_folder,
     };
     std::fs::write(&eml_path, bytes)?;
     std::fs::write(&meta_path, toml::to_string(&meta)?)?;
@@ -173,6 +202,17 @@ pub fn undo_send(world: &mut World) {
         body_path: entry.meta.body_path.clone(),
         body: Vec::new(),
         stage: ComposeStage::Review,
+        in_reply_to: entry.meta.in_reply_to.clone(),
+        references: entry.meta.references.clone(),
+        reply_source: entry
+            .meta
+            .reply_source
+            .as_ref()
+            .map(|(account, folder, id)| crate::compose::ReplySource {
+                account: AccountId::new(account),
+                folder: nitidus_mail::FolderId::new(folder),
+                id: nitidus_mail::EnvelopeId::new(id),
+            }),
     };
     session.reload_body();
     world.resource_mut::<ComposeState>().0 = Some(session);
@@ -182,39 +222,17 @@ pub fn undo_send(world: &mut World) {
         .info("send undone — back to review".to_owned(), now);
 }
 
-/// Marks the entry done and removes every file it owned (message,
-/// meta, and the compose body). Returns whether the job was ours.
-pub fn complete_send(outbox: &mut OutboxState, job: JobId) -> bool {
-    let Some(position) = outbox
+/// Removes and returns the entry for a completed job; the caller runs
+/// `after_send` (sent copy, answered flag, file cleanup).
+pub fn take_completed(outbox: &mut OutboxState, job: JobId) -> Option<PendingSend> {
+    let position = outbox
         .0
         .iter()
-        .position(|entry| entry.submitted == Some(job))
-    else {
-        return false;
-    };
-    let entry = outbox.0.remove(position);
-    remove_file_logged(&entry.eml_path);
-    remove_file_logged(&entry.meta_path);
-    remove_file_logged(&entry.meta.body_path);
-    true
+        .position(|entry| entry.submitted == Some(job))?;
+    Some(outbox.0.remove(position))
 }
 
-/// A failed job stays queued (files intact), parked out of the tick
-/// loop; startup retries it afresh.
-pub fn fail_send(outbox: &mut OutboxState, job: JobId) -> bool {
-    let Some(entry) = outbox
-        .0
-        .iter_mut()
-        .find(|entry| entry.submitted == Some(job))
-    else {
-        return false;
-    };
-    entry.submitted = None;
-    entry.meta.send_at_epoch_ms = epoch_ms() + RETRY_PARK_MS;
-    true
-}
-
-fn remove_file_logged(path: &std::path::Path) {
+pub(super) fn remove_file_logged(path: &std::path::Path) {
     if let Err(error) = std::fs::remove_file(path)
         && error.kind() != std::io::ErrorKind::NotFound
     {

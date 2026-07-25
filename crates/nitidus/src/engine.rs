@@ -29,6 +29,7 @@ impl Plugin for EnginePlugin {
         app.init_resource::<PagerState>();
         app.init_resource::<IndexView>();
         app.init_resource::<crate::outbox::OutboxState>();
+        app.init_resource::<crate::compose::intent::ReplyIntent>();
         app.init_resource::<Screen>();
         app.init_resource::<StartupNotices>();
         app.init_resource::<StatusMessage>();
@@ -82,6 +83,7 @@ struct MailRouting<'w> {
     messages: ResMut<'w, StatusMessage>,
     index_view: ResMut<'w, IndexView>,
     outbox: ResMut<'w, crate::outbox::OutboxState>,
+    reply_intent: ResMut<'w, crate::compose::intent::ReplyIntent>,
     time: Res<'w, Time>,
 }
 
@@ -130,7 +132,9 @@ fn route_event(routing: &mut MailRouting, event: MailEvent) {
             rows,
         } => routing.threads.accept(&account, &folder, job, rows),
         MailEvent::SendDone { account, job } => {
-            crate::outbox::complete_send(&mut routing.outbox, job);
+            if let Some(entry) = crate::outbox::take_completed(&mut routing.outbox, job) {
+                crate::outbox::after_send(&entry, routing.engine.as_deref(), &mut routing.store);
+            }
             let now = routing.time.elapsed_secs_f64();
             routing
                 .messages
@@ -147,6 +151,7 @@ fn route_event(routing: &mut MailRouting, event: MailEvent) {
                     *routing.screen = Screen::Index;
                 }
                 crate::outbox::fail_send(&mut routing.outbox, job);
+                routing.reply_intent.abandon(job);
             }
             let now = routing.time.elapsed_secs_f64();
             routing.messages.warn(format!("{account}: {error}"), now);
@@ -157,7 +162,11 @@ fn route_event(routing: &mut MailRouting, event: MailEvent) {
             id,
             job,
             raw,
-        } => routing.pager.receive(account, folder, id, job, raw),
+        } => {
+            if !routing.reply_intent.claim(job, &raw) {
+                routing.pager.receive(account, folder, id, job, raw);
+            }
+        }
     }
 }
 

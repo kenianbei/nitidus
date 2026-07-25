@@ -28,6 +28,26 @@ pub fn parse_envelope(path: &Path, in_new: bool) -> Result<EnvelopeSummary, Mail
     ))
 }
 
+/// Classic maildir delivery: write to `tmp/`, rename into `cur/`
+/// with the flag suffix. The unique name includes nanos + pid so
+/// concurrent deliveries never collide.
+pub fn deliver(folder_dir: &Path, bytes: &[u8], flags: Flags) -> Result<EnvelopeId, MailError> {
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|elapsed| elapsed.as_nanos())
+        .unwrap_or_default();
+    let unique = format!("{nanos}.{}.nitidus", std::process::id());
+    let tmp = folder_dir.join("tmp").join(&unique);
+    fs::write(&tmp, bytes)
+        .map_err(|error| MailError::Backend(format!("write {}: {error}", tmp.display())))?;
+    let target = folder_dir
+        .join("cur")
+        .join(format!("{unique}{FLAG_SEPARATOR}{}", flag_suffix(flags)));
+    fs::rename(&tmp, &target)
+        .map_err(|error| MailError::Backend(format!("deliver {}: {error}", target.display())))?;
+    Ok(EnvelopeId::new(unique))
+}
+
 /// Finds the file for a maildir unique name in `cur/` then `new/`.
 pub fn find_message(folder_dir: &Path, id: &EnvelopeId) -> Result<PathBuf, MailError> {
     for sub in ["cur", "new"] {

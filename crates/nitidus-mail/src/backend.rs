@@ -49,4 +49,13 @@ pub trait MailBackend: Send + 'static {
         folder: &FolderId,
         new_name: &str,
     ) -> impl Future<Output = Result<(), MailError>> + Send;
+
+    /// Writes a complete message into `folder` (the Sent copy, drafts
+    /// later) with the given flags already set.
+    fn append_message(
+        &mut self,
+        folder: &FolderId,
+        bytes: Vec<u8>,
+        flags: Flags,
+    ) -> impl Future<Output = Result<(), MailError>> + Send;
 }

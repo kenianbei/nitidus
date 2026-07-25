@@ -154,6 +154,28 @@ impl crate::backend::MailBackend for MockBackend {
         Ok(())
     }
 
+    async fn append_message(
+        &mut self,
+        folder: &FolderId,
+        bytes: Vec<u8>,
+        flags: Flags,
+    ) -> Result<(), MailError> {
+        let envelopes = self
+            .envelopes
+            .get_mut(folder)
+            .ok_or_else(|| MailError::Backend(format!("no such folder: {folder}")))?;
+        let index = envelopes.len();
+        let mut envelope = crate::envelope::summarize_headers(
+            &bytes,
+            EnvelopeId::new(format!("{folder}-appended-{index}")),
+            flags,
+            0,
+        );
+        envelope.flags = flags;
+        envelopes.push(envelope);
+        Ok(())
+    }
+
     async fn rename_folder(&mut self, folder: &FolderId, new_name: &str) -> Result<(), MailError> {
         let meta = self
             .folders

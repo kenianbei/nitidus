@@ -32,6 +32,12 @@ pub fn build(session: &ComposeSession) -> anyhow::Result<BuiltMessage> {
     if !cc.is_empty() {
         builder = builder.cc(address_list(&cc));
     }
+    if let Some(in_reply_to) = &session.in_reply_to {
+        builder = builder.in_reply_to(in_reply_to.clone());
+    }
+    if !session.references.is_empty() {
+        builder = builder.references(session.references.clone());
+    }
     let bytes = builder.write_to_vec()?;
 
     let recipients = to
@@ -125,6 +131,9 @@ mod tests {
             body_path,
             body: Vec::new(),
             stage: ComposeStage::Review,
+            in_reply_to: None,
+            references: Vec::new(),
+            reply_source: None,
         }
     }
 

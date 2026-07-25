@@ -3,6 +3,7 @@
 
 use super::{CommandSpec, no_args};
 use crate::action::{Action, ComposeOp};
+use crate::compose::ReplyKind;
 
 pub(super) const COMPOSE_COMMANDS: &[CommandSpec] = &[
     CommandSpec {
@@ -64,6 +65,24 @@ pub(super) const COMPOSE_COMMANDS: &[CommandSpec] = &[
         summary: "save the message as a draft",
         aliases: &[],
         parse: |args| no_args("postpone", args, Action::ComposeAction(ComposeOp::Postpone)),
+    },
+    CommandSpec {
+        name: "reply",
+        summary: "reply to the message",
+        aliases: &[],
+        parse: |args| no_args("reply", args, Action::Reply(ReplyKind::Reply)),
+    },
+    CommandSpec {
+        name: "reply-all",
+        summary: "reply to everyone on the message",
+        aliases: &[],
+        parse: |args| no_args("reply-all", args, Action::Reply(ReplyKind::ReplyAll)),
+    },
+    CommandSpec {
+        name: "forward",
+        summary: "forward the message",
+        aliases: &[],
+        parse: |args| no_args("forward", args, Action::Reply(ReplyKind::Forward)),
     },
     CommandSpec {
         name: "undo-send",

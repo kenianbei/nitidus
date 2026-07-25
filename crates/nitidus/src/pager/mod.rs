@@ -70,6 +70,10 @@ pub struct PagerState {
 }
 
 impl PagerState {
+    pub fn open_message(&self) -> Option<&OpenMessage> {
+        self.open.as_ref()
+    }
+
     pub fn is_open(&self) -> bool {
         self.open.is_some()
     }

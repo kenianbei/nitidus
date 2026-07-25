@@ -5,12 +5,15 @@
 
 pub mod build;
 mod editor;
+pub(crate) mod intent;
 mod ops;
 mod render;
+pub mod reply;
 
 pub use editor::EditorCommand;
 pub use ops::{dispatch, scroll, start_compose};
 pub use render::ComposeWidget;
+pub use reply::{ReplyKind, start_reply};
 
 use std::path::PathBuf;
 
@@ -33,8 +36,12 @@ pub struct ComposePlugin;
 impl Plugin for ComposePlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<ComposeState>();
+        app.init_resource::<intent::ReplyIntent>();
         app.add_systems(Startup, render::spawn_compose);
-        app.add_systems(Update, render::refresh_compose);
+        app.add_systems(
+            Update,
+            (intent::consume_reply_intent, render::refresh_compose),
+        );
     }
 }
 
@@ -55,6 +62,19 @@ pub struct ComposeSession {
     pub body_path: PathBuf,
     pub body: Vec<String>,
     pub stage: ComposeStage,
+    /// Threading headers when this is a reply.
+    pub in_reply_to: Option<String>,
+    pub references: Vec<String>,
+    /// The message being answered — gains `\Answered` once the reply
+    /// actually sends.
+    pub reply_source: Option<ReplySource>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ReplySource {
+    pub account: AccountId,
+    pub folder: nitidus_mail::FolderId,
+    pub id: nitidus_mail::EnvelopeId,
 }
 
 #[derive(Resource, Default)]
@@ -71,15 +91,20 @@ impl ComposeState {
 }
 
 impl ComposeSession {
-    /// Creates the session and its body file (signature included).
-    fn create(account_config: &AccountConfig, directory: &std::path::Path) -> anyhow::Result<Self> {
+    /// Creates the session and its body file: `initial_content` (a
+    /// reply quote, or empty) first, signature after.
+    fn create(
+        account_config: &AccountConfig,
+        directory: &std::path::Path,
+        initial_content: &str,
+    ) -> anyhow::Result<Self> {
         std::fs::create_dir_all(directory)?;
         let stamp = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|elapsed| elapsed.as_millis())
             .unwrap_or_default();
         let body_path = directory.join(format!("{stamp}-{}.md", std::process::id()));
-        let body = initial_body(account_config);
+        let body = format!("{initial_content}{}", initial_body(account_config));
         std::fs::write(&body_path, &body)?;
         Ok(Self {
             account: AccountId::new(&account_config.name),
@@ -91,6 +116,9 @@ impl ComposeSession {
             body_path,
             body: body.lines().map(str::to_owned).collect(),
             stage: ComposeStage::Prompting,
+            in_reply_to: None,
+            references: Vec::new(),
+            reply_source: None,
         })
     }
 

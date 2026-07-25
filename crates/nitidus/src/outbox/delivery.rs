@@ -2,12 +2,15 @@
 //! tick, and transport resolution from the account config.
 
 use bevy::prelude::*;
-use nitidus_mail::AccountId;
 use nitidus_mail::send::{
     OutgoingTransport, SendEnvelope, SmtpConfig, SmtpCredentials, SmtpEncryption,
 };
+use nitidus_mail::{AccountId, JobId};
 
-use super::{OutboxMeta, OutboxState, PendingSend, RETRY_PARK_MS, epoch_ms, outbox_directory};
+use super::{
+    OutboxMeta, OutboxState, PendingSend, RETRY_PARK_MS, epoch_ms, outbox_directory,
+    remove_file_logged,
+};
 use crate::config::account::{Encryption, Outgoing};
 use crate::engine::EngineResource;
 use crate::status::StatusMessage;
@@ -152,4 +155,94 @@ fn build_transport(world: &World, account: &AccountId) -> anyhow::Result<Outgoin
         }),
         None => anyhow::bail!("account {account} has no outgoing transport configured"),
     }
+}
+
+/// Post-send bookkeeping: append the Sent copy (policy resolved at
+/// queue time), mark the answered source, then remove every file the
+/// entry owned.
+pub fn after_send(
+    entry: &PendingSend,
+    engine: Option<&crate::engine::EngineResource>,
+    store: &mut crate::store::MailStore,
+) {
+    let account = AccountId::new(&entry.meta.account);
+    if let Some(engine) = engine {
+        if entry.meta.save_sent
+            && !entry.meta.sent_folder.is_empty()
+            && let Ok(bytes) = std::fs::read(&entry.eml_path)
+        {
+            let command = nitidus_mail::MailCommand::AppendMessage {
+                folder: nitidus_mail::FolderId::new(&entry.meta.sent_folder),
+                bytes,
+                flags: nitidus_mail::Flags::SEEN,
+            };
+            if let Err(error) = engine.0.send(&account, command) {
+                tracing::warn!("sent copy failed: {error}");
+            }
+        }
+        if let Some((source_account, folder, id)) = &entry.meta.reply_source {
+            mark_answered(engine, store, source_account, folder, id);
+        }
+    }
+    remove_file_logged(&entry.eml_path);
+    remove_file_logged(&entry.meta_path);
+    remove_file_logged(&entry.meta.body_path);
+}
+
+fn mark_answered(
+    engine: &crate::engine::EngineResource,
+    store: &mut crate::store::MailStore,
+    account: &str,
+    folder: &str,
+    id: &str,
+) {
+    let account = AccountId::new(account);
+    let folder = nitidus_mail::FolderId::new(folder);
+    let id = nitidus_mail::EnvelopeId::new(id);
+    let Some(current) = store
+        .envelopes(&account, &folder)
+        .iter()
+        .find(|envelope| envelope.id == id)
+        .map(|envelope| envelope.flags)
+    else {
+        return;
+    };
+    let flags = current.with(nitidus_mail::Flags::ANSWERED);
+    store.set_flags(&account, &folder, &id, flags);
+    let command = nitidus_mail::MailCommand::SetFlags { folder, id, flags };
+    if let Err(error) = engine.0.send(&account, command) {
+        tracing::warn!("answered flag failed: {error}");
+    }
+}
+
+/// A failed job stays queued (files intact), parked out of the tick
+/// loop; startup retries it afresh.
+pub fn fail_send(outbox: &mut OutboxState, job: JobId) -> bool {
+    let Some(entry) = outbox
+        .0
+        .iter_mut()
+        .find(|entry| entry.submitted == Some(job))
+    else {
+        return false;
+    };
+    entry.submitted = None;
+    entry.meta.send_at_epoch_ms = epoch_ms() + RETRY_PARK_MS;
+    true
+}
+
+/// The account's sent-copy policy, resolved at queue time so the meta
+/// file is self-contained.
+pub(super) fn sent_policy(world: &World, account: &str) -> (bool, String) {
+    let config = world.resource::<crate::config::Config>();
+    config
+        .accounts
+        .iter()
+        .find(|candidate| candidate.name == account)
+        .map(|account_config| {
+            (
+                account_config.folders.save_sent,
+                account_config.folders.sent.clone(),
+            )
+        })
+        .unwrap_or((false, String::new()))
 }

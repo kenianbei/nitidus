@@ -2411,6 +2411,7 @@ dependencies = [
  "html2text",
  "jiff",
  "mail-builder",
+ "mail-parser",
  "nitidus-mail",
  "nitidus-ui-kit",
  "nucleo-matcher",
