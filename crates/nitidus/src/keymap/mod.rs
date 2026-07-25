@@ -11,6 +11,16 @@ use crokey::KeyCombination;
 use crate::action::{Action, parse_command};
 use crate::config::{RawKeymaps, parse_key_sequence};
 
+mod defaults;
+mod rows;
+
+pub use rows::{BindingRow, HelpRow};
+
+use defaults::{
+    DEFAULT_GLOBAL_BINDINGS, DEFAULT_INDEX_BINDINGS, DEFAULT_PAGER_BINDINGS,
+    DEFAULT_PICKER_BINDINGS, DEFAULT_SIDEBAR_BINDINGS,
+};
+
 #[derive(Clone, Copy, Debug, Default, Hash, PartialEq, Eq)]
 pub enum InputMode {
     #[default]
@@ -43,100 +53,18 @@ pub const KNOWN_CONTEXTS: &[&str] = &[
     "command_line",
 ];
 
-const DEFAULT_GLOBAL_BINDINGS: &[(&str, &str)] = &[
-    ("q", ":quit"),
-    (":", ":command-line"),
-    ("<Tab>", ":tab-next"),
-    ("<BackTab>", ":tab-prev"),
-];
-
-const DEFAULT_INDEX_BINDINGS: &[(&str, &str)] = &[
-    ("j", ":next"),
-    ("k", ":prev"),
-    ("<Down>", ":next"),
-    ("<Up>", ":prev"),
-    ("<PageDown>", ":next-page"),
-    ("<PageUp>", ":prev-page"),
-    ("gg", ":first"),
-    ("G", ":last"),
-    ("N", ":toggle-read"),
-    ("F", ":toggle-flag"),
-    ("T", ":threads"),
-    ("za", ":fold"),
-    ("zM", ":fold-all"),
-    ("zR", ":unfold-all"),
-    ("P", ":parent"),
-    ("<Enter>", ":view"),
-    ("b", ":sidebar"),
-    ("<Tab>", ":sidebar-focus"),
-];
-
-const DEFAULT_PAGER_BINDINGS: &[(&str, &str)] = &[
-    ("q", ":close"),
-    ("j", ":next"),
-    ("k", ":prev"),
-    ("<Down>", ":next"),
-    ("<Up>", ":prev"),
-    ("<Space>", ":next-page"),
-    ("<PageDown>", ":next-page"),
-    ("<PageUp>", ":prev-page"),
-    ("gg", ":first"),
-    ("G", ":last"),
-    ("J", ":next-message"),
-    ("K", ":prev-message"),
-    ("H", ":headers"),
-    ("S", ":skip-quoted"),
-    ("]", ":next-part"),
-    ("[", ":prev-part"),
-    ("s", ":save-part"),
-    ("o", ":open-part"),
-    ("l", ":links"),
-    ("b", ":sidebar"),
-    ("<Tab>", ":sidebar-focus"),
-];
-
-const DEFAULT_SIDEBAR_BINDINGS: &[(&str, &str)] = &[
-    ("j", ":next"),
-    ("k", ":prev"),
-    ("<Down>", ":next"),
-    ("<Up>", ":prev"),
-    ("<PageDown>", ":next-page"),
-    ("<PageUp>", ":prev-page"),
-    ("gg", ":first"),
-    ("G", ":last"),
-    ("P", ":parent"),
-    ("<Enter>", ":view"),
-    ("za", ":fold"),
-    ("zM", ":fold-all"),
-    ("zR", ":unfold-all"),
-    ("b", ":sidebar"),
-    ("<Tab>", ":sidebar-focus"),
-    ("<Esc>", ":sidebar-focus"),
-    ("c", ":command-line folder-create"),
-    ("r", ":command-line folder-rename"),
-    ("D", ":command-line folder-delete"),
-];
-
-/// Only single-key bindings are meaningful here: the picker resolves
-/// one key at a time because unbound printables type into the filter.
-const DEFAULT_PICKER_BINDINGS: &[(&str, &str)] = &[
-    ("<Down>", ":next"),
-    ("<Up>", ":prev"),
-    ("<C-j>", ":next"),
-    ("<C-k>", ":prev"),
-    ("<Enter>", ":confirm"),
-    ("<Esc>", ":cancel"),
-];
-
 #[derive(Debug, Default)]
-struct TrieNode {
-    action: Option<Action>,
-    children: HashMap<KeyCombination, TrieNode>,
+pub(crate) struct TrieNode {
+    pub(crate) action: Option<Action>,
+    /// The command string the action was parsed from, kept for help
+    /// display.
+    pub(crate) command: Option<String>,
+    pub(crate) children: HashMap<KeyCombination, TrieNode>,
 }
 
 #[derive(Debug, Default, Resource)]
 pub struct Keymaps {
-    contexts: HashMap<String, TrieNode>,
+    pub(crate) contexts: HashMap<String, TrieNode>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -201,6 +129,7 @@ impl Keymaps {
             node = node.children.entry(key).or_default();
         }
         node.action = Some(action);
+        node.command = Some(command.to_owned());
         Ok(())
     }
 
@@ -216,6 +145,7 @@ impl Keymaps {
             }
         }
         node.action = None;
+        node.command = None;
         Ok(())
     }
 
@@ -320,6 +250,53 @@ mod tests {
             keymaps.lookup(CONTEXT_GLOBAL, &keys("gx")),
             KeymapMatch::Unbound
         );
+    }
+
+    #[test]
+    fn bindings_walk_formats_sequences_and_survives_unbind() {
+        let mut raw = RawKeymaps::default();
+        raw.0
+            .entry("index".to_owned())
+            .or_default()
+            .insert("j".to_owned(), String::new());
+        let keymaps = Keymaps::compile(&raw).unwrap();
+        let rows = keymaps.bindings(CONTEXT_INDEX);
+        assert!(
+            rows.iter()
+                .any(|row| row.keys == "gg" && row.command == ":first"),
+            "{rows:?}"
+        );
+        assert!(
+            !rows.iter().any(|row| row.keys == "j"),
+            "unbound sequences must disappear from help: {rows:?}"
+        );
+    }
+
+    #[test]
+    fn help_rows_merge_globals_without_shadowed_sequences() {
+        let keymaps = Keymaps::compile(&RawKeymaps::default()).unwrap();
+        let rows = keymaps.help_rows(CONTEXT_INDEX);
+        assert!(
+            rows.iter()
+                .any(|row| row.context == CONTEXT_GLOBAL && row.command == ":quit"),
+            "unshadowed globals must appear: {rows:?}"
+        );
+        let tab_rows: Vec<_> = rows.iter().filter(|row| row.keys == "Tab").collect();
+        assert_eq!(tab_rows.len(), 1, "{tab_rows:?}");
+        assert_eq!(
+            tab_rows[0].command, ":sidebar-focus",
+            "the index Tab binding shadows the global tab-next"
+        );
+    }
+
+    #[test]
+    fn all_help_rows_group_by_context_order() {
+        let keymaps = Keymaps::compile(&RawKeymaps::default()).unwrap();
+        let rows = keymaps.all_help_rows();
+        let first_index = rows.iter().position(|row| row.context == "index").unwrap();
+        let first_pager = rows.iter().position(|row| row.context == "pager").unwrap();
+        assert!(rows[0].context == "global");
+        assert!(first_index < first_pager);
     }
 
     #[test]

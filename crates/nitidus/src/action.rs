@@ -36,6 +36,8 @@ pub enum Action {
     FolderCreate(String),
     FolderRename(String),
     FolderDelete,
+    Help,
+    HelpScope,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -130,6 +132,8 @@ pub fn apply_action(world: &mut World, action: &Action) {
         Action::FolderCreate(name) => crate::sidebar::folder_create(world, name),
         Action::FolderRename(new_name) => crate::sidebar::folder_rename(world, new_name),
         Action::FolderDelete => crate::sidebar::folder_delete(world),
+        Action::Help => crate::help::open(world, crate::help::HelpScope::Current),
+        Action::HelpScope => crate::help::toggle_scope(world),
     }
 }
 

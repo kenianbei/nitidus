@@ -98,7 +98,5 @@ fn scrolled_top(selected: usize, visible: usize, total: usize) -> usize {
     if visible == 0 || total <= visible {
         return 0;
     }
-    selected
-        .saturating_sub(visible / 2)
-        .min(total - visible)
+    selected.saturating_sub(visible / 2).min(total - visible)
 }

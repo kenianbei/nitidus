@@ -59,6 +59,23 @@ pub fn main_layout(sidebar_width: u16) -> LayoutFn {
     Arc::new(move |area| sidebar_split(*area, sidebar_width).1)
 }
 
+/// Bottom-anchored strip of the content region sitting directly above
+/// the statusline, `rows` high (clamped to the content height).
+pub fn bottom_panel(area: Rect, rows: u16) -> Rect {
+    let shell = split_shell(area);
+    let height = rows.min(shell.content.height);
+    Rect {
+        x: shell.content.x,
+        y: shell.statusline.y.saturating_sub(height),
+        width: shell.content.width,
+        height,
+    }
+}
+
+pub fn bottom_panel_layout(rows: u16) -> LayoutFn {
+    Arc::new(move |area| bottom_panel(*area, rows))
+}
+
 /// Floating rect for modal panels: centered inside the shell's content
 /// region at `width_pct` of its width, up to `max_height` rows.
 pub fn centered_panel(area: Rect, width_pct: u16, max_height: u16) -> Rect {

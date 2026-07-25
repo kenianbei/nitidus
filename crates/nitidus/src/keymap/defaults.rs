@@ -1,0 +1,90 @@
+//! The built-in binding tables, overlaid by keys.toml at compile time.
+
+pub(super) const DEFAULT_GLOBAL_BINDINGS: &[(&str, &str)] = &[
+    ("q", ":quit"),
+    (":", ":command-line"),
+    ("<Tab>", ":tab-next"),
+    ("<BackTab>", ":tab-prev"),
+];
+
+pub(super) const DEFAULT_INDEX_BINDINGS: &[(&str, &str)] = &[
+    ("j", ":next"),
+    ("k", ":prev"),
+    ("<Down>", ":next"),
+    ("<Up>", ":prev"),
+    ("<PageDown>", ":next-page"),
+    ("<PageUp>", ":prev-page"),
+    ("gg", ":first"),
+    ("G", ":last"),
+    ("N", ":toggle-read"),
+    ("F", ":toggle-flag"),
+    ("T", ":threads"),
+    ("za", ":fold"),
+    ("zM", ":fold-all"),
+    ("zR", ":unfold-all"),
+    ("P", ":parent"),
+    ("<Enter>", ":view"),
+    ("b", ":sidebar"),
+    ("<Tab>", ":sidebar-focus"),
+    ("?", ":help"),
+];
+
+pub(super) const DEFAULT_PAGER_BINDINGS: &[(&str, &str)] = &[
+    ("q", ":close"),
+    ("j", ":next"),
+    ("k", ":prev"),
+    ("<Down>", ":next"),
+    ("<Up>", ":prev"),
+    ("<Space>", ":next-page"),
+    ("<PageDown>", ":next-page"),
+    ("<PageUp>", ":prev-page"),
+    ("gg", ":first"),
+    ("G", ":last"),
+    ("J", ":next-message"),
+    ("K", ":prev-message"),
+    ("H", ":headers"),
+    ("S", ":skip-quoted"),
+    ("]", ":next-part"),
+    ("[", ":prev-part"),
+    ("s", ":save-part"),
+    ("o", ":open-part"),
+    ("l", ":links"),
+    ("b", ":sidebar"),
+    ("<Tab>", ":sidebar-focus"),
+    ("?", ":help"),
+];
+
+pub(super) const DEFAULT_SIDEBAR_BINDINGS: &[(&str, &str)] = &[
+    ("j", ":next"),
+    ("k", ":prev"),
+    ("<Down>", ":next"),
+    ("<Up>", ":prev"),
+    ("<PageDown>", ":next-page"),
+    ("<PageUp>", ":prev-page"),
+    ("gg", ":first"),
+    ("G", ":last"),
+    ("P", ":parent"),
+    ("<Enter>", ":view"),
+    ("za", ":fold"),
+    ("zM", ":fold-all"),
+    ("zR", ":unfold-all"),
+    ("b", ":sidebar"),
+    ("<Tab>", ":sidebar-focus"),
+    ("<Esc>", ":sidebar-focus"),
+    ("c", ":command-line folder-create"),
+    ("r", ":command-line folder-rename"),
+    ("D", ":command-line folder-delete"),
+    ("?", ":help"),
+];
+
+/// Only single-key bindings are meaningful here: the picker resolves
+/// one key at a time because unbound printables type into the filter.
+pub(super) const DEFAULT_PICKER_BINDINGS: &[(&str, &str)] = &[
+    ("<Down>", ":next"),
+    ("<Up>", ":prev"),
+    ("<C-j>", ":next"),
+    ("<C-k>", ":prev"),
+    ("<Enter>", ":confirm"),
+    ("<Esc>", ":cancel"),
+    ("<Tab>", ":help-scope"),
+];

@@ -48,8 +48,10 @@ impl PendingKeys {
     }
 }
 
+/// Implicit shift: `M` renders as `M`, not `Shift-m` — matches how
+/// bindings are written in keys.toml.
 pub fn format_keys(keys: &[KeyCombination]) -> String {
-    let format = KeyCombinationFormat::default();
+    let format = KeyCombinationFormat::default().with_implicit_shift();
     keys.iter().map(|key| format.to_string(*key)).collect()
 }
 

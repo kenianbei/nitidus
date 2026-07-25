@@ -2,7 +2,10 @@
 //! history and fuzzy completion. Opens via `OpenCommandLine`, executes
 //! through the shared command parser.
 
-use std::fs;
+mod history;
+mod panel;
+
+use history::append_history;
 
 use bevy::prelude::*;
 use bevy_ratatui::crossterm::event::{KeyCode, KeyEvent};
@@ -11,23 +14,27 @@ use ratatui::style::Style;
 use ratatui::widgets::Paragraph;
 
 use crate::action::{apply_action, complete_command, parse_command};
-use crate::dirs;
 use crate::keymap::{InputMode, Mode};
 use crate::shell::Statusline;
 use crate::status::StatusMessage;
 use nitidus_ui_kit::layout;
 use nitidus_ui_kit::theme::Theme;
 
-const HISTORY_DIR_NAME: &str = "history";
-const HISTORY_FILE_NAME: &str = "commands";
-
 pub struct CommandLinePlugin;
 
 impl Plugin for CommandLinePlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<CommandLineState>();
-        app.add_systems(Startup, (load_history, spawn_command_line));
-        app.add_systems(Update, (sync_mode_visibility, refresh_command_line).chain());
+        app.add_systems(Startup, (history::load_history, spawn_command_line));
+        app.add_systems(
+            Update,
+            (
+                sync_mode_visibility,
+                refresh_command_line,
+                panel::refresh_panel,
+            )
+                .chain(),
+        );
     }
 }
 
@@ -208,6 +215,20 @@ impl CommandLineState {
             .map_or(self.buffer.len(), |(index, _)| index)
     }
 
+    /// Candidates and highlight for the completion panel: the frozen
+    /// mid-cycle list when Tab has been pressed, else a live match of
+    /// the buffer.
+    pub(crate) fn completion_view(&self) -> (Vec<String>, Option<usize>) {
+        if self.buffer.contains(char::is_whitespace) {
+            return (Vec::new(), None);
+        }
+        if self.completions.is_empty() {
+            (complete_command(&self.buffer), None)
+        } else {
+            (self.completions.clone(), self.completion_index)
+        }
+    }
+
     fn cycle_completion(&mut self) {
         if self.buffer.contains(char::is_whitespace) {
             return;
@@ -269,37 +290,6 @@ fn next_index(current: Option<usize>, len: usize) -> Option<usize> {
     }
 }
 
-fn history_path() -> anyhow::Result<std::path::PathBuf> {
-    Ok(dirs::state_dir()?
-        .join(HISTORY_DIR_NAME)
-        .join(HISTORY_FILE_NAME))
-}
-
-fn load_history(mut state: ResMut<CommandLineState>) {
-    let Ok(path) = history_path() else { return };
-    if let Ok(content) = fs::read_to_string(path) {
-        state.history = content.lines().map(str::to_owned).collect();
-    }
-}
-
-fn append_history(command: &str) {
-    let result = history_path().and_then(|path| {
-        if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent)?;
-        }
-        use std::io::Write;
-        let mut file = fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(path)?;
-        writeln!(file, "{command}")?;
-        Ok(())
-    });
-    if let Err(error) = result {
-        tracing::warn!("failed to append command history: {error:#}");
-    }
-}
-
 #[cfg(test)]
 mod tests {
     #![allow(clippy::unwrap_used, clippy::expect_used)]
@@ -331,6 +321,28 @@ mod tests {
         assert!(first.starts_with("tab-"), "{first}");
         state.cycle_completion();
         assert_ne!(state.buffer, first);
+    }
+
+    #[test]
+    fn completion_view_tracks_live_frozen_and_argument_states() {
+        let mut state = CommandLineState::default();
+        let (all, selected) = state.completion_view();
+        assert!(all.len() > 30, "empty buffer lists every command");
+        assert_eq!(selected, None);
+
+        press_char(&mut state, 't');
+        let (live, _) = state.completion_view();
+        assert!(live.iter().all(|name| name.contains('t')), "{live:?}");
+
+        state.cycle_completion();
+        let (frozen, selected) = state.completion_view();
+        assert_eq!(selected, Some(0));
+        assert_eq!(frozen[0], state.buffer, "highlight follows the cycle");
+
+        state.edit(KeyEvent::from(KeyCode::Char(' ')));
+        state.edit(KeyEvent::from(KeyCode::Char('x')));
+        let (with_args, _) = state.completion_view();
+        assert!(with_args.is_empty(), "arguments hide the panel");
     }
 
     #[test]

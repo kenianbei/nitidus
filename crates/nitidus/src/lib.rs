@@ -8,6 +8,7 @@ pub mod command;
 pub mod config;
 pub mod dirs;
 pub mod engine;
+pub mod help;
 pub mod index;
 pub mod keymap;
 pub mod logging;

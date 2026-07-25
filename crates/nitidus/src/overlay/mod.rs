@@ -119,6 +119,10 @@ impl ActiveOverlay {
         self.0.is_some()
     }
 
+    pub fn title(&self) -> Option<&str> {
+        self.0.as_ref().map(|picker| picker.title.as_str())
+    }
+
     /// Items currently visible, in match order.
     pub fn visible_items(&self) -> Vec<&PickerItem> {
         self.0.as_ref().map_or_else(Vec::new, |picker| {
