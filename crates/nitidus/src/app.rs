@@ -12,18 +12,18 @@ use plurimus::PlurimusPlugin;
 use crate::bootstrap::EngineSetup;
 use crate::cmdline::CommandLinePlugin;
 use crate::compose::ComposePlugin;
-use crate::outbox::OutboxPlugin;
-use crate::toast::ToastPlugin;
-use crate::prompt::PromptPlugin;
 use crate::config::LoadedConfig;
 use crate::engine::{CacheResource, EnginePlugin, EngineResource, StartupNotices};
 use crate::index::IndexPlugin;
 use crate::keymap::Keymaps;
+use crate::outbox::OutboxPlugin;
 use crate::overlay::OverlayPlugin;
 use crate::pager::PagerPlugin;
-use crate::sidebar::SidebarPlugin;
+use crate::prompt::PromptPlugin;
 use crate::router::RouterPlugin;
 use crate::shell::ShellPlugin;
+use crate::sidebar::SidebarPlugin;
+use crate::toast::ToastPlugin;
 
 const FRAMES_PER_SECOND: f64 = 30.0;
 
@@ -65,6 +65,7 @@ pub fn build_app(loaded: LoadedConfig, keymaps: Keymaps, setup: EngineSetup) -> 
         OutboxPlugin,
         ToastPlugin,
         EnginePlugin,
+        crate::accounts::AccountsPlugin,
     ));
     app
 }

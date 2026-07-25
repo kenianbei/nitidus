@@ -291,6 +291,18 @@ pub(super) const COMMANDS: &[CommandSpec] = &[
         parse: |args| no_args("delete-password", args, Action::DeletePassword),
     },
     CommandSpec {
+        name: "authorize",
+        summary: "run the active account's OAuth2 grant flow",
+        aliases: &[],
+        parse: |args| no_args("authorize", args, Action::Authorize),
+    },
+    CommandSpec {
+        name: "deauthorize",
+        summary: "remove the active account's OAuth2 grant",
+        aliases: &[],
+        parse: |args| no_args("deauthorize", args, Action::Deauthorize),
+    },
+    CommandSpec {
         name: "folder-delete",
         summary: "delete the selected empty folder",
         aliases: &[],

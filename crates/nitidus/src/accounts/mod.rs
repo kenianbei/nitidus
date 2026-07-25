@@ -1,12 +1,23 @@
-//! Account-level operations: keyring secret management for the active
-//! account.
+//! Account-level operations: keyring secret management and OAuth2
+//! grants for the active account.
+
+pub mod oauth;
 
 use bevy::prelude::*;
 
-use crate::config::secrets;
+use crate::config::keyring;
 use crate::index::IndexView;
 use crate::prompt::{PromptRequest, open_prompt};
 use crate::status::StatusMessage;
+
+pub struct AccountsPlugin;
+
+impl Plugin for AccountsPlugin {
+    fn build(&self, app: &mut App) {
+        app.init_resource::<oauth::OauthChannel>();
+        app.add_systems(Update, oauth::drain_oauth_events);
+    }
+}
 
 /// `:set-password` — masked prompt, stored in the OS keyring.
 pub fn set_password(world: &mut World) {
@@ -23,7 +34,7 @@ pub fn set_password(world: &mut World) {
                 status.warn("empty password not stored".to_owned(), now);
                 return;
             }
-            match secrets::store_password(&account, &secret) {
+            match keyring::store_password(&account, &secret) {
                 Ok(()) => status.info(format!("keyring secret stored for {account}"), now),
                 Err(error) => status.warn(format!("set-password: {error:#}"), now),
             }
@@ -40,9 +51,22 @@ pub fn delete_password(world: &mut World) {
     };
     let now = world.resource::<Time>().elapsed_secs_f64();
     let mut status = world.resource_mut::<StatusMessage>();
-    match secrets::delete_password(&account) {
+    match keyring::delete_password(&account) {
         Ok(()) => status.info(format!("keyring secret removed for {account}"), now),
         Err(error) => status.warn(format!("delete-password: {error:#}"), now),
+    }
+}
+
+/// `:deauthorize` — removes the active account's OAuth grant.
+pub fn deauthorize(world: &mut World) {
+    let Some(account) = active_account(world) else {
+        return;
+    };
+    let now = world.resource::<Time>().elapsed_secs_f64();
+    let mut status = world.resource_mut::<StatusMessage>();
+    match keyring::delete_oauth_refresh(&account) {
+        Ok(()) => status.info(format!("oauth grant removed for {account}"), now),
+        Err(error) => status.warn(format!("deauthorize: {error:#}"), now),
     }
 }
 
@@ -69,7 +93,7 @@ mod tests {
     use nitidus_mail::AccountId;
 
     use super::*;
-    use crate::config::secrets::use_mock_keyring;
+    use crate::config::keyring::use_mock_keyring;
     use crate::keymap::Mode;
     use crate::prompt::{PromptState, handle_key};
 
@@ -140,12 +164,24 @@ mod tests {
     #[test]
     fn delete_password_removes_the_stored_entry() {
         let mut app = accounts_app("accounts-delete-test");
-        secrets::store_password("accounts-delete-test", "gone-soon").unwrap();
+        keyring::store_password("accounts-delete-test", "gone-soon").unwrap();
         delete_password(app.world_mut());
         let lookup = keyring_core::Entry::new("nitidus", "accounts-delete-test")
             .unwrap()
             .get_password();
         assert!(matches!(lookup, Err(keyring_core::Error::NoEntry)));
+    }
+
+    #[test]
+    fn deauthorize_removes_the_oauth_grant() {
+        let mut app = accounts_app("accounts-deauth-test");
+        keyring::store_oauth_refresh(
+            "accounts-deauth-test",
+            &nitidus_mail::SecretString::from("grant"),
+        )
+        .unwrap();
+        deauthorize(app.world_mut());
+        assert!(keyring::load_oauth_refresh("accounts-deauth-test").is_err());
     }
 
     #[test]

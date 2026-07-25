@@ -12,14 +12,18 @@ use io_imap::rfc3501::select::{
     ImapMailboxSelect, ImapMailboxSelectData, ImapMailboxSelectOptions,
 };
 use io_imap::rfc3501::starttls::ImapStartTls;
+use io_imap::sasl::auth_xoauth2::{ImapAuthXoauth2, ImapAuthXoauth2Options};
 use io_imap::types::command::SelectParameter;
 use io_imap::types::mailbox::Mailbox;
 use io_imap::types::response::Capability;
+use secrecy::ExposeSecret;
 
 use super::{ImapConfig, ImapEncryption};
+use crate::MailAuth;
 use crate::error::MailError;
 use crate::imap::pump::{self, PumpError};
 use crate::net::{RemoteStream, connect_tcp, upgrade_tls};
+use crate::oauth::TokenRefresher;
 
 /// Matches io-imap's own examples; literals larger than this abort the
 /// command instead of exhausting memory.
@@ -72,15 +76,25 @@ impl ImapSession {
     }
 
     /// SELECTs `mailbox` and returns the untagged response data; the
-    /// canonical way scans open a folder (CONDSTORE included).
+    /// canonical way scans open a folder. The CONDSTORE parameter goes
+    /// only to servers that advertise it — Exchange Online answers
+    /// `BAD Command Argument Error` otherwise.
     pub async fn select(&mut self, mailbox: &str) -> Result<ImapMailboxSelectData, MailError> {
         let target = parse_mailbox(mailbox)?;
+        self.ensure_connected().await?;
+        let parameters = if self.connection.as_ref().is_some_and(|connection| {
+            io_imap::has_imap_capability!(connection.capabilities, CondStore)
+        }) {
+            vec![SelectParameter::CondStore]
+        } else {
+            Vec::new()
+        };
         let data = self
             .run(|| {
                 ImapMailboxSelect::new(
                     target.clone(),
                     ImapMailboxSelectOptions {
-                        parameters: vec![SelectParameter::CondStore],
+                        parameters: parameters.clone(),
                     },
                 )
             })
@@ -151,21 +165,74 @@ pub(super) async fn connect(config: &ImapConfig) -> Result<Connection, MailError
             upgrade_tls(tcp, &config.host).await?
         }
     };
-    let login = ImapLogin::new(
-        &config.user,
-        secrecy::ExposeSecret::expose_secret(&config.password),
-        ImapLoginOptions::default(),
-    )
-    .map_err(|error| MailError::Backend(format!("invalid credentials encoding: {error}")))?;
-    let capabilities = pump::run(&mut stream, &mut fragmentizer, login)
-        .await
-        .map_err(|error| MailError::Backend(format!("login as {}: {error}", config.user)))?;
+    let capabilities = authenticate(config, &mut stream, &mut fragmentizer).await?;
     Ok(Connection {
         stream,
         fragmentizer,
         capabilities,
         selected: None,
     })
+}
+
+async fn authenticate(
+    config: &ImapConfig,
+    stream: &mut RemoteStream,
+    fragmentizer: &mut Fragmentizer,
+) -> Result<Vec<Capability<'static>>, MailError> {
+    match &config.auth {
+        MailAuth::Login(password) => {
+            let login = ImapLogin::new(
+                &config.user,
+                password.expose_secret(),
+                ImapLoginOptions::default(),
+            )
+            .map_err(|error| {
+                MailError::Backend(format!("invalid credentials encoding: {error}"))
+            })?;
+            pump::run(stream, fragmentizer, login)
+                .await
+                .map_err(|error| MailError::Backend(format!("login as {}: {error}", config.user)))
+        }
+        MailAuth::Xoauth2(tokens) => {
+            match xoauth2_attempt(config, tokens, stream, fragmentizer).await {
+                Ok(capabilities) => Ok(capabilities),
+                // A rejected AUTHENTICATE leaves the connection usable;
+                // the token may just be stale or revoked server-side.
+                Err(PumpError::Command(_)) => {
+                    tokens.invalidate();
+                    xoauth2_attempt(config, tokens, stream, fragmentizer)
+                        .await
+                        .map_err(|error| xoauth2_error(&config.user, &error))
+                }
+                Err(error) => Err(xoauth2_error(&config.user, &error)),
+            }
+        }
+    }
+}
+
+async fn xoauth2_attempt(
+    config: &ImapConfig,
+    tokens: &TokenRefresher,
+    stream: &mut RemoteStream,
+    fragmentizer: &mut Fragmentizer,
+) -> Result<Vec<Capability<'static>>, PumpError> {
+    let token = tokens
+        .access_token()
+        .await
+        .map_err(|error| PumpError::Command(error.to_string()))?;
+    let auth = ImapAuthXoauth2::new(
+        &config.user,
+        token.expose_secret(),
+        ImapAuthXoauth2Options {
+            initial_request: true,
+            ..Default::default()
+        },
+    );
+    pump::run(stream, fragmentizer, auth).await
+}
+
+fn xoauth2_error(user: &str, error: &PumpError) -> MailError {
+    MailError::Backend(format!("xoauth2 as {user}: {error}"))
 }
 
 async fn read_greeting(

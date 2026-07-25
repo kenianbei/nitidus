@@ -46,6 +46,8 @@ pub enum Action {
     Recover,
     SetPassword,
     DeletePassword,
+    Authorize,
+    Deauthorize,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -164,6 +166,8 @@ pub fn apply_action(world: &mut World, action: &Action) {
         Action::Recover => crate::compose::recover(world),
         Action::SetPassword => crate::accounts::set_password(world),
         Action::DeletePassword => crate::accounts::delete_password(world),
+        Action::Authorize => crate::accounts::oauth::authorize(world),
+        Action::Deauthorize => crate::accounts::deauthorize(world),
     }
 }
 

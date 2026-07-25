@@ -133,7 +133,9 @@ impl MailEngine {
         self.events_tx.clone()
     }
 
-    pub(crate) fn runtime_handle(&self) -> tokio::runtime::Handle {
+    /// Handle for app-side tasks that must run on the mail runtime
+    /// (interactive OAuth grants).
+    pub fn runtime_handle(&self) -> tokio::runtime::Handle {
         self.runtime.handle().clone()
     }
 }

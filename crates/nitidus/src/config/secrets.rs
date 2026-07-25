@@ -1,6 +1,6 @@
-//! Secret resolution and keyring storage. The config names a source
-//! (keyring entry, file, command) — never secret material; resolution
-//! happens at account registration and per outgoing send.
+//! Secret resolution: the config names a source (keyring entry, file,
+//! command) — never secret material; resolution happens at account
+//! registration and per outgoing send. Storage lives in `keyring`.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -9,10 +9,6 @@ use anyhow::{Context, bail};
 use nitidus_mail::SecretString;
 
 use super::account::Auth;
-
-/// One keyring entry per account: Gmail-style app passwords cover both
-/// IMAP and SMTP, and the config has a single `auth` per account.
-const KEYRING_SERVICE: &str = "nitidus";
 
 /// The account's secret from its configured source: keyring entry,
 /// first non-empty line of a file, or first stdout line of a command.
@@ -48,69 +44,9 @@ pub fn resolve_password(
             first_line(&stdout)
                 .with_context(|| format!("password command {:?} printed nothing", cmd.command))
         }
-        Auth::Keyring => match keyring_entry(account_name)?.get_password() {
-            Ok(secret) => Ok(SecretString::from(secret)),
-            Err(keyring_core::Error::NoEntry) => {
-                bail!("no keyring secret for {account_name} — :set-password stores one")
-            }
-            Err(error) => bail!(
-                "keyring for {account_name}: {error} — :set-password stores one, \
-                 or switch auth to password_file/password_cmd"
-            ),
-        },
-        Auth::Oauth2(_) => bail!("oauth2 auth lands with the 1d auth work"),
+        Auth::Keyring => super::keyring::load_password(account_name),
+        Auth::Oauth2(_) => bail!("oauth2 accounts authenticate via :authorize, not passwords"),
     }
-}
-
-/// `:set-password` — writes the account's keyring entry.
-pub fn store_password(account_name: &str, secret: &str) -> anyhow::Result<()> {
-    keyring_entry(account_name)?
-        .set_password(secret)
-        .with_context(|| format!("storing keyring secret for {account_name}"))
-}
-
-/// `:delete-password` — removes the account's keyring entry.
-pub fn delete_password(account_name: &str) -> anyhow::Result<()> {
-    match keyring_entry(account_name)?.delete_credential() {
-        Ok(()) => Ok(()),
-        Err(keyring_core::Error::NoEntry) => {
-            bail!("no keyring secret stored for {account_name}")
-        }
-        Err(error) => {
-            Err(error).with_context(|| format!("deleting keyring secret for {account_name}"))
-        }
-    }
-}
-
-/// Process-global mock store so no test ever reaches the real OS
-/// keyring; every keyring-touching test calls this first.
-#[cfg(test)]
-pub(crate) fn use_mock_keyring() {
-    static MOCK_KEYRING: std::sync::Once = std::sync::Once::new();
-    MOCK_KEYRING.call_once(|| {
-        #[allow(clippy::expect_used)]
-        keyring_core::set_default_store(
-            keyring_core::mock::Store::new().expect("mock store never fails"),
-        );
-    });
-}
-
-fn keyring_entry(account_name: &str) -> anyhow::Result<keyring_core::Entry> {
-    ensure_keyring_store()?;
-    keyring_core::Entry::new(KEYRING_SERVICE, account_name)
-        .with_context(|| format!("opening keyring entry for {account_name}"))
-}
-
-/// Connects the process-wide default store to the Secret Service on
-/// first use; tests pre-install the mock store instead.
-fn ensure_keyring_store() -> anyhow::Result<()> {
-    if keyring_core::get_default_store().is_some() {
-        return Ok(());
-    }
-    let store = zbus_secret_service_keyring_store::Store::new()
-        .context("connecting to the Secret Service (is a keyring daemon running?)")?;
-    keyring_core::set_default_store(store);
-    Ok(())
 }
 
 const GROUP_OR_WORLD_BITS: u32 = 0o077;
@@ -221,28 +157,12 @@ mod tests {
     }
 
     #[test]
-    fn keyring_secret_round_trips() {
-        use_mock_keyring();
-        keyring_core::Entry::new(KEYRING_SERVICE, "keyring-round-trip")
-            .unwrap()
-            .set_password("k3yr1ng")
-            .unwrap();
-        let secret = resolve_password(
-            &Auth::Keyring,
-            Path::new("/nonexistent"),
-            "keyring-round-trip",
-        )
-        .unwrap();
+    fn keyring_source_resolves_through_the_stored_entry() {
+        crate::config::keyring::use_mock_keyring();
+        crate::config::keyring::store_password("resolve-keyring", "k3yr1ng").unwrap();
+        let secret =
+            resolve_password(&Auth::Keyring, Path::new("/nonexistent"), "resolve-keyring").unwrap();
         assert_eq!(secret.expose_secret(), "k3yr1ng");
-    }
-
-    #[test]
-    fn missing_keyring_entry_names_set_password() {
-        use_mock_keyring();
-        let message = resolve_password(&Auth::Keyring, Path::new("/nonexistent"), "keyring-absent")
-            .unwrap_err()
-            .to_string();
-        assert!(message.contains(":set-password"), "{message}");
     }
 
     #[test]

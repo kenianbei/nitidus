@@ -3,7 +3,10 @@
 
 pub mod account;
 mod keymaps;
+pub mod keyring;
 mod load;
+pub mod oauth;
+pub mod presets;
 mod schema;
 pub mod secrets;
 

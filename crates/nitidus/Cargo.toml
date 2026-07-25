@@ -42,6 +42,7 @@ nitidus-ui-kit.workspace = true
 plurimus.workspace = true
 rusqlite.workspace = true
 tempfile.workspace = true
+tokio = { workspace = true, features = ["rt-multi-thread", "net", "io-util", "time", "macros"] }
 toml.workspace = true
 
 [lints]

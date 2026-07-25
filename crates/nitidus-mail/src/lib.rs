@@ -3,6 +3,7 @@
 //! runtime and talks to the UI through channels.
 
 mod actor;
+mod auth;
 mod backend;
 pub mod cache;
 mod command;
@@ -14,6 +15,7 @@ pub mod imap;
 pub mod maildir;
 pub mod message;
 pub(crate) mod net;
+pub mod oauth;
 pub mod send;
 pub mod thread;
 mod types;
@@ -22,12 +24,14 @@ mod watch;
 #[cfg(feature = "mock")]
 pub mod mock;
 
+pub use auth::MailAuth;
 pub use backend::MailBackend;
 pub use command::MailCommand;
 pub use engine::MailEngine;
 pub use error::MailError;
 pub use event::MailEvent;
 pub use secrecy::{ExposeSecret, SecretString};
+pub use tokio::runtime::Handle as RuntimeHandle;
 pub use types::{
     AccountId, ConnectionState, EnvelopeId, EnvelopeSummary, Flags, FolderId, FolderMeta, JobId,
 };

@@ -23,7 +23,7 @@ pub struct ImapConfig {
     pub port: u16,
     pub encryption: ImapEncryption,
     pub user: String,
-    pub password: secrecy::SecretString,
+    pub auth: crate::MailAuth,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

@@ -47,7 +47,7 @@ fn smtp_transport(port: u16, with_auth: bool) -> OutgoingTransport {
         encryption: SmtpEncryption::None,
         credentials: with_auth.then(|| SmtpCredentials {
             user: "norman@example.com".to_owned(),
-            password: nitidus_mail::SecretString::from("hunter2"),
+            auth: nitidus_mail::MailAuth::Login(nitidus_mail::SecretString::from("hunter2")),
         }),
     })
 }
@@ -61,6 +61,47 @@ fn envelope() -> SendEnvelope {
 
 fn message() -> Vec<u8> {
     b"From: norman@example.com\r\nTo: bob@example.com\r\nSubject: hi\r\n\r\nhello\r\n".to_vec()
+}
+
+#[test]
+fn smtp_xoauth2_authenticates_and_delivers() {
+    let (_server, port, captured) = start_server(vec![
+        expect("EHLO", &["250-fake.example", "250 AUTH XOAUTH2"]),
+        expect("AUTH XOAUTH2", &["235 accepted"]),
+        expect("MAIL FROM:<norman@example.com>", &["250 ok"]),
+        expect("RCPT TO:<bob@example.com>", &["250 ok"]),
+        expect("RCPT TO:<cc@example.com>", &["250 ok"]),
+        expect("DATA", &["354 go ahead"]),
+        SmtpStep::Data {
+            respond: "250 queued",
+        },
+        expect("QUIT", &["221 bye"]),
+    ]);
+
+    let transport = OutgoingTransport::Smtp(SmtpConfig {
+        host: "127.0.0.1".to_owned(),
+        port,
+        encryption: SmtpEncryption::None,
+        credentials: Some(SmtpCredentials {
+            user: "norman@example.com".to_owned(),
+            auth: nitidus_mail::MailAuth::Xoauth2(std::sync::Arc::new(
+                nitidus_mail::oauth::TokenRefresher::fixed(nitidus_mail::SecretString::from(
+                    "tok3n",
+                )),
+            )),
+        }),
+    });
+    let engine = MailEngine::new(1).unwrap();
+    let job = engine.next_job();
+    engine.submit(
+        AccountId::new("test"),
+        transport,
+        envelope(),
+        message(),
+        job,
+    );
+    assert_eq!(wait_send_result(&engine), Ok(job));
+    assert_eq!(captured.0.lock().unwrap().len(), 1);
 }
 
 #[test]

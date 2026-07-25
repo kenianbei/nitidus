@@ -30,6 +30,10 @@ tokio-rustls.workspace = true
 tokio-util.workspace = true
 tracing.workspace = true
 utf7-imap.workspace = true
+io-oauth = "0.2.0"
+url = "2.5.8"
+io-http = "0.3.0"
+serde.workspace = true
 
 [dev-dependencies]
 nitidus-mail = { path = ".", features = ["mock"] }

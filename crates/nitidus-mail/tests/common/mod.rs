@@ -19,6 +19,8 @@ pub struct ImapScript {
 pub struct ScriptStep {
     /// Substring the incoming command must contain (tag excluded).
     pub expect: String,
+    /// Substring the incoming command must NOT contain.
+    pub forbid: Option<String>,
     /// Response lines; `{tag}` is replaced with the client's tag.
     pub respond: Vec<String>,
 }
@@ -26,7 +28,15 @@ pub struct ScriptStep {
 pub fn step(expect: &str, respond: &[&str]) -> ScriptStep {
     ScriptStep {
         expect: expect.to_owned(),
+        forbid: None,
         respond: respond.iter().map(|line| (*line).to_owned()).collect(),
+    }
+}
+
+pub fn step_forbidding(expect: &str, forbid: &str, respond: &[&str]) -> ScriptStep {
+    ScriptStep {
+        forbid: Some(forbid.to_owned()),
+        ..step(expect, respond)
     }
 }
 
@@ -82,6 +92,12 @@ async fn serve(mut stream: TcpStream, script: ImapScript) {
             "scripted server expected {:?} in command {line:?}",
             script_step.expect
         );
+        if let Some(forbid) = &script_step.forbid {
+            assert!(
+                !rest.contains(forbid),
+                "scripted server forbids {forbid:?} in command {line:?}"
+            );
+        }
         for response in &script_step.respond {
             send_line(&mut stream, &response.replace("{tag}", tag)).await;
         }

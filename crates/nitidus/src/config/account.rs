@@ -118,10 +118,27 @@ pub struct PasswordCmdAuth {
     pub command: String,
 }
 
+/// Client credentials are plaintext by design: installed-app clients
+/// are public clients, and their "secret" is not confidential.
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Oauth2Auth {
     pub provider: Oauth2Provider,
+    pub client_id: String,
+    #[serde(default)]
+    pub client_secret: Option<String>,
+    /// Overrides the provider's default grant flow — school/work
+    /// Microsoft tenants often allow the browser code flow for
+    /// clients whose registration has no device grant.
+    #[serde(default)]
+    pub flow: Option<Oauth2Flow>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Oauth2Flow {
+    Code,
+    Device,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize)]
@@ -171,7 +188,7 @@ mod tests {
             aliases = ["n@example.com"]
             backend = { imap = { host = "imap.example.com" } }
             outgoing = { smtp = { host = "smtp.example.com", port = 465, encryption = "tls" } }
-            auth = { oauth2 = { provider = "google" } }
+            auth = { oauth2 = { provider = "google", client_id = "abc.apps.example" } }
             [folders]
             archive = "All Mail"
             "#,
@@ -190,7 +207,10 @@ mod tests {
         assert_eq!(
             account.auth,
             Auth::Oauth2(Oauth2Auth {
-                provider: Oauth2Provider::Google
+                provider: Oauth2Provider::Google,
+                client_id: "abc.apps.example".to_owned(),
+                client_secret: None,
+                flow: None,
             })
         );
     }

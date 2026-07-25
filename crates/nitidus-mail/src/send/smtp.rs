@@ -13,6 +13,9 @@ use io_smtp::rfc5321::{
     SmtpDomain, SmtpEhloDomain, SmtpForwardPath, SmtpLocalPart, SmtpMailbox, SmtpReversePath,
 };
 use io_smtp::sasl::auth_plain::{SmtpAuthPlain, SmtpAuthPlainOptions};
+use io_smtp::sasl::auth_xoauth2::{SmtpAuthXoauth2, SmtpAuthXoauth2Options};
+
+use crate::MailAuth;
 
 use super::pump::run;
 use super::{SendEnvelope, SmtpConfig, SmtpEncryption};
@@ -86,18 +89,58 @@ async fn authenticate(config: &SmtpConfig, stream: &mut RemoteStream) -> Result<
     let Some(credentials) = &config.credentials else {
         return Ok(());
     };
-    let auth = SmtpAuthPlain::new(
-        &credentials.user,
-        &credentials.password,
+    match &credentials.auth {
+        MailAuth::Login(password) => {
+            let auth = SmtpAuthPlain::new(
+                &credentials.user,
+                password,
+                ehlo_domain(),
+                SmtpAuthPlainOptions {
+                    initial_request: true,
+                    ensure_capabilities: false,
+                },
+            );
+            run(stream, auth).await.map_err(|error| {
+                MailError::Backend(format!("smtp auth as {}: {error}", credentials.user))
+            })
+        }
+        MailAuth::Xoauth2(tokens) => {
+            // A rejected AUTH leaves the connection usable; the token
+            // may just be stale or revoked server-side.
+            if xoauth2_attempt(&credentials.user, tokens, stream)
+                .await
+                .is_ok()
+            {
+                return Ok(());
+            }
+            tokens.invalidate();
+            xoauth2_attempt(&credentials.user, tokens, stream)
+                .await
+                .map_err(|error| {
+                    MailError::Backend(format!("smtp xoauth2 as {}: {error}", credentials.user))
+                })
+        }
+    }
+}
+
+async fn xoauth2_attempt(
+    user: &str,
+    tokens: &crate::oauth::TokenRefresher,
+    stream: &mut RemoteStream,
+) -> Result<(), MailError> {
+    let token = tokens.access_token().await?;
+    let auth = SmtpAuthXoauth2::new(
+        user,
+        &token,
         ehlo_domain(),
-        SmtpAuthPlainOptions {
+        SmtpAuthXoauth2Options {
             initial_request: true,
             ensure_capabilities: false,
         },
     );
     run(stream, auth)
         .await
-        .map_err(|error| MailError::Backend(format!("smtp auth as {}: {error}", credentials.user)))
+        .map_err(|error| MailError::Backend(format!("{error}")))
 }
 
 fn ehlo_domain() -> SmtpEhloDomain<'static> {

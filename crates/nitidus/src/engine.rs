@@ -153,8 +153,13 @@ fn route_event(routing: &mut MailRouting, event: MailEvent) {
                 crate::outbox::fail_send(&mut routing.outbox, job);
                 routing.reply_intent.abandon(job);
             }
-            let now = routing.time.elapsed_secs_f64();
-            routing.messages.warn(format!("{account}: {error}"), now);
+            // Cancellation is routine (a folder switch superseding an
+            // in-flight scan), not an error worth surfacing.
+            if !matches!(error, nitidus_mail::MailError::Cancelled) {
+                let now = routing.time.elapsed_secs_f64();
+                tracing::warn!("job failed for {account}: {error}");
+                routing.messages.warn(format!("{account}: {error}"), now);
+            }
         }
         MailEvent::Message {
             account,

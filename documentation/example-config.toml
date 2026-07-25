@@ -38,6 +38,16 @@ encryption = "starttls" # default starttls
 #   auth = { password_cmd = { command = "pass show mail/personal" } }
 [accounts.auth.oauth2]
 provider = "google" # google | microsoft
+# Your own OAuth client (Google: "Desktop app" type in Cloud Console;
+# Microsoft: an Entra app registration). Installed-app credentials are
+# public clients — the id/secret are not confidential.
+client_id = "1234567890-example.apps.googleusercontent.com"
+# client_secret = "GOCSPX-example"
+# Grant flow override: "code" (browser + loopback) or "device"
+# (enter a code at a verification URL). Defaults per provider:
+# google → code, microsoft → device. School/work Microsoft tenants
+# usually need flow = "code" with a tenant-blessed client id.
+# flow = "code"
 
 # Special-folder names as your server calls them.
 [accounts.folders]

@@ -6,7 +6,9 @@
 
 mod common;
 
-use common::{ImapScript, fetch_envelope_lines, login_ok, spawn_server, step};
+use common::{
+    ImapScript, ScriptStep, fetch_envelope_lines, login_ok, spawn_server, step, step_forbidding,
+};
 use nitidus_mail::imap::{ImapBackend, ImapConfig, ImapEncryption};
 use nitidus_mail::{EnvelopeId, EnvelopeSummary, Flags, FolderId, MailBackend, MailError};
 
@@ -16,7 +18,7 @@ fn config(port: u16) -> ImapConfig {
         port,
         encryption: ImapEncryption::None,
         user: "norman@example.com".to_owned(),
-        password: nitidus_mail::SecretString::from("hunter2"),
+        auth: nitidus_mail::MailAuth::Login(nitidus_mail::SecretString::from("hunter2")),
     }
 }
 
@@ -250,6 +252,101 @@ async fn folder_ops_create_rename_and_guarded_delete() {
             .await
             .is_err()
     );
+}
+
+fn xoauth2_config(port: u16) -> ImapConfig {
+    ImapConfig {
+        auth: nitidus_mail::MailAuth::Xoauth2(std::sync::Arc::new(
+            nitidus_mail::oauth::TokenRefresher::fixed(nitidus_mail::SecretString::from("tok3n")),
+        )),
+        ..config(port)
+    }
+}
+
+fn inbox_only_list() -> Vec<ScriptStep> {
+    vec![
+        step(
+            "LIST",
+            &[
+                "* LIST (\\HasNoChildren) \"/\" \"INBOX\"",
+                "{tag} OK LIST completed",
+            ],
+        ),
+        step(
+            "STATUS",
+            &[
+                "* STATUS \"INBOX\" (MESSAGES 4 UNSEEN 2)",
+                "{tag} OK STATUS",
+            ],
+        ),
+    ]
+}
+
+#[tokio::test]
+async fn xoauth2_authenticates_and_lists_folders() {
+    let mut steps = vec![step("AUTHENTICATE XOAUTH2", &["{tag} OK success"])];
+    steps.extend(inbox_only_list());
+    let port = spawn_server(vec![ImapScript::new(steps)]).await;
+
+    let mut backend = ImapBackend::new(xoauth2_config(port));
+    let folders = backend.list_folders().await.unwrap();
+    assert_eq!(folders[0].name.as_str(), "INBOX");
+    assert_eq!(folders[0].unread, 2);
+}
+
+#[tokio::test]
+async fn rejected_xoauth2_token_retries_once_on_the_same_connection() {
+    let mut steps = vec![
+        step(
+            "AUTHENTICATE XOAUTH2",
+            &["{tag} NO [AUTHENTICATIONFAILED] invalid token"],
+        ),
+        step("AUTHENTICATE XOAUTH2", &["{tag} OK success"]),
+    ];
+    steps.extend(inbox_only_list());
+    let port = spawn_server(vec![ImapScript::new(steps)]).await;
+
+    let mut backend = ImapBackend::new(xoauth2_config(port));
+    let folders = backend.list_folders().await.unwrap();
+    assert_eq!(folders[0].name.as_str(), "INBOX");
+}
+
+/// Exchange Online rejects unknown SELECT parameters with BAD, so
+/// CONDSTORE must only go to servers that advertise it.
+#[tokio::test]
+async fn select_omits_condstore_when_the_server_lacks_it() {
+    let port = spawn_server(vec![ImapScript::new(vec![
+        login_ok(),
+        step_forbidding("SELECT", "CONDSTORE", &select_lines_static()),
+    ])])
+    .await;
+
+    let mut backend = ImapBackend::new(config(port));
+    let scanned = scan(&mut backend, &FolderId::new("INBOX")).await.unwrap();
+    assert!(scanned.is_empty());
+}
+
+#[tokio::test]
+async fn select_requests_condstore_when_advertised() {
+    let port = spawn_server(vec![ImapScript::new(vec![
+        step(
+            "LOGIN",
+            &[
+                "* CAPABILITY IMAP4rev1 CONDSTORE",
+                "{tag} OK LOGIN completed",
+            ],
+        ),
+        step("(CONDSTORE)", &select_lines_static()),
+    ])])
+    .await;
+
+    let mut backend = ImapBackend::new(config(port));
+    let scanned = scan(&mut backend, &FolderId::new("INBOX")).await.unwrap();
+    assert!(scanned.is_empty());
+}
+
+fn select_lines_static() -> Vec<&'static str> {
+    select_lines(0, 1, 1)
 }
 
 #[tokio::test]

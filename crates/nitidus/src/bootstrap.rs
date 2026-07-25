@@ -99,8 +99,7 @@ fn build_imap_config(
     settings: &crate::config::account::ImapBackend,
 ) -> anyhow::Result<ImapConfig> {
     let config_dir = dirs::config_dir()?;
-    let password =
-        crate::config::secrets::resolve_password(&account.auth, &config_dir, &account.name)?;
+    let auth = crate::config::oauth::resolve_auth(account, &config_dir)?;
     Ok(ImapConfig {
         host: settings.host.clone(),
         port: settings.port,
@@ -110,7 +109,7 @@ fn build_imap_config(
             Encryption::None => ImapEncryption::None,
         },
         user: account.email.clone(),
-        password,
+        auth,
     })
 }
 
