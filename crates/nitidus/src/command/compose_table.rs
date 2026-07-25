@@ -66,6 +66,12 @@ pub(super) const COMPOSE_COMMANDS: &[CommandSpec] = &[
         parse: |args| no_args("postpone", args, Action::ComposeAction(ComposeOp::Postpone)),
     },
     CommandSpec {
+        name: "undo-send",
+        summary: "pull the queued message back to review",
+        aliases: &[],
+        parse: |args| no_args("undo-send", args, Action::UndoSend),
+    },
+    CommandSpec {
         name: "discard",
         summary: "discard the staged message",
         aliases: &[],

@@ -12,6 +12,8 @@ use plurimus::PlurimusPlugin;
 use crate::bootstrap::EngineSetup;
 use crate::cmdline::CommandLinePlugin;
 use crate::compose::ComposePlugin;
+use crate::outbox::OutboxPlugin;
+use crate::toast::ToastPlugin;
 use crate::prompt::PromptPlugin;
 use crate::config::LoadedConfig;
 use crate::engine::{CacheResource, EnginePlugin, EngineResource, StartupNotices};
@@ -60,6 +62,8 @@ pub fn build_app(loaded: LoadedConfig, keymaps: Keymaps, setup: EngineSetup) -> 
         CommandLinePlugin,
         PromptPlugin,
         ComposePlugin,
+        OutboxPlugin,
+        ToastPlugin,
         EnginePlugin,
     ));
     app

@@ -16,7 +16,7 @@ use io_imap::types::command::SelectParameter;
 use io_imap::types::mailbox::Mailbox;
 use io_imap::types::response::Capability;
 
-use super::stream::{ImapStream, connect_tcp, upgrade_tls};
+use crate::net::{RemoteStream, connect_tcp, upgrade_tls};
 use super::{ImapConfig, ImapEncryption};
 use crate::error::MailError;
 use crate::imap::pump::{self, PumpError};
@@ -32,7 +32,7 @@ pub(super) struct ImapSession {
 }
 
 pub(super) struct Connection {
-    pub stream: ImapStream,
+    pub stream: RemoteStream,
     pub fragmentizer: Fragmentizer,
     pub capabilities: Vec<Capability<'static>>,
     selected: Option<String>,
@@ -133,19 +133,19 @@ pub(super) async fn connect(config: &ImapConfig) -> Result<Connection, MailError
             stream
         }
         ImapEncryption::None => {
-            let mut stream = ImapStream::Plain(tcp);
+            let mut stream = RemoteStream::Plain(tcp);
             read_greeting(&mut stream, &mut fragmentizer).await?;
             stream
         }
         ImapEncryption::StartTls => {
-            let mut plain = ImapStream::Plain(tcp);
+            let mut plain = RemoteStream::Plain(tcp);
             let leftover = pump::run(&mut plain, &mut fragmentizer, ImapStartTls::new())
                 .await
                 .map_err(|error| MailError::Backend(format!("starttls: {error}")))?;
             if !leftover.is_empty() {
                 tracing::warn!("discarding {} pre-TLS bytes", leftover.len());
             }
-            let ImapStream::Plain(tcp) = plain else {
+            let RemoteStream::Plain(tcp) = plain else {
                 return Err(MailError::Backend("starttls stream state".to_owned()));
             };
             upgrade_tls(tcp, &config.host).await?
@@ -165,7 +165,7 @@ pub(super) async fn connect(config: &ImapConfig) -> Result<Connection, MailError
 }
 
 async fn read_greeting(
-    stream: &mut ImapStream,
+    stream: &mut RemoteStream,
     fragmentizer: &mut Fragmentizer,
 ) -> Result<(), MailError> {
     let options = ImapGreetingGetOptions {

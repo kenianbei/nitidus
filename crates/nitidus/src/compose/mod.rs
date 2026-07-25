@@ -3,6 +3,7 @@
 //! crash-surviving file under the state dir; send/postpone are staged
 //! stubs until the 1c.15/1c.17 items land.
 
+pub mod build;
 mod editor;
 mod ops;
 mod render;

@@ -20,13 +20,16 @@ bevy = { version = "0.18", default-features = false, features = [
   "bevy_state",
 ] }
 bevy_ratatui = "0.11"
+bevy-trait-query = "0.18"
 crokey = "1.4"
 etcetera = "0.11"
 flume = "0.12"
 html2text = "0.17"
 image = "0.25"
 io-imap = { version = "0.2", default-features = false }
+io-smtp = { version = "0.2", default-features = false }
 jiff = "0.2"
+mail-builder = "0.4"
 mail-parser = "0.11"
 notify = "8"
 nucleo-matcher = "0.3"
@@ -36,6 +39,7 @@ ratatui = { version = "0.30", features = [
   "palette",
   "unstable-widget-ref",
 ] }
+ratatui-comfy-toaster = "0.6"
 ratatui-image = "11"
 rusqlite = { version = "0.40", features = ["bundled"] }
 rusqlite_migration = "2.6"
@@ -46,7 +50,7 @@ tachyonfx = "0.25"
 tempfile = "3"
 thiserror = "2"
 textwrap = "0.16"
-tokio = { version = "1", features = ["rt-multi-thread", "net", "io-util", "time"] }
+tokio = { version = "1", features = ["rt-multi-thread", "net", "io-util", "time", "process"] }
 tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }
 tokio-util = "0.7"
 toml = "1"

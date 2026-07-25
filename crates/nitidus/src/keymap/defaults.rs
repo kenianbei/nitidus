@@ -28,6 +28,7 @@ pub(super) const DEFAULT_INDEX_BINDINGS: &[(&str, &str)] = &[
     ("<Tab>", ":sidebar-focus"),
     ("?", ":help"),
     ("m", ":compose"),
+    ("z", ":undo-send"),
 ];
 
 pub(super) const DEFAULT_PAGER_BINDINGS: &[(&str, &str)] = &[

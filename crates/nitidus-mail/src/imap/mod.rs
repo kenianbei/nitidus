@@ -8,7 +8,6 @@ mod envelopes;
 mod folders;
 mod pump;
 mod session;
-mod stream;
 mod sync;
 mod watch;
 

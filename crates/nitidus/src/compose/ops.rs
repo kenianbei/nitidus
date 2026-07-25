@@ -83,7 +83,7 @@ pub fn dispatch(world: &mut World, op: ComposeOp) {
         ComposeOp::Cc => prompt_header(world, HeaderField::Cc),
         ComposeOp::Bcc => prompt_header(world, HeaderField::Bcc),
         ComposeOp::Subject => prompt_header(world, HeaderField::Subject),
-        ComposeOp::Send => notice(world, "sending lands with 1c.15 — message kept"),
+        ComposeOp::Send => send(world),
         ComposeOp::Postpone => notice(world, "postpone lands with 1c.17 — message kept"),
         ComposeOp::Discard => confirm_discard(world),
     }
@@ -142,6 +142,37 @@ fn prompt_header(world: &mut World, field: HeaderField) {
     )
     .with_initial(initial);
     open_prompt(world, request);
+}
+
+/// `y`: build, queue with the undo window, and drop back to the index
+/// — the session dissolves into the outbox entry until sent or undone.
+fn send(world: &mut World) {
+    let built = {
+        let compose = world.resource::<ComposeState>();
+        let Some(session) = compose.session() else {
+            return;
+        };
+        super::build::build(session)
+    };
+    let built = match built {
+        Ok(built) => built,
+        Err(error) => return notice(world, format!("send: {error:#}")),
+    };
+    let session = match world.resource_mut::<ComposeState>().0.take() {
+        Some(session) => session,
+        None => return,
+    };
+    match crate::outbox::queue(world, &session, &built.envelope, &built.bytes) {
+        Ok(()) => {
+            *world.resource_mut::<Screen>() = Screen::Index;
+            let seconds = world.resource::<crate::outbox::SendDelay>().0.as_secs();
+            notice(world, format!("sending in {seconds}s — z undoes"));
+        }
+        Err(error) => {
+            world.resource_mut::<ComposeState>().0 = Some(session);
+            notice(world, format!("queue failed: {error:#}"));
+        }
+    }
 }
 
 fn confirm_discard(world: &mut World) {

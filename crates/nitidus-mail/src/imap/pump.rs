@@ -7,7 +7,7 @@ use io_imap::codec::fragmentizer::Fragmentizer;
 use io_imap::coroutine::{ImapCoroutine, ImapCoroutineState, ImapYield};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
-use super::stream::ImapStream;
+use crate::net::RemoteStream;
 
 const READ_BUFFER_BYTES: usize = 16 * 1024;
 
@@ -20,7 +20,7 @@ pub enum PumpError {
 }
 
 pub async fn run<C, T, E>(
-    stream: &mut ImapStream,
+    stream: &mut RemoteStream,
     fragmentizer: &mut Fragmentizer,
     mut coroutine: C,
 ) -> Result<T, PumpError>

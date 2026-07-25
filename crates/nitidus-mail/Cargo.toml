@@ -16,11 +16,13 @@ mock = []
 [dependencies]
 flume.workspace = true
 io-imap.workspace = true
+io-smtp.workspace = true
 mail-parser.workspace = true
 notify.workspace = true
 rusqlite.workspace = true
 rusqlite_migration.workspace = true
 rustls.workspace = true
+secrecy = "0.10"
 rustls-platform-verifier.workspace = true
 thiserror.workspace = true
 tokio = { workspace = true, features = ["macros", "time"] }

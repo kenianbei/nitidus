@@ -78,6 +78,31 @@ impl MailEngine {
         JobId(self.next_job.fetch_add(1, Ordering::Relaxed))
     }
 
+    /// Transmits one message on the mail runtime; `SendDone` on
+    /// success, `JobFailed` on error. No cancellation — once submitted
+    /// the undo window is over.
+    pub fn submit(
+        &self,
+        account: AccountId,
+        transport: crate::send::OutgoingTransport,
+        envelope: crate::send::SendEnvelope,
+        message: Vec<u8>,
+        job: JobId,
+    ) {
+        let events = self.events_tx.clone();
+        self.runtime.spawn(async move {
+            let event = match crate::send::transmit(&transport, &envelope, message).await {
+                Ok(()) => MailEvent::SendDone { account, job },
+                Err(error) => MailEvent::JobFailed {
+                    account,
+                    job: Some(job),
+                    error,
+                },
+            };
+            let _sent = events.send_async(event).await;
+        });
+    }
+
     /// Runs the pure JWZ computation off-thread over a snapshot and
     /// emits `MailEvent::Threads`. Superseded jobs need no cancellation
     /// — consumers keep only the newest job's rows.

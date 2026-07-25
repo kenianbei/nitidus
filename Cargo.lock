@@ -492,7 +492,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ec6b36504169b644acd26a5469fd8d371aa6f1d73ee5c01b1b1181ae1cefbf9b"
 dependencies = [
  "critical-section",
- "foldhash",
+ "foldhash 0.2.0",
  "futures-channel",
  "hashbrown 0.16.1",
  "js-sys",
@@ -539,7 +539,7 @@ dependencies = [
  "disqualified",
  "downcast-rs",
  "erased-serde",
- "foldhash",
+ "foldhash 0.2.0",
  "glam",
  "indexmap",
  "serde",
@@ -862,6 +862,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1aa79e62e7697b8e29b513a68abacf485adcd1fe8284a4316c5ae868e6633327"
 dependencies = [
  "num-traits",
+]
+
+[[package]]
+name = "chumsky"
+version = "0.13.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e0d2bfadce76f963d776feff99db6dc33783829539258314776383b33e2a00f8"
+dependencies = [
+ "hashbrown 0.15.5",
+ "unicode-ident",
+ "unicode-segmentation",
 ]
 
 [[package]]
@@ -1461,6 +1472,12 @@ checksum = "3f9eec918d3f24069decb9af1554cad7c880e2da24a9afd88aca000531ab82c1"
 
 [[package]]
 name = "foldhash"
+version = "0.1.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d9c4f5dac5e15c24eb999c26181a6ca40b39fe946cbe4c263c7209467bc83af2"
+
+[[package]]
+name = "foldhash"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "77ce24cb58228fbb8aa041425bb1050850ac19177686ea6e0f41a70416f56fdb"
@@ -1552,6 +1569,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "gethostname"
+version = "1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1bd49230192a3797a9a4d6abe9b3eed6f7fa4c8a8a4947977c6f80025f92cbd8"
+dependencies = [
+ "rustix",
+ "windows-link",
+]
+
+[[package]]
 name = "getrandom"
 version = "0.2.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1616,13 +1643,24 @@ dependencies = [
 
 [[package]]
 name = "hashbrown"
+version = "0.15.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9229cfe53dfd69f0609a49f65461bd93001ea1ef889cd5529dd176593f5338a1"
+dependencies = [
+ "allocator-api2",
+ "equivalent",
+ "foldhash 0.1.5",
+]
+
+[[package]]
+name = "hashbrown"
 version = "0.16.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "841d1cc9bed7f9236f321df977030373f4a4163ae1a7dbfe1a51a2c1a51d9100"
 dependencies = [
  "allocator-api2",
  "equivalent",
- "foldhash",
+ "foldhash 0.2.0",
  "serde",
  "serde_core",
 ]
@@ -1635,7 +1673,7 @@ checksum = "ed5909b6e89a2db4456e54cd5f673791d7eca6732202bbf2a9cc504fe2f9b84a"
 dependencies = [
  "allocator-api2",
  "equivalent",
- "foldhash",
+ "foldhash 0.2.0",
 ]
 
 [[package]]
@@ -1907,6 +1945,21 @@ checksum = "6fcb366dce5e2f55450fea83af544ae418baa8b3ac2527d8333812179df8e537"
 dependencies = [
  "base64 0.22.1",
  "imap-codec",
+ "log",
+ "secrecy",
+ "thiserror 2.0.19",
+]
+
+[[package]]
+name = "io-smtp"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2e89dc1706cc9640d7e202188b5c54ffb23b2644445123eea36073283bd95db3"
+dependencies = [
+ "base64 0.22.1",
+ "bounded-static",
+ "bounded-static-derive",
+ "chumsky",
  "log",
  "secrecy",
  "thiserror 2.0.19",
@@ -2212,6 +2265,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "mail-builder"
+version = "0.4.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "900998f307338c4013a28ab14d760b784067324b164448c6d98a89e44810473b"
+dependencies = [
+ "gethostname",
+]
+
+[[package]]
 name = "mail-parser"
 version = "0.11.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2342,16 +2404,19 @@ dependencies = [
  "ammonia",
  "anyhow",
  "bevy",
+ "bevy-trait-query",
  "bevy_ratatui",
  "crokey",
  "etcetera",
  "html2text",
  "jiff",
+ "mail-builder",
  "nitidus-mail",
  "nitidus-ui-kit",
  "nucleo-matcher",
  "plurimus",
  "ratatui",
+ "ratatui-comfy-toaster",
  "rusqlite",
  "serde",
  "tachyonfx",
@@ -2374,6 +2439,7 @@ version = "0.1.0"
 dependencies = [
  "flume",
  "io-imap",
+ "io-smtp",
  "mail-parser",
  "nitidus-mail",
  "notify",
@@ -2381,6 +2447,7 @@ dependencies = [
  "rusqlite_migration",
  "rustls",
  "rustls-platform-verifier",
+ "secrecy",
  "tempfile",
  "thiserror 2.0.19",
  "tokio",
@@ -3013,6 +3080,17 @@ dependencies = [
  "ratatui-termwiz",
  "ratatui-widgets",
  "serde",
+]
+
+[[package]]
+name = "ratatui-comfy-toaster"
+version = "0.6.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "50b0d21a32ea315abc0d648b5457add5d646a022b0527a1fe822172e1f197b34"
+dependencies = [
+ "ratatui",
+ "textwrap",
+ "unicode-width",
 ]
 
 [[package]]
@@ -3912,6 +3990,7 @@ dependencies = [
  "libc",
  "mio",
  "pin-project-lite",
+ "signal-hook-registry",
  "socket2",
  "tokio-macros",
  "windows-sys 0.61.2",

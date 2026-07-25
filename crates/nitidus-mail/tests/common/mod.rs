@@ -6,6 +6,8 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used, dead_code)]
 
+pub mod smtp;
+
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 

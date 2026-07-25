@@ -28,6 +28,7 @@ impl Plugin for EnginePlugin {
         app.init_resource::<ThreadSet>();
         app.init_resource::<PagerState>();
         app.init_resource::<IndexView>();
+        app.init_resource::<crate::outbox::OutboxState>();
         app.init_resource::<Screen>();
         app.init_resource::<StartupNotices>();
         app.init_resource::<StatusMessage>();
@@ -80,6 +81,7 @@ struct MailRouting<'w> {
     screen: ResMut<'w, Screen>,
     messages: ResMut<'w, StatusMessage>,
     index_view: ResMut<'w, IndexView>,
+    outbox: ResMut<'w, crate::outbox::OutboxState>,
     time: Res<'w, Time>,
 }
 
@@ -127,6 +129,13 @@ fn route_event(routing: &mut MailRouting, event: MailEvent) {
             job,
             rows,
         } => routing.threads.accept(&account, &folder, job, rows),
+        MailEvent::SendDone { account, job } => {
+            crate::outbox::complete_send(&mut routing.outbox, job);
+            let now = routing.time.elapsed_secs_f64();
+            routing
+                .messages
+                .info(format!("{account}: message sent"), now);
+        }
         MailEvent::JobFailed {
             account,
             job,
@@ -137,6 +146,7 @@ fn route_event(routing: &mut MailRouting, event: MailEvent) {
                 if routing.pager.fail_fetch(job) {
                     *routing.screen = Screen::Index;
                 }
+                crate::outbox::fail_send(&mut routing.outbox, job);
             }
             let now = routing.time.elapsed_secs_f64();
             routing.messages.warn(format!("{account}: {error}"), now);

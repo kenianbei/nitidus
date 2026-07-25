@@ -40,6 +40,7 @@ pub enum Action {
     HelpScope,
     Compose,
     ComposeAction(ComposeOp),
+    UndoSend,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -150,6 +151,7 @@ pub fn apply_action(world: &mut World, action: &Action) {
         Action::HelpScope => crate::help::toggle_scope(world),
         Action::Compose => crate::compose::start_compose(world),
         Action::ComposeAction(op) => crate::compose::dispatch(world, *op),
+        Action::UndoSend => crate::outbox::undo_send(world),
     }
 }
 

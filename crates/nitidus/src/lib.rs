@@ -13,6 +13,7 @@ pub mod help;
 pub mod index;
 pub mod keymap;
 pub mod logging;
+pub mod outbox;
 pub mod overlay;
 pub mod pager;
 pub mod prompt;
@@ -21,6 +22,7 @@ pub mod screen;
 pub mod sidebar;
 pub mod shell;
 pub mod status;
+pub mod toast;
 pub mod store;
 
 pub fn run(loaded: config::LoadedConfig) -> anyhow::Result<()> {
