@@ -103,6 +103,21 @@ impl MailBackend for MaildirBackend {
         run_blocking(move || folder_ops::rename(&root, &folder, &new_name)).await
     }
 
+    async fn delete_message(
+        &mut self,
+        folder: &FolderId,
+        id: &EnvelopeId,
+    ) -> Result<(), MailError> {
+        let dir = folders::folder_dir(&self.root, folder);
+        let id = id.clone();
+        run_blocking(move || {
+            let path = message::find_message(&dir, &id)?;
+            fs::remove_file(&path)
+                .map_err(|error| MailError::Backend(format!("delete {}: {error}", path.display())))
+        })
+        .await
+    }
+
     async fn append_message(
         &mut self,
         folder: &FolderId,

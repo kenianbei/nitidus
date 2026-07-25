@@ -154,6 +154,19 @@ impl crate::backend::MailBackend for MockBackend {
         Ok(())
     }
 
+    async fn delete_message(
+        &mut self,
+        folder: &FolderId,
+        id: &EnvelopeId,
+    ) -> Result<(), MailError> {
+        let envelopes = self
+            .envelopes
+            .get_mut(folder)
+            .ok_or_else(|| MailError::Backend(format!("no such folder: {folder}")))?;
+        envelopes.retain(|envelope| &envelope.id != id);
+        Ok(())
+    }
+
     async fn append_message(
         &mut self,
         folder: &FolderId,

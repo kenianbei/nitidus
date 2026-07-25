@@ -61,6 +61,30 @@ pub(super) const COMPOSE_COMMANDS: &[CommandSpec] = &[
         parse: |args| no_args("send", args, Action::ComposeAction(ComposeOp::Send)),
     },
     CommandSpec {
+        name: "attach",
+        summary: "attach a file to the message",
+        aliases: &[],
+        parse: |args| no_args("attach", args, Action::ComposeAction(ComposeOp::Attach)),
+    },
+    CommandSpec {
+        name: "detach",
+        summary: "remove an attachment",
+        aliases: &[],
+        parse: |args| no_args("detach", args, Action::ComposeAction(ComposeOp::Detach)),
+    },
+    CommandSpec {
+        name: "recall",
+        summary: "edit the selected draft",
+        aliases: &[],
+        parse: |args| no_args("recall", args, Action::Recall),
+    },
+    CommandSpec {
+        name: "recover",
+        summary: "restore the newest unfinished draft",
+        aliases: &[],
+        parse: |args| no_args("recover", args, Action::Recover),
+    },
+    CommandSpec {
         name: "postpone",
         summary: "save the message as a draft",
         aliases: &[],

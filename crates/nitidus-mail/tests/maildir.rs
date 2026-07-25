@@ -205,3 +205,30 @@ async fn append_message_delivers_into_cur_with_flags() {
     assert_eq!(envelopes[0].subject, "sent copy");
     assert!(envelopes[0].flags.contains(Flags::SEEN));
 }
+
+#[tokio::test]
+async fn delete_message_removes_the_file() {
+    let tmp = tempfile::tempdir().unwrap();
+    make_maildir(tmp.path());
+    write_message(tmp.path(), "cur", "victim.host:2,S", "goes away");
+
+    let mut backend = MaildirBackend::new(tmp.path().to_path_buf()).unwrap();
+    backend
+        .delete_message(&FolderId::new("INBOX"), &EnvelopeId::new("victim.host"))
+        .await
+        .unwrap();
+    assert!(
+        fs::read_dir(tmp.path().join("cur"))
+            .unwrap()
+            .next()
+            .is_none(),
+        "the message file must be gone"
+    );
+    assert!(
+        backend
+            .delete_message(&FolderId::new("INBOX"), &EnvelopeId::new("victim.host"))
+            .await
+            .is_err(),
+        "deleting a missing message errors"
+    );
+}

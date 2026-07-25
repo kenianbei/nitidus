@@ -137,7 +137,7 @@ fn addresses_of(header: Option<&mail_parser::Address<'_>>) -> Vec<String> {
         .unwrap_or_default()
 }
 
-fn address_line(header: Option<&mail_parser::Address<'_>>) -> Option<String> {
+pub(super) fn address_line(header: Option<&mail_parser::Address<'_>>) -> Option<String> {
     let list = addresses_of(header);
     (!list.is_empty()).then(|| list.join(", "))
 }

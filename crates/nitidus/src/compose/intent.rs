@@ -6,6 +6,7 @@ use bevy::prelude::*;
 use nitidus_mail::{AccountId, EnvelopeId, FolderId, JobId};
 
 use super::reply::{ReplyKind, start_from_raw};
+
 use crate::status::StatusMessage;
 
 /// Fetch-then-reply from the index: the intent parks until the raw
@@ -13,8 +14,14 @@ use crate::status::StatusMessage;
 #[derive(Resource, Default)]
 pub struct ReplyIntent(pub(crate) Option<PendingReply>);
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum IntentPurpose {
+    Reply(ReplyKind),
+    Recall,
+}
+
 pub(crate) struct PendingReply {
-    pub kind: ReplyKind,
+    pub purpose: IntentPurpose,
     pub job: JobId,
     pub source: (AccountId, FolderId, EnvelopeId),
     pub raw: Option<Vec<u8>>,
@@ -52,12 +59,22 @@ pub(crate) fn consume_reply_intent(world: &mut World) {
     if let Some(pending) = ready
         && let Some(raw) = pending.raw
     {
-        start_from_raw(world, pending.kind, pending.source, &raw);
+        match pending.purpose {
+            IntentPurpose::Reply(kind) => start_from_raw(world, kind, pending.source, &raw),
+            IntentPurpose::Recall => {
+                super::recall::recall_from_raw(world, pending.source, &raw);
+            }
+        }
     }
 }
 
 /// No open message: fetch the index selection with a remembered kind.
 pub(super) fn fetch_selected_for_reply(world: &mut World, kind: ReplyKind) {
+    fetch_selected(world, IntentPurpose::Reply(kind));
+}
+
+/// Fetches the index selection for any deferred purpose.
+pub(crate) fn fetch_selected(world: &mut World, purpose: IntentPurpose) {
     let index_view = world.resource::<crate::index::IndexView>();
     let (Some(account), Some(id)) = (index_view.account.clone(), index_view.selected.clone())
     else {
@@ -81,7 +98,7 @@ pub(super) fn fetch_selected_for_reply(world: &mut World, kind: ReplyKind) {
         return;
     }
     world.resource_mut::<ReplyIntent>().0 = Some(PendingReply {
-        kind,
+        purpose,
         job,
         source: (account, folder, id),
         raw: None,

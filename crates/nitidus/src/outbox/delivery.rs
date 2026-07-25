@@ -183,6 +183,15 @@ pub fn after_send(
         if let Some((source_account, folder, id)) = &entry.meta.reply_source {
             mark_answered(engine, store, source_account, folder, id);
         }
+        if let Some((folder, id)) = &entry.meta.draft_source {
+            let delete = nitidus_mail::MailCommand::DeleteMessage {
+                folder: nitidus_mail::FolderId::new(folder),
+                id: nitidus_mail::EnvelopeId::new(id),
+            };
+            if let Err(error) = engine.0.send(&account, delete) {
+                tracing::warn!("sent-draft removal: {error}");
+            }
+        }
     }
     remove_file_logged(&entry.eml_path);
     remove_file_logged(&entry.meta_path);

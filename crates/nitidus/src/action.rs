@@ -42,6 +42,8 @@ pub enum Action {
     ComposeAction(ComposeOp),
     UndoSend,
     Reply(crate::compose::ReplyKind),
+    Recall,
+    Recover,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -54,6 +56,8 @@ pub enum ComposeOp {
     Send,
     Postpone,
     Discard,
+    Attach,
+    Detach,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -154,6 +158,8 @@ pub fn apply_action(world: &mut World, action: &Action) {
         Action::ComposeAction(op) => crate::compose::dispatch(world, *op),
         Action::UndoSend => crate::outbox::undo_send(world),
         Action::Reply(kind) => crate::compose::start_reply(world, *kind),
+        Action::Recall => crate::compose::recall_selected(world),
+        Action::Recover => crate::compose::recover(world),
     }
 }
 

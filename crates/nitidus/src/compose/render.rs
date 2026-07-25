@@ -105,6 +105,17 @@ fn session_lines(session: &ComposeSession, theme: &Theme) -> Vec<Line<'static>> 
     header("Cc", &session.cc, true);
     header("Bcc", &session.bcc, true);
     header("Subject", &session.subject, false);
+    for path in &session.attachments {
+        let size = std::fs::metadata(path).map(|meta| meta.len()).unwrap_or(0);
+        let name = path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("attachment");
+        lines.push(Line::from(vec![
+            Span::styled("Attach: ".to_owned(), name_style),
+            Span::styled(format!("📎 {name}  {size} bytes"), normal),
+        ]));
+    }
     lines.push(Line::default());
     for body_line in &session.body {
         lines.push(Line::from(Span::styled(body_line.clone(), normal)));

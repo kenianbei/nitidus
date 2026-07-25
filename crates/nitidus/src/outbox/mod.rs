@@ -74,6 +74,10 @@ pub struct OutboxMeta {
     pub save_sent: bool,
     #[serde(default)]
     pub sent_folder: String,
+    #[serde(default)]
+    pub attachments: Vec<PathBuf>,
+    #[serde(default)]
+    pub draft_source: Option<(String, String)>,
 }
 
 fn default_save_sent() -> bool {
@@ -162,6 +166,11 @@ pub fn queue(
         }),
         save_sent,
         sent_folder,
+        attachments: session.attachments.clone(),
+        draft_source: session
+            .draft_source
+            .as_ref()
+            .map(|(folder, id)| (folder.as_str().to_owned(), id.as_str().to_owned())),
     };
     std::fs::write(&eml_path, bytes)?;
     std::fs::write(&meta_path, toml::to_string(&meta)?)?;
@@ -213,6 +222,13 @@ pub fn undo_send(world: &mut World) {
                 folder: nitidus_mail::FolderId::new(folder),
                 id: nitidus_mail::EnvelopeId::new(id),
             }),
+        attachments: entry.meta.attachments.clone(),
+        draft_source: entry.meta.draft_source.as_ref().map(|(folder, id)| {
+            (
+                nitidus_mail::FolderId::new(folder),
+                nitidus_mail::EnvelopeId::new(id),
+            )
+        }),
     };
     session.reload_body();
     world.resource_mut::<ComposeState>().0 = Some(session);

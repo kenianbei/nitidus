@@ -95,6 +95,11 @@ async fn handle_command<B: MailBackend>(
                 let _sent = events.send_async(job_failed(account, None, error)).await;
             }
         }
+        MailCommand::DeleteMessage { folder, id } => {
+            if let Err(error) = backend.delete_message(&folder, &id).await {
+                let _sent = events.send_async(job_failed(account, None, error)).await;
+            }
+        }
         MailCommand::AppendMessage {
             folder,
             bytes,

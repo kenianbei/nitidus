@@ -318,3 +318,23 @@ async fn append_message_runs_the_append_command() {
         .await
         .unwrap();
 }
+
+#[tokio::test]
+async fn delete_message_flags_and_expunges() {
+    let port = spawn_server(vec![ImapScript::new(vec![
+        login_ok(),
+        step("SELECT", &select_lines(2, 4, 1)),
+        step(
+            "UID STORE 7 +FLAGS.SILENT (\\Deleted)",
+            &["{tag} OK STORE completed"],
+        ),
+        step("EXPUNGE", &["* 1 EXPUNGE", "{tag} OK EXPUNGE completed"]),
+    ])])
+    .await;
+
+    let mut backend = ImapBackend::new(config(port));
+    backend
+        .delete_message(&FolderId::new("INBOX"), &EnvelopeId::new("7"))
+        .await
+        .unwrap();
+}

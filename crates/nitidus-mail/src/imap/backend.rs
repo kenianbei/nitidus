@@ -7,6 +7,7 @@ use std::collections::HashMap;
 use io_imap::rfc3501::append::{ImapMessageAppend, ImapMessageAppendOptions};
 use io_imap::rfc3501::create::ImapMailboxCreate;
 use io_imap::rfc3501::delete::ImapMailboxDelete;
+use io_imap::rfc3501::expunge::ImapMailboxExpunge;
 use io_imap::rfc3501::fetch::{ImapMessageFetch, ImapMessageFetchOptions};
 use io_imap::rfc3501::rename::ImapMailboxRename;
 use io_imap::rfc3501::store::{ImapMessageStoreOptions, ImapMessageStoreSilent};
@@ -159,6 +160,36 @@ impl MailBackend for ImapBackend {
             .run(|| ImapMailboxDelete::new(mailbox.clone()))
             .await?;
         self.folders.remove(folder);
+        Ok(())
+    }
+
+    /// `\Deleted` + whole-folder EXPUNGE — scoped to draft
+    /// replacement, where stray deleted-flag collateral is acceptable.
+    async fn delete_message(
+        &mut self,
+        folder: &FolderId,
+        id: &EnvelopeId,
+    ) -> Result<(), MailError> {
+        let uid = parse_uid(id)?;
+        let set = single_uid(uid)?;
+        let deleted = vec![io_imap::types::flag::Flag::Deleted];
+        self.session
+            .run_selected(folder.as_str(), || {
+                ImapMessageStoreSilent::new(
+                    set.clone(),
+                    StoreType::Add,
+                    deleted.clone(),
+                    ImapMessageStoreOptions { uid: true },
+                )
+            })
+            .await?;
+        self.session
+            .run_selected(folder.as_str(), ImapMailboxExpunge::new)
+            .await
+            .map(|_expunged| ())?;
+        if let Some(state) = self.folders.get_mut(folder) {
+            state.envelopes.remove(&uid);
+        }
         Ok(())
     }
 

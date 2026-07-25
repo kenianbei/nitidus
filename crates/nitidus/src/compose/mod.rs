@@ -4,14 +4,19 @@
 //! stubs until the 1c.15/1c.17 items land.
 
 pub mod build;
+pub(crate) mod drafts;
 mod editor;
 pub(crate) mod intent;
 mod ops;
+pub mod persist;
+pub(crate) mod recall;
 mod render;
 pub mod reply;
 
 pub use editor::EditorCommand;
 pub use ops::{dispatch, scroll, start_compose};
+pub use persist::recover;
+pub use recall::recall_selected;
 pub use render::ComposeWidget;
 pub use reply::{ReplyKind, start_reply};
 
@@ -37,10 +42,14 @@ impl Plugin for ComposePlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<ComposeState>();
         app.init_resource::<intent::ReplyIntent>();
-        app.add_systems(Startup, render::spawn_compose);
+        app.add_systems(Startup, (render::spawn_compose, persist::notice_orphans));
         app.add_systems(
             Update,
-            (intent::consume_reply_intent, render::refresh_compose),
+            (
+                intent::consume_reply_intent,
+                render::refresh_compose,
+                persist::persist_session,
+            ),
         );
     }
 }
@@ -68,6 +77,10 @@ pub struct ComposeSession {
     /// The message being answered — gains `\Answered` once the reply
     /// actually sends.
     pub reply_source: Option<ReplySource>,
+    pub attachments: Vec<std::path::PathBuf>,
+    /// The server draft this session was recalled from; replaced on
+    /// the next postpone or send.
+    pub draft_source: Option<(nitidus_mail::FolderId, nitidus_mail::EnvelopeId)>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -119,6 +132,8 @@ impl ComposeSession {
             in_reply_to: None,
             references: Vec::new(),
             reply_source: None,
+            attachments: Vec::new(),
+            draft_source: None,
         })
     }
 

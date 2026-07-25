@@ -12,7 +12,42 @@ pub struct BuiltMessage {
     pub envelope: SendEnvelope,
 }
 
-pub fn build(session: &ComposeSession) -> anyhow::Result<BuiltMessage> {
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BuildMode {
+    /// Transmission form: Bcc stays in the envelope only.
+    Send,
+    /// Draft form: Bcc rides the headers so recall round-trips it.
+    Draft,
+}
+
+const MIME_BY_EXTENSION: &[(&str, &str)] = &[
+    ("pdf", "application/pdf"),
+    ("png", "image/png"),
+    ("jpg", "image/jpeg"),
+    ("jpeg", "image/jpeg"),
+    ("gif", "image/gif"),
+    ("txt", "text/plain"),
+    ("md", "text/plain"),
+    ("html", "text/html"),
+    ("json", "application/json"),
+    ("zip", "application/zip"),
+    ("gz", "application/gzip"),
+];
+
+fn mime_for(path: &std::path::Path) -> &'static str {
+    path.extension()
+        .and_then(|ext| ext.to_str())
+        .and_then(|ext| {
+            let ext = ext.to_ascii_lowercase();
+            MIME_BY_EXTENSION
+                .iter()
+                .find(|(candidate, _)| *candidate == ext)
+                .map(|(_, mime)| *mime)
+        })
+        .unwrap_or("application/octet-stream")
+}
+
+pub fn build(session: &ComposeSession, mode: BuildMode) -> anyhow::Result<BuiltMessage> {
     let to = parse_address_list(&session.to);
     if to.is_empty() {
         anyhow::bail!("To has no valid recipients");
@@ -31,6 +66,19 @@ pub fn build(session: &ComposeSession) -> anyhow::Result<BuiltMessage> {
         .text_body(body);
     if !cc.is_empty() {
         builder = builder.cc(address_list(&cc));
+    }
+    if mode == BuildMode::Draft && !bcc.is_empty() {
+        builder = builder.bcc(address_list(&bcc));
+    }
+    for path in &session.attachments {
+        let bytes = std::fs::read(path)
+            .map_err(|error| anyhow::anyhow!("attachment {}: {error}", path.display()))?;
+        let name = path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("attachment")
+            .to_owned();
+        builder = builder.attachment(mime_for(path), name, bytes);
     }
     if let Some(in_reply_to) = &session.in_reply_to {
         builder = builder.in_reply_to(in_reply_to.clone());
@@ -134,13 +182,15 @@ mod tests {
             in_reply_to: None,
             references: Vec::new(),
             reply_source: None,
+            attachments: Vec::new(),
+            draft_source: None,
         }
     }
 
     #[test]
     fn builds_headers_with_bcc_in_envelope_only() {
         let dir = tempfile::tempdir().unwrap();
-        let built = build(&session(dir.path())).unwrap();
+        let built = build(&session(dir.path()), BuildMode::Send).unwrap();
         let text = String::from_utf8_lossy(&built.bytes);
         assert!(
             text.contains("From: \"Norman\" <norman@example.com>"),
@@ -171,9 +221,47 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let mut bad = session(dir.path());
         bad.to = "not-an-address".to_owned();
-        assert!(build(&bad).is_err());
+        assert!(build(&bad, BuildMode::Send).is_err());
         bad.to = String::new();
-        assert!(build(&bad).is_err());
+        assert!(build(&bad, BuildMode::Send).is_err());
+    }
+
+    #[test]
+    fn draft_mode_keeps_bcc_and_attaches_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let attachment = dir.path().join("notes.txt");
+        std::fs::write(&attachment, "attached content").unwrap();
+        let mut with_attachment = session(dir.path());
+        with_attachment.attachments.push(attachment);
+
+        let draft = build(&with_attachment, BuildMode::Draft).unwrap();
+        let text = String::from_utf8_lossy(&draft.bytes);
+        assert!(
+            text.contains("secret@example.com"),
+            "draft keeps Bcc: {text}"
+        );
+        assert!(text.contains("notes.txt"), "{text}");
+        assert!(
+            text.contains("attached content") || text.contains("YXR0YWNoZWQ"),
+            "{text}"
+        );
+
+        let send = build(&with_attachment, BuildMode::Send).unwrap();
+        let text = String::from_utf8_lossy(&send.bytes);
+        assert!(
+            !text.contains("secret@example.com"),
+            "send strips Bcc: {text}"
+        );
+        assert!(text.contains("notes.txt"), "send keeps attachments: {text}");
+    }
+
+    #[test]
+    fn mime_map_covers_common_extensions() {
+        assert_eq!(mime_for(std::path::Path::new("a.PDF")), "application/pdf");
+        assert_eq!(
+            mime_for(std::path::Path::new("a.weird")),
+            "application/octet-stream"
+        );
     }
 
     #[test]

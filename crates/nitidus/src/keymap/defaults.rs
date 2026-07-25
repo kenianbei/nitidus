@@ -32,6 +32,7 @@ pub(super) const DEFAULT_INDEX_BINDINGS: &[(&str, &str)] = &[
     ("r", ":reply"),
     ("R", ":reply-all"),
     ("f", ":forward"),
+    ("e", ":recall"),
 ];
 
 pub(super) const DEFAULT_PAGER_BINDINGS: &[(&str, &str)] = &[
@@ -115,8 +116,9 @@ pub(super) const DEFAULT_COMPOSE_BINDINGS: &[(&str, &str)] = &[
     ("s", ":compose-subject"),
     ("y", ":send"),
     ("P", ":postpone"),
+    ("a", ":attach"),
+    ("x", ":detach"),
     ("<Esc>", ":discard"),
-    ("b", ":sidebar"),
     ("<Tab>", ":sidebar-focus"),
     ("?", ":help"),
 ];

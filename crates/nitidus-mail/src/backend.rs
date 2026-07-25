@@ -50,6 +50,14 @@ pub trait MailBackend: Send + 'static {
         new_name: &str,
     ) -> impl Future<Output = Result<(), MailError>> + Send;
 
+    /// Removes one message (draft replacement); general deletion UX
+    /// arrives with the batch-operations item.
+    fn delete_message(
+        &mut self,
+        folder: &FolderId,
+        id: &EnvelopeId,
+    ) -> impl Future<Output = Result<(), MailError>> + Send;
+
     /// Writes a complete message into `folder` (the Sent copy, drafts
     /// later) with the given flags already set.
     fn append_message(

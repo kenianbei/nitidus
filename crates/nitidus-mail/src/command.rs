@@ -31,6 +31,12 @@ pub enum MailCommand {
         folder: FolderId,
         new_name: String,
     },
+    /// Fire-and-forget message removal (draft replacement); errors
+    /// surface as `JobFailed`.
+    DeleteMessage {
+        folder: FolderId,
+        id: EnvelopeId,
+    },
     /// Fire-and-forget message write (Sent copies); errors surface as
     /// `JobFailed`.
     AppendMessage {
