@@ -47,7 +47,7 @@ fn smtp_transport(port: u16, with_auth: bool) -> OutgoingTransport {
         encryption: SmtpEncryption::None,
         credentials: with_auth.then(|| SmtpCredentials {
             user: "norman@example.com".to_owned(),
-            password: "hunter2".to_owned(),
+            password: nitidus_mail::SecretString::from("hunter2"),
         }),
     })
 }

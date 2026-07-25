@@ -44,6 +44,8 @@ pub enum Action {
     Reply(crate::compose::ReplyKind),
     Recall,
     Recover,
+    SetPassword,
+    DeletePassword,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -160,6 +162,8 @@ pub fn apply_action(world: &mut World, action: &Action) {
         Action::Reply(kind) => crate::compose::start_reply(world, *kind),
         Action::Recall => crate::compose::recall_selected(world),
         Action::Recover => crate::compose::recover(world),
+        Action::SetPassword => crate::accounts::set_password(world),
+        Action::DeletePassword => crate::accounts::delete_password(world),
     }
 }
 

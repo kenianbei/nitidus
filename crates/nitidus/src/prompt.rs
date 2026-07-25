@@ -6,7 +6,7 @@
 use bevy::prelude::*;
 use bevy_ratatui::crossterm::event::KeyEvent;
 use plurimus::{Widget, WidgetLayout};
-use tui_prompts::{FocusState, Prompt, State, Status, TextPrompt, TextState};
+use tui_prompts::{FocusState, Prompt, State, Status, TextPrompt, TextRenderStyle, TextState};
 
 use crate::keymap::{InputMode, Mode};
 use nitidus_ui_kit::layout;
@@ -17,6 +17,7 @@ pub type CancelFn = Box<dyn FnOnce(&mut World) + Send + Sync>;
 pub struct PromptRequest {
     pub label: String,
     pub initial: String,
+    pub is_masked: bool,
     pub on_submit: SubmitFn,
     pub on_cancel: CancelFn,
 }
@@ -26,9 +27,16 @@ impl PromptRequest {
         Self {
             label: label.into(),
             initial: String::new(),
+            is_masked: false,
             on_submit,
             on_cancel: Box::new(|_| {}),
         }
+    }
+
+    /// Renders the typed value as `*` per character (secrets).
+    pub fn masked(mut self) -> Self {
+        self.is_masked = true;
+        self
     }
 
     pub fn with_initial(mut self, initial: impl Into<String>) -> Self {
@@ -44,6 +52,7 @@ impl PromptRequest {
 
 struct ActivePrompt {
     label: String,
+    is_masked: bool,
     text: TextState<'static>,
     on_submit: SubmitFn,
     on_cancel: CancelFn,
@@ -83,6 +92,7 @@ pub fn open_prompt(world: &mut World, request: PromptRequest) {
     text.move_end();
     world.resource_mut::<PromptState>().0 = Some(ActivePrompt {
         label: request.label,
+        is_masked: request.is_masked,
         text,
         on_submit: request.on_submit,
         on_cancel: request.on_cancel,
@@ -123,6 +133,7 @@ struct PromptLine;
 #[derive(Clone, Default)]
 struct PromptRender {
     label: String,
+    is_masked: bool,
     text: TextState<'static>,
 }
 
@@ -159,6 +170,7 @@ fn refresh_prompt(
     for mut widget in &mut widgets {
         widget.set_state(PromptRender {
             label: active.label.clone(),
+            is_masked: active.is_masked,
             text: active.text.clone(),
         })?;
     }
@@ -171,7 +183,12 @@ fn render_prompt(
     state: &mut PromptRender,
 ) -> Result {
     frame.render_widget(ratatui::widgets::Clear, area);
-    let prompt = TextPrompt::from(state.label.clone());
+    let style = if state.is_masked {
+        TextRenderStyle::Password
+    } else {
+        TextRenderStyle::Default
+    };
+    let prompt = TextPrompt::from(state.label.clone()).with_render_style(style);
     let mut text = state.text.clone();
     prompt.draw(frame, area, &mut text);
     Ok(())
@@ -230,6 +247,23 @@ mod tests {
         );
         assert_eq!(app.world().resource::<Mode>().0, InputMode::Normal);
         assert!(!app.world().resource::<PromptState>().is_open());
+    }
+
+    #[test]
+    fn masked_prompt_renders_asterisks_instead_of_the_value() {
+        let backend = ratatui::backend::TestBackend::new(30, 1);
+        let mut terminal = ratatui::Terminal::new(backend).unwrap();
+        let mut state = PromptRender {
+            label: "Password".to_owned(),
+            is_masked: true,
+            text: TextState::new().with_value("hunter2"),
+        };
+        terminal
+            .draw(|frame| render_prompt(frame, frame.area(), &mut state).unwrap())
+            .unwrap();
+        let rendered = format!("{:?}", terminal.backend().buffer());
+        assert!(rendered.contains("*******"), "{rendered}");
+        assert!(!rendered.contains("hunter2"), "{rendered}");
     }
 
     #[test]

@@ -1,5 +1,6 @@
 //! Application wiring for the `nitidus` binary.
 
+pub mod accounts;
 pub mod action;
 pub mod app;
 pub mod bootstrap;

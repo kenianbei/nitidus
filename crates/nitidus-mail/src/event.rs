@@ -36,10 +36,7 @@ pub enum MailEvent {
         error: MailError,
     },
     /// An outgoing submission completed successfully.
-    SendDone {
-        account: AccountId,
-        job: JobId,
-    },
+    SendDone { account: AccountId, job: JobId },
     /// A folder's contents changed on disk outside our control
     /// (external delivery, another client). Consumers re-sync.
     FolderChanged {

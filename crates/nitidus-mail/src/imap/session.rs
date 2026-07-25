@@ -16,10 +16,10 @@ use io_imap::types::command::SelectParameter;
 use io_imap::types::mailbox::Mailbox;
 use io_imap::types::response::Capability;
 
-use crate::net::{RemoteStream, connect_tcp, upgrade_tls};
 use super::{ImapConfig, ImapEncryption};
 use crate::error::MailError;
 use crate::imap::pump::{self, PumpError};
+use crate::net::{RemoteStream, connect_tcp, upgrade_tls};
 
 /// Matches io-imap's own examples; literals larger than this abort the
 /// command instead of exhausting memory.
@@ -151,8 +151,12 @@ pub(super) async fn connect(config: &ImapConfig) -> Result<Connection, MailError
             upgrade_tls(tcp, &config.host).await?
         }
     };
-    let login = ImapLogin::new(&config.user, &config.password, ImapLoginOptions::default())
-        .map_err(|error| MailError::Backend(format!("invalid credentials encoding: {error}")))?;
+    let login = ImapLogin::new(
+        &config.user,
+        secrecy::ExposeSecret::expose_secret(&config.password),
+        ImapLoginOptions::default(),
+    )
+    .map_err(|error| MailError::Backend(format!("invalid credentials encoding: {error}")))?;
     let capabilities = pump::run(&mut stream, &mut fragmentizer, login)
         .await
         .map_err(|error| MailError::Backend(format!("login as {}: {error}", config.user)))?;

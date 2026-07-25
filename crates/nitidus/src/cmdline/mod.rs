@@ -157,15 +157,18 @@ fn execute(world: &mut World) {
     }
     match parse_command(&buffer) {
         Ok(action) => {
+            // Close before applying so an action that enters another
+            // input mode (a prompt) is not clobbered back to Normal.
+            close(world);
             apply_action(world, &action);
         }
         Err(error) => {
             world
                 .resource_mut::<StatusMessage>()
                 .error(format!("{error:#}"), now);
+            close(world);
         }
     }
-    close(world);
 }
 
 impl CommandLineState {

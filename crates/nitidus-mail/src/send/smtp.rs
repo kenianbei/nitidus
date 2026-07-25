@@ -13,7 +13,6 @@ use io_smtp::rfc5321::{
     SmtpDomain, SmtpEhloDomain, SmtpForwardPath, SmtpLocalPart, SmtpMailbox, SmtpReversePath,
 };
 use io_smtp::sasl::auth_plain::{SmtpAuthPlain, SmtpAuthPlainOptions};
-use secrecy::SecretString;
 
 use super::pump::run;
 use super::{SendEnvelope, SmtpConfig, SmtpEncryption};
@@ -87,10 +86,9 @@ async fn authenticate(config: &SmtpConfig, stream: &mut RemoteStream) -> Result<
     let Some(credentials) = &config.credentials else {
         return Ok(());
     };
-    let password = SecretString::from(credentials.password.clone());
     let auth = SmtpAuthPlain::new(
         &credentials.user,
-        &password,
+        &credentials.password,
         ehlo_domain(),
         SmtpAuthPlainOptions {
             initial_request: true,

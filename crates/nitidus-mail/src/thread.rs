@@ -213,7 +213,14 @@ fn emit_subtree(
         has_children: !node.children.is_empty(),
     });
     for child in &node.children {
-        emit_subtree(child, envelopes, Some(&id), root, depth.saturating_add(1), rows);
+        emit_subtree(
+            child,
+            envelopes,
+            Some(&id),
+            root,
+            depth.saturating_add(1),
+            rows,
+        );
     }
 }
 
@@ -304,7 +311,10 @@ mod tests {
             envelope("first", 100, "f@x", &["ghost@x"]),
         ];
         let rows = compute_thread_rows(&envelopes);
-        assert_eq!(shape(&rows), vec![("first", 0, "first"), ("second", 1, "first")]);
+        assert_eq!(
+            shape(&rows),
+            vec![("first", 0, "first"), ("second", 1, "first")]
+        );
     }
 
     #[test]

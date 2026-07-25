@@ -134,8 +134,11 @@ fn build_transport(world: &World, account: &AccountId) -> anyhow::Result<Outgoin
     match &account_config.outgoing {
         Some(Outgoing::Smtp(smtp)) => {
             let config_dir = crate::dirs::config_dir()?;
-            let password =
-                crate::config::secrets::resolve_password(&account_config.auth, &config_dir)?;
+            let password = crate::config::secrets::resolve_password(
+                &account_config.auth,
+                &config_dir,
+                &account_config.name,
+            )?;
             Ok(OutgoingTransport::Smtp(SmtpConfig {
                 host: smtp.host.clone(),
                 port: smtp.port,

@@ -279,6 +279,18 @@ pub(super) const COMMANDS: &[CommandSpec] = &[
         parse: |args| no_args("help-scope", args, Action::HelpScope),
     },
     CommandSpec {
+        name: "set-password",
+        summary: "store the active account's password in the OS keyring",
+        aliases: &[],
+        parse: |args| no_args("set-password", args, Action::SetPassword),
+    },
+    CommandSpec {
+        name: "delete-password",
+        summary: "remove the active account's keyring password",
+        aliases: &[],
+        parse: |args| no_args("delete-password", args, Action::DeletePassword),
+    },
+    CommandSpec {
         name: "folder-delete",
         summary: "delete the selected empty folder",
         aliases: &[],

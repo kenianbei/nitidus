@@ -5,15 +5,15 @@
 mod actor;
 mod backend;
 pub mod cache;
-mod envelope;
-pub(crate) mod net;
 mod command;
 mod engine;
+mod envelope;
 mod error;
 mod event;
 pub mod imap;
 pub mod maildir;
 pub mod message;
+pub(crate) mod net;
 pub mod send;
 pub mod thread;
 mod types;
@@ -27,6 +27,7 @@ pub use command::MailCommand;
 pub use engine::MailEngine;
 pub use error::MailError;
 pub use event::MailEvent;
+pub use secrecy::{ExposeSecret, SecretString};
 pub use types::{
     AccountId, ConnectionState, EnvelopeId, EnvelopeSummary, Flags, FolderId, FolderMeta, JobId,
 };

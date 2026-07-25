@@ -16,7 +16,7 @@ fn config(port: u16) -> ImapConfig {
         port,
         encryption: ImapEncryption::None,
         user: "norman@example.com".to_owned(),
-        password: "hunter2".to_owned(),
+        password: nitidus_mail::SecretString::from("hunter2"),
     }
 }
 

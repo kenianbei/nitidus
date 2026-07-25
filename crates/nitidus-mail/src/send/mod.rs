@@ -23,7 +23,7 @@ pub struct SmtpConfig {
 #[derive(Clone)]
 pub struct SmtpCredentials {
     pub user: String,
-    pub password: String,
+    pub password: secrecy::SecretString,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
