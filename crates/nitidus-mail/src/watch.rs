@@ -19,13 +19,15 @@ const QUIET_WINDOW: Duration = Duration::from_millis(500);
 impl MailEngine {
     /// Watches every folder's `new/` and `cur/` (non-recursively — new
     /// folders created after startup are not watched until restart).
-    pub fn watch_maildir(&self, account: AccountId, root: PathBuf) {
+    pub fn watch_maildir(&mut self, account: AccountId, root: PathBuf) {
         let events = self.events_sender();
-        self.runtime_handle().spawn(async move {
+        let id = account.clone();
+        let handle = self.runtime_handle().spawn(async move {
             if let Err(error) = run_watcher(account.clone(), &root, events).await {
                 tracing::warn!("maildir watcher for {account} stopped: {error}");
             }
         });
+        self.track_watcher(id, handle);
     }
 }
 

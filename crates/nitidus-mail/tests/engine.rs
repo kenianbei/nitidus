@@ -334,3 +334,18 @@ fn failed_folder_op_reports_job_failed_without_a_job() {
         other => panic!("expected JobFailed, got {other:?}"),
     }
 }
+
+#[test]
+fn removed_account_stops_accepting_commands() {
+    let (mut engine, account) = engine_with(MockBackend::default());
+    wait_connected(&engine);
+    assert!(engine.has_account(&account));
+
+    assert!(engine.remove_account(&account));
+    assert!(!engine.has_account(&account));
+    assert!(engine.send(&account, MailCommand::ListFolders).is_err());
+    assert!(
+        !engine.remove_account(&account),
+        "second removal is a no-op"
+    );
+}

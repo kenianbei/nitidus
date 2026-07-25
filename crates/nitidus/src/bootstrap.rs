@@ -69,8 +69,8 @@ pub fn request_sync(
     Ok(())
 }
 
-/// Registers every configured account with the engine; returns
-/// user-facing notices for accounts that cannot run yet.
+/// Registers every configured account with the engine; accounts that
+/// cannot run yet become user-facing notices, never startup failures.
 pub fn register_accounts(
     engine: &mut MailEngine,
     config: &Config,
@@ -78,20 +78,31 @@ pub fn register_accounts(
     notices: &mut Vec<String>,
 ) -> anyhow::Result<()> {
     for account in &config.accounts {
-        match &account.backend {
-            Some(Backend::Maildir(settings)) => {
-                register_maildir(engine, tracker, &account.name, &settings.path)
-                    .with_context(|| format!("account {:?}", account.name))?;
-            }
-            Some(Backend::Imap(settings)) => match build_imap_config(account, settings) {
-                Ok(imap_config) => register_imap(engine, tracker, &account.name, imap_config)
-                    .with_context(|| format!("account {:?}", account.name))?,
-                Err(error) => notices.push(format!("{}: {error:#}", account.name)),
-            },
-            None => notices.push(format!("{}: no backend configured", account.name)),
+        if let Err(error) = register_one(engine, tracker, account) {
+            notices.push(format!("{}: {error:#}", account.name));
         }
     }
     Ok(())
+}
+
+/// Registers a single configured account on the (running) engine —
+/// shared by startup and live registration from the wizard and the
+/// secret/grant commands.
+pub fn register_one(
+    engine: &mut MailEngine,
+    tracker: &mut SyncTracker,
+    account: &crate::config::account::AccountConfig,
+) -> anyhow::Result<()> {
+    match &account.backend {
+        Some(Backend::Maildir(settings)) => {
+            register_maildir(engine, tracker, &account.name, &settings.path)
+        }
+        Some(Backend::Imap(settings)) => {
+            let imap_config = build_imap_config(account, settings)?;
+            register_imap(engine, tracker, &account.name, imap_config)
+        }
+        None => anyhow::bail!("no backend configured"),
+    }
 }
 
 fn build_imap_config(
@@ -373,13 +384,19 @@ mod tests {
                 path: "/definitely/not/a/maildir".into(),
             }));
         let mut engine = MailEngine::new(1).unwrap();
-        let error = register_accounts(
+        let mut notices = Vec::new();
+        register_accounts(
             &mut engine,
             &config,
             &mut SyncTracker::default(),
-            &mut Vec::new(),
+            &mut notices,
         )
-        .unwrap_err();
-        assert!(format!("{error:#}").contains("broken"));
+        .unwrap();
+        assert_eq!(notices.len(), 1, "a broken account becomes a notice");
+        assert!(notices[0].contains("broken"), "{notices:?}");
+        assert!(
+            !engine.has_account(&AccountId::new("broken")),
+            "a failed registration must not leave a half-registered account"
+        );
     }
 }

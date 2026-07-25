@@ -29,6 +29,12 @@ impl MailStore {
             .map_or(&[], |cached| cached.sorted.as_slice())
     }
 
+    /// `:remove-account` — drops every in-memory row of the account.
+    pub fn remove_account(&mut self, account: &AccountId) {
+        self.folders.remove(account);
+        self.envelopes.retain(|(owner, _), _| owner != account);
+    }
+
     pub fn set_folders(&mut self, account: AccountId, folders: Vec<FolderMeta>) {
         self.envelopes.retain(|(entry_account, folder), _| {
             entry_account != &account || folders.iter().any(|meta| &meta.id == folder)
@@ -69,7 +75,12 @@ impl MailStore {
         }
     }
 
-    pub fn position_of(&self, account: &AccountId, folder: &FolderId, id: &EnvelopeId) -> Option<usize> {
+    pub fn position_of(
+        &self,
+        account: &AccountId,
+        folder: &FolderId,
+        id: &EnvelopeId,
+    ) -> Option<usize> {
         self.envelopes
             .get(&(account.clone(), folder.clone()))?
             .index
@@ -208,6 +219,12 @@ pub struct SyncTracker {
 }
 
 impl SyncTracker {
+    /// `:remove-account` — forgets the account's sync history.
+    pub fn remove_account(&mut self, account: &AccountId) {
+        self.in_flight.retain(|(owner, _), _| owner != account);
+        self.synced.retain(|(owner, _)| owner != account);
+    }
+
     pub fn begin(&mut self, account: AccountId, folder: FolderId, job: JobId) {
         self.in_flight.insert((account, folder), job);
     }
@@ -276,7 +293,13 @@ mod tests {
             vec![envelope("old", 100)],
             false,
         );
-        store.apply_batch(&account, &folder, JobId(1), vec![envelope("new", 200)], true);
+        store.apply_batch(
+            &account,
+            &folder,
+            JobId(1),
+            vec![envelope("new", 200)],
+            true,
+        );
         assert_eq!(ids(&store, &account, &folder), vec!["new", "old"]);
     }
 

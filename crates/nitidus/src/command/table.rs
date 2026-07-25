@@ -303,6 +303,24 @@ pub(super) const COMMANDS: &[CommandSpec] = &[
         parse: |args| no_args("deauthorize", args, Action::Deauthorize),
     },
     CommandSpec {
+        name: "new-account",
+        summary: "add a mail account with the guided wizard",
+        aliases: &[],
+        parse: |args| no_args("new-account", args, Action::NewAccount),
+    },
+    CommandSpec {
+        name: "edit-account",
+        summary: "re-run the wizard for an existing account",
+        aliases: &[],
+        parse: |args| no_args("edit-account", args, Action::EditAccount),
+    },
+    CommandSpec {
+        name: "remove-account",
+        summary: "remove an account (config only; keyring secrets kept)",
+        aliases: &[],
+        parse: |args| no_args("remove-account", args, Action::RemoveAccount),
+    },
+    CommandSpec {
         name: "folder-delete",
         summary: "delete the selected empty folder",
         aliases: &[],

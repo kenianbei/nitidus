@@ -238,7 +238,10 @@ fn apply_event(world: &mut World, event: OauthEvent) {
             account,
             refresh_token,
         } => match keyring::store_oauth_refresh(&account, &refresh_token) {
-            Ok(()) => status.info(format!("{account} authorized — restart to connect"), now),
+            Ok(()) => {
+                status.info(format!("{account} authorized"), now);
+                super::register_live(world, &account);
+            }
             Err(error) => status.warn(format!("storing grant for {account}: {error:#}"), now),
         },
         OauthEvent::Failed { account, error } => {
@@ -395,8 +398,7 @@ mod tests {
             "ref-device"
         );
         assert!(
-            wait_for(&mut app, |world| status_text(world)
-                .contains("restart to connect")),
+            wait_for(&mut app, |world| status_text(world).contains("authorized")),
             "the granted notice never surfaced"
         );
     }

@@ -114,7 +114,10 @@ fn done_batch_prunes_rows_from_earlier_scans() {
                 &account,
                 &inbox,
                 1,
-                vec![envelope("kept", 100, Flags::default()), envelope("gone", 200, Flags::default())],
+                vec![
+                    envelope("kept", 100, Flags::default()),
+                    envelope("gone", 200, Flags::default()),
+                ],
                 true,
             ),
             batch_event(
@@ -211,7 +214,10 @@ fn references_roundtrip_through_the_cache() {
     let mut reply = envelope("reply", 100, Flags::default());
     reply.message_id = "reply@x".to_owned();
     reply.references = vec!["root@x".to_owned(), "mid@x".to_owned()];
-    record_all(&path, &[batch_event(&account, &inbox, 1, vec![reply], true)]);
+    record_all(
+        &path,
+        &[batch_event(&account, &inbox, 1, vec![reply], true)],
+    );
 
     let cache = MailCache::open(&path).unwrap();
     let envelopes = cache.load_envelopes(&account, &inbox).unwrap();
@@ -242,4 +248,32 @@ fn open_rejects_unreadable_database_file() {
         MailCache::open(&path),
         Err(CacheError::Database(_))
     ));
+}
+
+#[test]
+fn purge_account_drops_only_that_accounts_rows() {
+    let tmp = tempfile::tempdir().unwrap();
+    let path = tmp.path().join("mail.db");
+    let doomed = AccountId::new("doomed");
+    let kept = AccountId::new("kept");
+    let inbox = FolderId::new("INBOX");
+    let writer = MailCache::open(&path).unwrap().into_writer();
+    for account in [&doomed, &kept] {
+        writer.record(&folders_event(account, &["INBOX"]));
+        writer.record(&batch_event(
+            account,
+            &inbox,
+            1,
+            vec![envelope("kept-mail", 100, Flags::default())],
+            true,
+        ));
+    }
+    writer.purge_account(&doomed);
+    writer.close();
+
+    let cache = MailCache::open(&path).unwrap();
+    assert!(cache.load_folders(&doomed).unwrap().is_empty());
+    assert!(cache.load_envelopes(&doomed, &inbox).unwrap().is_empty());
+    assert_eq!(cache.load_folders(&kept).unwrap().len(), 1);
+    assert_eq!(cache.load_envelopes(&kept, &inbox).unwrap().len(), 1);
 }

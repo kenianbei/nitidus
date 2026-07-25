@@ -9,6 +9,7 @@ pub mod oauth;
 pub mod presets;
 mod schema;
 pub mod secrets;
+pub mod write;
 
 pub use keymaps::{RawKeymaps, parse_key_sequence};
 pub use load::{CONFIG_FILE_NAME, KEYS_FILE_NAME, LoadedConfig, load};

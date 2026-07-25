@@ -22,6 +22,9 @@ enum CacheOp {
         batch: Vec<EnvelopeSummary>,
         done: bool,
     },
+    PurgeAccount {
+        account: AccountId,
+    },
 }
 
 pub struct CacheWriter {
@@ -63,6 +66,16 @@ impl CacheWriter {
         };
         if self.ops.send(op).is_err() {
             tracing::warn!("cache writer thread gone; dropping cache update");
+        }
+    }
+
+    /// `:remove-account` — drops every cached row of the account.
+    pub fn purge_account(&self, account: &AccountId) {
+        let op = CacheOp::PurgeAccount {
+            account: account.clone(),
+        };
+        if self.ops.send(op).is_err() {
+            tracing::warn!("cache writer thread gone; dropping cache purge");
         }
     }
 
@@ -128,6 +141,13 @@ fn apply(connection: &mut Connection, op: &CacheOp) -> Result<(), CacheError> {
                     (account.as_str(), folder.as_str(), job.0 as i64),
                 )?;
             }
+        }
+        CacheOp::PurgeAccount { account } => {
+            tx.execute("DELETE FROM folders WHERE account = ?1", [account.as_str()])?;
+            tx.execute(
+                "DELETE FROM envelopes WHERE account = ?1",
+                [account.as_str()],
+            )?;
         }
     }
     tx.commit().map_err(Into::into)

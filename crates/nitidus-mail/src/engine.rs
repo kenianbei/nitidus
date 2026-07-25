@@ -21,6 +21,7 @@ pub struct MailEngine {
     events_tx: flume::Sender<MailEvent>,
     events_rx: flume::Receiver<MailEvent>,
     accounts: HashMap<AccountId, flume::Sender<MailCommand>>,
+    watchers: HashMap<AccountId, Vec<tokio::task::JoinHandle<()>>>,
     next_job: AtomicU64,
 }
 
@@ -41,6 +42,7 @@ impl MailEngine {
             events_tx,
             events_rx,
             accounts: HashMap::new(),
+            watchers: HashMap::new(),
             next_job: AtomicU64::new(1),
         })
     }
@@ -54,6 +56,24 @@ impl MailEngine {
             self.events_tx.clone(),
         ));
         self.accounts.insert(id, commands_tx);
+    }
+
+    /// Tears the account down: the actor ends when its command
+    /// channel closes, and its watchers are aborted. Returns whether
+    /// the account existed.
+    pub fn remove_account(&mut self, id: &AccountId) -> bool {
+        for watcher in self.watchers.remove(id).unwrap_or_default() {
+            watcher.abort();
+        }
+        self.accounts.remove(id).is_some()
+    }
+
+    pub fn has_account(&self, id: &AccountId) -> bool {
+        self.accounts.contains_key(id)
+    }
+
+    pub(crate) fn track_watcher(&mut self, id: AccountId, handle: tokio::task::JoinHandle<()>) {
+        self.watchers.entry(id).or_default().push(handle);
     }
 
     pub fn accounts(&self) -> impl Iterator<Item = &AccountId> {

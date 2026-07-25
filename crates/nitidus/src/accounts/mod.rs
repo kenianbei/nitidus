@@ -1,14 +1,24 @@
 //! Account-level operations: keyring secret management and OAuth2
 //! grants for the active account.
 
+pub mod manage;
 pub mod oauth;
+pub mod wizard;
 
 use bevy::prelude::*;
+use nitidus_mail::AccountId;
 
 use crate::config::keyring;
+use crate::engine::EngineResource;
 use crate::index::IndexView;
 use crate::prompt::{PromptRequest, open_prompt};
 use crate::status::StatusMessage;
+use crate::store::SyncTracker;
+
+/// Where account mutations write; tests point it at a temp file, the
+/// app leaves it unset and falls back to the real config directory.
+#[derive(Resource)]
+pub struct ConfigFilePath(pub std::path::PathBuf);
 
 pub struct AccountsPlugin;
 
@@ -16,6 +26,7 @@ impl Plugin for AccountsPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<oauth::OauthChannel>();
         app.add_systems(Update, oauth::drain_oauth_events);
+        app.add_systems(PostStartup, wizard::enter_on_first_run);
     }
 }
 
@@ -35,7 +46,10 @@ pub fn set_password(world: &mut World) {
                 return;
             }
             match keyring::store_password(&account, &secret) {
-                Ok(()) => status.info(format!("keyring secret stored for {account}"), now),
+                Ok(()) => {
+                    status.info(format!("keyring secret stored for {account}"), now);
+                    register_live(world, &account);
+                }
                 Err(error) => status.warn(format!("set-password: {error:#}"), now),
             }
         }),
@@ -54,6 +68,43 @@ pub fn delete_password(world: &mut World) {
     match keyring::delete_password(&account) {
         Ok(()) => status.info(format!("keyring secret removed for {account}"), now),
         Err(error) => status.warn(format!("delete-password: {error:#}"), now),
+    }
+}
+
+/// Registers a configured-but-unconnected account on the running
+/// engine — idempotent, and silent unless it acts. The wizard,
+/// `:set-password`, and a landed OAuth grant all finish through this,
+/// which is what retired the old "restart to connect" contract.
+pub fn register_live(world: &mut World, name: &str) {
+    let id = AccountId::new(name);
+    let is_registered = world
+        .get_resource::<EngineResource>()
+        .is_none_or(|engine| engine.0.has_account(&id));
+    if is_registered {
+        return;
+    }
+    let Some(account) = world
+        .resource::<crate::config::Config>()
+        .accounts
+        .iter()
+        .find(|candidate| candidate.name == name)
+        .cloned()
+    else {
+        return;
+    };
+    let Some(mut tracker) = world.remove_resource::<SyncTracker>() else {
+        return;
+    };
+    let outcome = {
+        let mut engine = world.resource_mut::<EngineResource>();
+        crate::bootstrap::register_one(&mut engine.0, &mut tracker, &account)
+    };
+    world.insert_resource(tracker);
+    let now = world.resource::<Time>().elapsed_secs_f64();
+    let mut status = world.resource_mut::<StatusMessage>();
+    match outcome {
+        Ok(()) => status.info(format!("{name} connected — syncing INBOX"), now),
+        Err(error) => status.warn(format!("{name}: {error:#}"), now),
     }
 }
 
@@ -170,6 +221,53 @@ mod tests {
             .unwrap()
             .get_password();
         assert!(matches!(lookup, Err(keyring_core::Error::NoEntry)));
+    }
+
+    #[test]
+    fn register_live_connects_a_configured_maildir_account() {
+        let maildir = tempfile::tempdir().unwrap();
+        for sub in ["cur", "new", "tmp"] {
+            std::fs::create_dir_all(maildir.path().join(sub)).unwrap();
+        }
+        let mut app = accounts_app("live-reg");
+        let mut config = crate::config::Config::default();
+        config.accounts.push(crate::config::account::AccountConfig {
+            name: "live-reg".to_owned(),
+            email: "live@example.com".to_owned(),
+            backend: Some(crate::config::account::Backend::Maildir(
+                crate::config::account::MaildirBackend {
+                    path: maildir.path().to_path_buf(),
+                },
+            )),
+            ..Default::default()
+        });
+        app.insert_resource(config);
+        app.init_resource::<SyncTracker>();
+        app.insert_resource(EngineResource(nitidus_mail::MailEngine::new(1).unwrap()));
+
+        register_live(app.world_mut(), "live-reg");
+        let engine = app.world().resource::<EngineResource>();
+        assert!(engine.0.has_account(&AccountId::new("live-reg")));
+        assert!(
+            engine
+                .0
+                .send(
+                    &AccountId::new("live-reg"),
+                    nitidus_mail::MailCommand::ListFolders
+                )
+                .is_ok()
+        );
+
+        // Idempotent: a second call must not error or double-register.
+        register_live(app.world_mut(), "live-reg");
+        assert_eq!(
+            app.world()
+                .resource::<EngineResource>()
+                .0
+                .accounts()
+                .count(),
+            1
+        );
     }
 
     #[test]

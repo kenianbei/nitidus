@@ -48,6 +48,9 @@ pub enum Action {
     DeletePassword,
     Authorize,
     Deauthorize,
+    NewAccount,
+    EditAccount,
+    RemoveAccount,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -168,6 +171,9 @@ pub fn apply_action(world: &mut World, action: &Action) {
         Action::DeletePassword => crate::accounts::delete_password(world),
         Action::Authorize => crate::accounts::oauth::authorize(world),
         Action::Deauthorize => crate::accounts::deauthorize(world),
+        Action::NewAccount => crate::accounts::wizard::start(world),
+        Action::EditAccount => crate::accounts::manage::edit_account(world),
+        Action::RemoveAccount => crate::accounts::manage::remove_account(world),
     }
 }
 

@@ -40,7 +40,7 @@ fn parse_file<T: serde::de::DeserializeOwned>(path: &Path) -> anyhow::Result<Opt
     Ok(Some(parsed))
 }
 
-fn validate(config: &Config) -> anyhow::Result<()> {
+pub(crate) fn validate(config: &Config) -> anyhow::Result<()> {
     if config.ui.theme != THEME_TAILWIND_DARK {
         bail!(
             "unknown theme {:?} (available: {THEME_TAILWIND_DARK:?})",

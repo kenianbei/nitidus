@@ -36,9 +36,10 @@ const IDLE_READ_TIMEOUT: Duration = Duration::from_secs(20 * 60);
 const READ_BUFFER_BYTES: usize = 16 * 1024;
 
 impl MailEngine {
-    pub fn watch_imap(&self, account: AccountId, config: ImapConfig) {
+    pub fn watch_imap(&mut self, account: AccountId, config: ImapConfig) {
         let events = self.events_sender();
-        self.runtime_handle().spawn(async move {
+        let id = account.clone();
+        let handle = self.runtime_handle().spawn(async move {
             let mut backoff = INITIAL_BACKOFF;
             loop {
                 let started = Instant::now();
@@ -55,6 +56,7 @@ impl MailEngine {
                 backoff = (backoff * 2).min(MAX_BACKOFF);
             }
         });
+        self.track_watcher(id, handle);
     }
 }
 
