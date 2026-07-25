@@ -10,4 +10,6 @@ pub use calcard;
 
 pub use book::ContactBook;
 pub use contact::{Contact, ContactError, PhotoSource, escape_component};
-pub use store::{LoadIssue, StoreError, delete_contact, load_dir, save_contact};
+pub use store::{
+    LoadIssue, StoreError, delete_contact, load_dir, parse_all, save_contact, write_export,
+};

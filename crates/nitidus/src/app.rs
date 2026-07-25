@@ -15,6 +15,7 @@ use crate::compose::ComposePlugin;
 use crate::config::LoadedConfig;
 use crate::contacts::ContactsPlugin;
 use crate::engine::{CacheResource, EnginePlugin, EngineResource, StartupNotices};
+use crate::explorer::ExplorerPlugin;
 use crate::index::IndexPlugin;
 use crate::keymap::Keymaps;
 use crate::outbox::OutboxPlugin;
@@ -60,6 +61,7 @@ pub fn build_app(loaded: LoadedConfig, keymaps: Keymaps, setup: EngineSetup) -> 
         PagerPlugin,
         SidebarPlugin,
         OverlayPlugin,
+        ExplorerPlugin,
         RouterPlugin,
         CommandLinePlugin,
         PromptPlugin,

@@ -51,18 +51,23 @@ impl Contact {
 
     pub fn from_vcf(input: &str) -> Result<Self, ContactError> {
         let entry = Parser::new(input).entry();
-        let Entry::VCard(mut card) = entry else {
+        let Entry::VCard(card) = entry else {
             return Err(ContactError::NotAVCard(format!("{entry:?}")));
         };
+        Ok(Self::from_card(card))
+    }
+
+    /// A card from any parse source; missing UIDs get a generated one.
+    pub(crate) fn from_card(mut card: VCard) -> Self {
         if card.uid().is_none() {
             let uid = uuid::Uuid::new_v4().to_string();
             card.entries
                 .push(VCardEntry::new(VCardProperty::Uid).with_value(VCardValue::Text(uid)));
         }
-        Ok(Self {
+        Self {
             card,
             source_stem: None,
-        })
+        }
     }
 
     pub fn to_vcf(&self) -> String {
@@ -108,6 +113,23 @@ impl Contact {
             VCardValue::Binary(data) => Some(PhotoSource::Bytes(&data.data)),
             VCardValue::Text(uri) => Some(PhotoSource::Uri(uri)),
             _ => None,
+        }
+    }
+
+    /// Replaces (or adds) the PHOTO with inline JPEG bytes, through the
+    /// same validated line path as every other mutation.
+    pub fn set_photo_jpeg(&mut self, jpeg_bytes: &[u8]) -> Result<(), ContactError> {
+        use base64::Engine as _;
+        let encoded = base64::engine::general_purpose::STANDARD.encode(jpeg_bytes);
+        let line = format!("PHOTO:data:image/jpeg;base64,{encoded}");
+        let existing = self
+            .card
+            .entries
+            .iter()
+            .position(|entry| entry.name == VCardProperty::Photo);
+        match existing {
+            Some(index) => self.replace_entry_line(index, &line),
+            None => self.add_entry_line(&line).map(|_| ()),
         }
     }
 
@@ -362,5 +384,26 @@ mod tests {
     #[test]
     fn escape_component_escapes_separators() {
         assert_eq!(escape_component("a;b,c\\d"), "a\\;b\\,c\\\\d");
+    }
+
+    #[test]
+    fn set_photo_adds_then_replaces_inline_jpeg() {
+        let mut contact = Contact::new("Pic");
+        contact.set_photo_jpeg(&[0xFF, 0xD8, 0xFF, 0x01]).unwrap();
+        assert!(matches!(
+            contact.photo(),
+            Some(PhotoSource::Bytes(bytes)) if bytes == [0xFF, 0xD8, 0xFF, 0x01]
+        ));
+        contact.set_photo_jpeg(&[0xFF, 0xD8, 0xFF, 0x02]).unwrap();
+        let photo_entries = contact
+            .entry_indices()
+            .into_iter()
+            .filter(|&index| contact.entry_at(index).unwrap().name == VCardProperty::Photo)
+            .count();
+        assert_eq!(photo_entries, 1, "replace must not stack PHOTO entries");
+        assert!(matches!(
+            contact.photo(),
+            Some(PhotoSource::Bytes(bytes)) if bytes == [0xFF, 0xD8, 0xFF, 0x02]
+        ));
     }
 }

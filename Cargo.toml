@@ -42,6 +42,7 @@ ratatui = { version = "0.30", features = [
   "unstable-widget-ref",
 ] }
 ratatui-comfy-tabs = "0.5"
+ratatui-explorer = "0.3"
 ratatui-image = "11"
 ratatui-comfy-toaster = "0.6"
 rusqlite = { version = "0.40", features = ["bundled"] }

@@ -5,6 +5,7 @@
 
 use std::path::{Path, PathBuf};
 
+use calcard::{Entry, Parser};
 use thiserror::Error;
 
 use crate::contact::{Contact, ContactError};
@@ -17,6 +18,8 @@ pub enum StoreError {
     Io(#[from] std::io::Error),
     #[error(transparent)]
     Contact(#[from] ContactError),
+    #[error("refusing to overwrite {0}")]
+    ExportTargetExists(PathBuf),
 }
 
 /// A file that could not be loaded: reported, skipped, left on disk.
@@ -62,6 +65,45 @@ fn load_file(path: &Path) -> Result<Contact, String> {
         contact.source_stem = Some(stem);
     }
     Ok(contact)
+}
+
+/// Every vCard in one input — the multi-card `.vcf` shape provider
+/// exports use. Malformed entries become issues; good cards proceed.
+pub fn parse_all(input: &str) -> (Vec<Contact>, Vec<String>) {
+    let mut parser = Parser::new(input);
+    let mut contacts = Vec::new();
+    let mut issues = Vec::new();
+    loop {
+        match parser.entry() {
+            Entry::VCard(card) => contacts.push(Contact::from_card(card)),
+            Entry::Eof => break,
+            Entry::InvalidLine(line) => {
+                issues.push(format!("invalid line: {}", line.trim()));
+            }
+            other => issues.push(format!("not a vCard: {other:?}")),
+        }
+    }
+    (contacts, issues)
+}
+
+/// The whole book as one vCard 4.0 file; never overwrites.
+pub fn write_export<'a>(
+    path: &Path,
+    contacts: impl Iterator<Item = &'a Contact>,
+) -> Result<(), StoreError> {
+    if path.exists() {
+        return Err(StoreError::ExportTargetExists(path.to_path_buf()));
+    }
+    let serialized: String = contacts.map(Contact::to_vcf).collect();
+    let directory = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty());
+    let temporary = tempfile::NamedTempFile::new_in(directory.unwrap_or(Path::new(".")))?;
+    std::fs::write(temporary.path(), serialized)?;
+    temporary
+        .persist_noclobber(path)
+        .map_err(|error| StoreError::Io(error.error))?;
+    Ok(())
 }
 
 /// Atomic write-via-rename: readers never observe a half-written card.
@@ -172,6 +214,48 @@ mod tests {
             .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
             .collect();
         assert_eq!(listing, ["from-khard.vcf"], "no orphan uid-named copy");
+    }
+
+    const MULTI_CARD: &str = concat!(
+        "BEGIN:VCARD\r\nVERSION:4.0\r\nUID:one\r\nFN:First\r\nEND:VCARD\r\n",
+        "BEGIN:VCARD\r\nVERSION:4.0\r\nFN:No Uid\r\nEND:VCARD\r\n",
+        "garbage between cards\r\n",
+        "BEGIN:VCARD\r\nVERSION:4.0\r\nUID:three\r\nFN:Third\r\nEND:VCARD\r\n",
+    );
+
+    #[test]
+    fn parse_all_reads_every_card_and_reports_garbage() {
+        let (contacts, issues) = parse_all(MULTI_CARD);
+        let names: Vec<&str> = contacts.iter().map(Contact::display_name).collect();
+        assert_eq!(names, ["First", "No Uid", "Third"]);
+        assert!(
+            !contacts[1].uid().is_empty(),
+            "a card without a UID gets one injected"
+        );
+        assert_eq!(issues.len(), 1, "the garbage line is reported: {issues:?}");
+    }
+
+    #[test]
+    fn parse_all_of_pure_garbage_yields_no_cards() {
+        let (contacts, issues) = parse_all("hello world\r\nmore noise\r\n");
+        assert!(contacts.is_empty());
+        assert!(!issues.is_empty());
+    }
+
+    #[test]
+    fn write_export_round_trips_and_refuses_overwrite() {
+        let root = tempfile::tempdir().unwrap();
+        let contacts = [Contact::new("Ada"), Contact::new("Zoe")];
+        let target = root.path().join("export.vcf");
+        write_export(&target, contacts.iter()).unwrap();
+        let (reloaded, issues) = parse_all(&std::fs::read_to_string(&target).unwrap());
+        assert!(issues.is_empty());
+        assert_eq!(reloaded.len(), 2);
+        assert_eq!(reloaded[0].display_name(), "Ada");
+        assert!(matches!(
+            write_export(&target, contacts.iter()),
+            Err(StoreError::ExportTargetExists(_))
+        ));
     }
 
     #[test]

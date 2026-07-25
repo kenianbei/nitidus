@@ -11,6 +11,7 @@ pub mod config;
 pub mod contacts;
 pub mod dirs;
 pub mod engine;
+pub mod explorer;
 pub mod help;
 pub mod index;
 pub mod keymap;

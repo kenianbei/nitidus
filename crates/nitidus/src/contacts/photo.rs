@@ -29,11 +29,13 @@ impl PhotoPicker {
     }
 }
 
-/// A ready-to-render photo, keyed by contact so selection changes only
-/// re-decode when they land on a different card.
+/// A ready-to-render photo, keyed by contact and content fingerprint
+/// so both selection changes and `:set-photo` re-decode exactly when
+/// the picture actually changed.
 #[derive(Clone)]
 pub(super) struct PhotoCell {
     uid: String,
+    fingerprint: usize,
     pub(super) protocol: Arc<Mutex<StatefulProtocol>>,
 }
 
@@ -42,16 +44,26 @@ pub(super) fn photo_cell(
     contact: &Contact,
     previous: Option<&PhotoCell>,
 ) -> Option<PhotoCell> {
+    let fingerprint = photo_fingerprint(contact)?;
     if let Some(cell) = previous
         && cell.uid == contact.uid()
+        && cell.fingerprint == fingerprint
     {
         return Some(cell.clone());
     }
     let image = decode_photo(contact)?;
     Some(PhotoCell {
         uid: contact.uid().to_owned(),
+        fingerprint,
         protocol: Arc::new(Mutex::new(picker.new_resize_protocol(image))),
     })
+}
+
+fn photo_fingerprint(contact: &Contact) -> Option<usize> {
+    match contact.photo()? {
+        PhotoSource::Bytes(bytes) => Some(bytes.len()),
+        PhotoSource::Uri(uri) => Some(uri.len()),
+    }
 }
 
 fn decode_photo(contact: &Contact) -> Option<DynamicImage> {
@@ -70,6 +82,50 @@ fn load_local_uri(uri: &str) -> Option<DynamicImage> {
     }
     let bytes = std::fs::read(path).ok()?;
     image::load_from_memory(&bytes).ok()
+}
+
+const PHOTO_MAX_EDGE: u32 = 256;
+const IMAGE_EXTENSIONS: &[&str] = &["jpg", "jpeg", "png", "gif", "webp"];
+
+/// `P`/`:set-photo`: a path applies directly; no argument browses.
+pub fn set_photo(world: &mut bevy::prelude::World, path_argument: Option<&str>) {
+    if super::mutate::selected_contact(world).is_none() {
+        return;
+    }
+    match path_argument {
+        Some(path) => apply_photo_pick(world, std::path::PathBuf::from(path)),
+        None => crate::explorer::open_explorer(
+            world,
+            crate::explorer::ExplorerRequest {
+                title: "set photo".to_owned(),
+                extensions: IMAGE_EXTENSIONS,
+                start_dir: None,
+                on_pick: Box::new(apply_photo_pick),
+            },
+        ),
+    }
+}
+
+fn apply_photo_pick(world: &mut bevy::prelude::World, path: std::path::PathBuf) {
+    match load_downscaled_jpeg(&path) {
+        Ok(jpeg_bytes) => {
+            super::mutate::apply_mutation(world, move |contact| contact.set_photo_jpeg(&jpeg_bytes))
+        }
+        Err(problem) => super::mutate::warn(world, format!("set-photo failed: {problem}")),
+    }
+}
+
+/// Bounded embedding: whatever came in, at most 256px on the long edge
+/// as JPEG — a `.vcf` should stay a text file, not a photo archive.
+fn load_downscaled_jpeg(path: &std::path::Path) -> Result<Vec<u8>, String> {
+    let image = image::open(path).map_err(|error| format!("{}: {error}", path.display()))?;
+    let scaled = image.thumbnail(PHOTO_MAX_EDGE, PHOTO_MAX_EDGE);
+    let flattened = DynamicImage::ImageRgb8(scaled.to_rgb8());
+    let mut out = std::io::Cursor::new(Vec::new());
+    flattened
+        .write_to(&mut out, image::ImageFormat::Jpeg)
+        .map_err(|error| error.to_string())?;
+    Ok(out.into_inner())
 }
 
 #[cfg(test)]

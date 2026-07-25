@@ -9,11 +9,13 @@ mod edit;
 mod mutate;
 mod photo;
 mod render;
+mod transfer;
 mod view;
 
 pub use add::{add_property, delete_selected_contact, new_contact};
 pub use edit::{edit_selected, edit_selected_raw, remove_selected_property};
-pub use photo::PhotoPicker;
+pub use photo::{PhotoPicker, set_photo};
+pub use transfer::{export_contacts, import_contacts};
 pub use view::{ContactsView, PaneFocus, move_cursor, toggle_focus};
 
 use std::path::PathBuf;

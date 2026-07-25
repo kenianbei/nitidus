@@ -42,6 +42,11 @@ fn named_arg(name: &str, args: &str, action: Action) -> anyhow::Result<Action> {
     }
 }
 
+fn optional_arg(args: &str) -> Option<String> {
+    let trimmed = args.trim();
+    (!trimmed.is_empty()).then(|| trimmed.to_owned())
+}
+
 pub fn parse_command(input: &str) -> anyhow::Result<Action> {
     let stripped = input.trim();
     let stripped = stripped.strip_prefix(':').unwrap_or(stripped).trim();

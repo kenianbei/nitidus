@@ -20,6 +20,7 @@ mail-builder.workspace = true
 mail-parser.workspace = true
 image.workspace = true
 ratatui-comfy-tabs.workspace = true
+ratatui-explorer.workspace = true
 ratatui-image.workspace = true
 ratatui-comfy-toaster.workspace = true
 nitidus-contacts.workspace = true

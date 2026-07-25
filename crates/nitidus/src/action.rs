@@ -26,6 +26,9 @@ pub enum Action {
     ContactRemoveProperty,
     NewContact,
     DeleteContact,
+    ImportContacts(Option<String>),
+    ExportContacts(Option<String>),
+    SetPhoto(Option<String>),
     Echo(String),
     Cursor(Motion),
     Sort(SortMode),
@@ -144,6 +147,9 @@ pub fn apply_action(world: &mut World, action: &Action) {
         Action::ContactRemoveProperty => crate::contacts::remove_selected_property(world),
         Action::NewContact => crate::contacts::new_contact(world),
         Action::DeleteContact => crate::contacts::delete_selected_contact(world),
+        Action::ImportContacts(path) => crate::contacts::import_contacts(world, path.as_deref()),
+        Action::ExportContacts(path) => crate::contacts::export_contacts(world, path.as_deref()),
+        Action::SetPhoto(path) => crate::contacts::set_photo(world, path.as_deref()),
         Action::Echo(text) => {
             let now = world.resource::<Time>().elapsed_secs_f64();
             world

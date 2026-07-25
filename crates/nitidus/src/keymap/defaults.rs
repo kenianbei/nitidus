@@ -82,6 +82,7 @@ pub(super) const DEFAULT_CONTACTS_BINDINGS: &[(&str, &str)] = &[
     ("x", ":contact-remove-property"),
     ("n", ":new-contact"),
     ("D", ":delete-contact"),
+    ("P", ":set-photo"),
     ("?", ":help"),
 ];
 

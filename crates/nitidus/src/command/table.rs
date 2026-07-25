@@ -3,7 +3,7 @@
 
 use nitidus_mail::Flags;
 
-use super::{CommandSpec, flag_action, named_arg, no_args};
+use super::{CommandSpec, flag_action, named_arg, no_args, optional_arg};
 use crate::action::{Action, FlagOp, FoldOp, Motion, PagerOp, SidebarOp};
 use crate::index::SortMode;
 
@@ -85,6 +85,24 @@ pub(super) const COMMANDS: &[CommandSpec] = &[
         summary: "delete the selected contact",
         aliases: &[],
         parse: |args| no_args("delete-contact", args, Action::DeleteContact),
+    },
+    CommandSpec {
+        name: "import-contacts",
+        summary: "import contacts from a .vcf file",
+        aliases: &[],
+        parse: |args| Ok(Action::ImportContacts(optional_arg(args))),
+    },
+    CommandSpec {
+        name: "export-contacts",
+        summary: "export the contact book to a .vcf file",
+        aliases: &[],
+        parse: |args| Ok(Action::ExportContacts(optional_arg(args))),
+    },
+    CommandSpec {
+        name: "set-photo",
+        summary: "set the selected contact's photo from an image file",
+        aliases: &[],
+        parse: |args| Ok(Action::SetPhoto(optional_arg(args))),
     },
     CommandSpec {
         name: "echo",
