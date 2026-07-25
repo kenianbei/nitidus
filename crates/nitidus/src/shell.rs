@@ -10,20 +10,28 @@ use plurimus::{Widget, WidgetLayout};
 use ratatui::style::Style;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::Paragraph;
+use ratatui_comfy_tabs::{TabNav, TabNavState};
 
+use crate::contacts::ContactsStatus;
 use crate::engine::EngineStatus;
 use crate::index::IndexStatus;
 use crate::pager::PagerStatus;
 use crate::router::PendingKeys;
+use crate::screen::{MailScreenMemory, Screen};
 use crate::status::{Severity, StatusMessage};
+
+pub const MAIL_TAB: &str = "mail";
+pub const CONTACTS_TAB: &str = "contacts";
 
 pub struct ShellPlugin;
 
 impl Plugin for ShellPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Tabs>();
+        app.init_resource::<MailScreenMemory>();
         app.init_resource::<StatusMessage>();
         app.init_resource::<IndexStatus>();
+        app.init_resource::<ContactsStatus>();
         app.init_resource::<PagerStatus>();
         app.add_systems(Startup, spawn_shell);
         app.add_systems(Update, (refresh_tab_bar, refresh_statusline));
@@ -39,7 +47,7 @@ pub struct Tabs {
 impl Default for Tabs {
     fn default() -> Self {
         Self {
-            labels: vec!["mail".to_owned()],
+            labels: vec![MAIL_TAB.to_owned(), CONTACTS_TAB.to_owned()],
             active: 0,
         }
     }
@@ -56,10 +64,71 @@ impl Tabs {
             self.active = (self.active as isize + delta).rem_euclid(len) as usize;
         }
     }
+
+    pub fn position_of(&self, label: &str) -> Option<usize> {
+        self.labels.iter().position(|candidate| candidate == label)
+    }
+}
+
+/// Rotates tabs and drives `Screen` to the new tab's owner.
+pub fn switch_tab(world: &mut World, delta: isize) {
+    if refuse_while_composing(world) {
+        return;
+    }
+    world.resource_mut::<Tabs>().rotate(delta);
+    apply_active_tab(world);
+}
+
+/// Jumps to a named tab (`:contacts`) from anywhere but the composer.
+pub fn activate_tab(world: &mut World, label: &str) {
+    if refuse_while_composing(world) {
+        return;
+    }
+    let Some(position) = world.resource::<Tabs>().position_of(label) else {
+        return;
+    };
+    world.resource_mut::<Tabs>().active = position;
+    apply_active_tab(world);
+}
+
+/// The composer stays modal until sent, postponed, or discarded —
+/// tabbing away would orphan an open editing session.
+fn refuse_while_composing(world: &mut World) -> bool {
+    if *world.resource::<Screen>() != Screen::Compose {
+        return false;
+    }
+    let now = world.resource::<Time>().elapsed_secs_f64();
+    world.resource_mut::<StatusMessage>().warn(
+        "finish or discard the composition before switching tabs".to_owned(),
+        now,
+    );
+    true
+}
+
+fn apply_active_tab(world: &mut World) {
+    let label = world.resource::<Tabs>().active_label().to_owned();
+    let current = *world.resource::<Screen>();
+    if label == CONTACTS_TAB && current != Screen::Contacts {
+        world.resource_mut::<MailScreenMemory>().0 = current;
+        world.resource_mut::<crate::sidebar::SidebarState>().focused = false;
+        *world.resource_mut::<Screen>() = Screen::Contacts;
+    } else if label == MAIL_TAB && current == Screen::Contacts {
+        *world.resource_mut::<Screen>() = world.resource::<MailScreenMemory>().0;
+    }
 }
 
 #[derive(Component)]
 pub struct TabBar;
+
+#[derive(Clone, Default)]
+struct TabBarState {
+    labels: Vec<String>,
+    active: usize,
+    normal: Style,
+    highlight: Style,
+    border: Style,
+    nav: TabNavState,
+}
 
 #[derive(Component)]
 pub struct Statusline;
@@ -76,7 +145,7 @@ struct StatuslineState {
 fn spawn_shell(mut commands: Commands) {
     commands.spawn((
         TabBar,
-        Widget::from_widget(Paragraph::new("")),
+        Widget::from_render_fn_with_state(render_tab_bar, TabBarState::default()),
         WidgetLayout::from(layout::tab_bar_layout()),
     ));
     commands.spawn((
@@ -90,13 +159,41 @@ fn refresh_tab_bar(
     theme: Res<Theme>,
     tabs: Res<Tabs>,
     mut widgets: Query<&mut Widget, With<TabBar>>,
-) {
+) -> Result {
     if !theme.is_changed() && !tabs.is_changed() {
-        return;
+        return Ok(());
     }
+    let states = &theme.base.default;
     for mut widget in &mut widgets {
-        widget.set_widget(tab_bar_paragraph(&tabs, &theme));
+        let nav = widget.get_state::<TabBarState>()?.nav;
+        widget.set_state(TabBarState {
+            labels: tabs.labels.clone(),
+            active: tabs.active,
+            normal: states.normal.style(),
+            highlight: states.selected.style(),
+            border: states.disabled.style(),
+            nav,
+        })?;
     }
+    Ok(())
+}
+
+fn render_tab_bar(
+    frame: &mut ratatui::Frame,
+    area: ratatui::layout::Rect,
+    state: &mut TabBarState,
+) -> Result {
+    let labels: Vec<&str> = state.labels.iter().map(String::as_str).collect();
+    state.nav.selected = state.active;
+    let nav = TabNav::new(&labels, state.active)
+        .style(state.normal)
+        .highlight_style(state.highlight)
+        .border_style(state.border)
+        // Flash animation needs repaints plurimus only issues on
+        // refresh; a stuck half-flash reads as a broken highlight.
+        .selection_flash(false);
+    frame.render_stateful_widget(nav, area, &mut state.nav);
+    Ok(())
 }
 
 #[derive(bevy::ecs::system::SystemParam)]
@@ -107,6 +204,7 @@ struct StatuslineInputs<'w> {
     status: Res<'w, StatusMessage>,
     engine_status: Res<'w, EngineStatus>,
     index_status: Res<'w, IndexStatus>,
+    contacts_status: Res<'w, ContactsStatus>,
     pager_status: Res<'w, PagerStatus>,
 }
 
@@ -118,6 +216,7 @@ impl StatuslineInputs<'_> {
             || self.status.is_changed()
             || self.engine_status.is_changed()
             || self.index_status.is_changed()
+            || self.contacts_status.is_changed()
             || self.pager_status.is_changed()
     }
 }
@@ -134,7 +233,7 @@ fn refresh_statusline(
         center_segment(&inputs.pending, &inputs.status, &inputs.pager_status, theme);
     for mut widget in &mut widgets {
         widget.set_state(StatuslineState {
-            left: left_segment(&inputs.tabs, &inputs.engine_status, &inputs.index_status),
+            left: left_segment(&inputs),
             center: center.clone(),
             center_style,
             right: format!("nitidus v{}", env!("CARGO_PKG_VERSION")),
@@ -144,8 +243,20 @@ fn refresh_statusline(
     Ok(())
 }
 
-fn left_segment(tabs: &Tabs, engine_status: &EngineStatus, index_status: &IndexStatus) -> String {
+fn left_segment(inputs: &StatuslineInputs<'_>) -> String {
+    let tabs = &inputs.tabs;
+    let (engine_status, index_status) = (&inputs.engine_status, &inputs.index_status);
     let mut segment = tabs.active_label().to_owned();
+    if tabs.active_label() == CONTACTS_TAB {
+        let contacts = &inputs.contacts_status;
+        if contacts.total > 0 {
+            segment = format!("{segment} ⋅ {}/{}", contacts.selected, contacts.total);
+        }
+        return segment;
+    }
+    if tabs.active_label() != MAIL_TAB {
+        return segment;
+    }
     if !index_status.folder.is_empty() {
         segment = format!("{segment} ⋅ {}", index_status.folder);
     }
@@ -183,24 +294,6 @@ fn center_segment(
         return (part.clone(), theme.paper.default.normal.style());
     }
     (String::new(), theme.paper.default.normal.style())
-}
-
-fn tab_bar_paragraph(tabs: &Tabs, theme: &Theme) -> Paragraph<'static> {
-    let states = &theme.base.default;
-    let spans: Vec<Span<'static>> = tabs
-        .labels
-        .iter()
-        .enumerate()
-        .map(|(index, label)| {
-            let style = if index == tabs.active {
-                states.selected.style()
-            } else {
-                states.normal.style()
-            };
-            Span::styled(format!(" {label} "), style)
-        })
-        .collect();
-    Paragraph::new(Line::from(spans)).style(states.normal.style())
 }
 
 fn render_statusline(
@@ -291,6 +384,65 @@ mod tests {
         assert!(text.starts_with("mail"));
         assert!(text.ends_with("v1"));
         assert!(text.contains("gg"));
+    }
+
+    fn tab_switch_app() -> App {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins);
+        app.init_resource::<Tabs>();
+        app.init_resource::<Screen>();
+        app.init_resource::<MailScreenMemory>();
+        app.init_resource::<StatusMessage>();
+        app.init_resource::<crate::sidebar::SidebarState>();
+        app.update();
+        app
+    }
+
+    #[test]
+    fn tab_switch_drives_screen_and_restores_the_mail_screen() {
+        let mut app = tab_switch_app();
+        let world = app.world_mut();
+        *world.resource_mut::<Screen>() = Screen::Pager;
+        world.resource_mut::<crate::sidebar::SidebarState>().focused = true;
+
+        switch_tab(world, 1);
+        assert_eq!(*world.resource::<Screen>(), Screen::Contacts);
+        assert!(
+            !world.resource::<crate::sidebar::SidebarState>().focused,
+            "the mail sidebar must lose focus when leaving the mail tab"
+        );
+
+        switch_tab(world, 1);
+        assert_eq!(
+            *world.resource::<Screen>(),
+            Screen::Pager,
+            "returning to the mail tab must restore the screen it left"
+        );
+    }
+
+    #[test]
+    fn named_activation_jumps_to_the_contacts_tab() {
+        let mut app = tab_switch_app();
+        let world = app.world_mut();
+        activate_tab(world, CONTACTS_TAB);
+        assert_eq!(*world.resource::<Screen>(), Screen::Contacts);
+        assert_eq!(world.resource::<Tabs>().active_label(), CONTACTS_TAB);
+        activate_tab(world, "no-such-tab");
+        assert_eq!(world.resource::<Tabs>().active_label(), CONTACTS_TAB);
+    }
+
+    #[test]
+    fn composing_refuses_tab_switches_with_a_notice() {
+        let mut app = tab_switch_app();
+        let world = app.world_mut();
+        *world.resource_mut::<Screen>() = Screen::Compose;
+        switch_tab(world, 1);
+        assert_eq!(*world.resource::<Screen>(), Screen::Compose);
+        assert_eq!(world.resource::<Tabs>().active, 0);
+        assert!(
+            world.resource::<StatusMessage>().current().is_some(),
+            "refusal must be explained in the statusline"
+        );
     }
 
     #[test]

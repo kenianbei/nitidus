@@ -33,6 +33,60 @@ pub(super) const COMMANDS: &[CommandSpec] = &[
         parse: |args| no_args("tab-prev", args, Action::TabPrev),
     },
     CommandSpec {
+        name: "contacts",
+        summary: "open the contact book tab",
+        aliases: &[],
+        parse: |args| no_args("contacts", args, Action::Contacts),
+    },
+    CommandSpec {
+        name: "contacts-focus",
+        summary: "switch focus between the contact table and detail panes",
+        aliases: &[],
+        parse: |args| no_args("contacts-focus", args, Action::ContactsFocus),
+    },
+    CommandSpec {
+        name: "contact-edit",
+        summary: "edit the selected contact property",
+        aliases: &[],
+        parse: |args| no_args("contact-edit", args, Action::ContactEdit),
+    },
+    CommandSpec {
+        name: "contact-edit-raw",
+        summary: "edit the selected property as a raw vCard line",
+        aliases: &[],
+        parse: |args| no_args("contact-edit-raw", args, Action::ContactEditRaw),
+    },
+    CommandSpec {
+        name: "contact-add",
+        summary: "add a property to the selected contact",
+        aliases: &[],
+        parse: |args| no_args("contact-add", args, Action::ContactAdd),
+    },
+    CommandSpec {
+        name: "contact-remove-property",
+        summary: "remove the selected contact property",
+        aliases: &[],
+        parse: |args| {
+            no_args(
+                "contact-remove-property",
+                args,
+                Action::ContactRemoveProperty,
+            )
+        },
+    },
+    CommandSpec {
+        name: "new-contact",
+        summary: "create a contact",
+        aliases: &[],
+        parse: |args| no_args("new-contact", args, Action::NewContact),
+    },
+    CommandSpec {
+        name: "delete-contact",
+        summary: "delete the selected contact",
+        aliases: &[],
+        parse: |args| no_args("delete-contact", args, Action::DeleteContact),
+    },
+    CommandSpec {
         name: "echo",
         summary: "show a message in the statusline",
         aliases: &[],

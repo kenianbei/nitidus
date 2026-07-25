@@ -61,11 +61,7 @@ fn attachments_list_with_names_and_decoded_sizes() {
 fn headers_keep_original_order() {
     let view = MessageView::parse(&multipart_fixture());
     let names: Vec<&str> = view.headers.iter().map(|(name, _)| name.as_str()).collect();
-    assert_eq!(
-        names[..4],
-        ["From", "To", "Subject", "Date"],
-        "{names:?}"
-    );
+    assert_eq!(names[..4], ["From", "To", "Subject", "Date"], "{names:?}");
     assert_eq!(view.headers[2].1, "mixed message");
 }
 
@@ -92,7 +88,13 @@ fn html_only_message_falls_back_to_html_part() {
     let view = MessageView::parse(&raw);
     let default = view.default_part().unwrap();
     assert_eq!(view.parts[default].kind, PartKind::Html);
-    assert!(view.parts[default].text.as_deref().unwrap().contains("<b>bold</b>"));
+    assert!(
+        view.parts[default]
+            .text
+            .as_deref()
+            .unwrap()
+            .contains("<b>bold</b>")
+    );
 }
 
 #[test]

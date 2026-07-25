@@ -31,6 +31,11 @@ pub fn cache_dir() -> anyhow::Result<PathBuf> {
     Ok(base_strategy()?.cache_dir().join(APP_DIR_NAME))
 }
 
+/// Precious user data (the contact vdir): backup-worthy, never a cache.
+pub fn data_dir() -> anyhow::Result<PathBuf> {
+    Ok(base_strategy()?.data_dir().join(APP_DIR_NAME))
+}
+
 fn base_strategy() -> anyhow::Result<impl BaseStrategy> {
     etcetera::choose_base_strategy().context("failed to resolve XDG base directories")
 }
@@ -57,5 +62,15 @@ mod tests {
             let dir = config_dir().unwrap();
             assert!(dir.ends_with(APP_DIR_NAME));
         }
+    }
+
+    #[test]
+    fn data_dir_ends_with_app_name() {
+        let dir = data_dir().unwrap();
+        assert!(
+            dir.ends_with(APP_DIR_NAME),
+            "data dir did not end with {APP_DIR_NAME}: {}",
+            dir.display()
+        );
     }
 }

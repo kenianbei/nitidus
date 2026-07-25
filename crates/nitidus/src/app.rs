@@ -13,6 +13,7 @@ use crate::bootstrap::EngineSetup;
 use crate::cmdline::CommandLinePlugin;
 use crate::compose::ComposePlugin;
 use crate::config::LoadedConfig;
+use crate::contacts::ContactsPlugin;
 use crate::engine::{CacheResource, EnginePlugin, EngineResource, StartupNotices};
 use crate::index::IndexPlugin;
 use crate::keymap::Keymaps;
@@ -55,6 +56,7 @@ pub fn build_app(loaded: LoadedConfig, keymaps: Keymaps, setup: EngineSetup) -> 
     app.add_plugins((
         ShellPlugin,
         IndexPlugin,
+        ContactsPlugin,
         PagerPlugin,
         SidebarPlugin,
         OverlayPlugin,

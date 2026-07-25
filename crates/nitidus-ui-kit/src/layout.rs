@@ -4,7 +4,8 @@ use plurimus::LayoutFn;
 use ratatui::layout::{Constraint, Layout, Rect};
 use std::sync::Arc;
 
-pub const TAB_BAR_HEIGHT: u16 = 1;
+/// Three rows: the comfy-tabs strip renders each tab as a bordered box.
+pub const TAB_BAR_HEIGHT: u16 = 3;
 pub const STATUSLINE_HEIGHT: u16 = 1;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -104,8 +105,16 @@ mod tests {
     #[test]
     fn splits_standard_terminal() {
         let regions = split_shell(Rect::new(0, 0, 80, 24));
-        assert_eq!(regions.tab_bar, Rect::new(0, 0, 80, 1));
-        assert_eq!(regions.content, Rect::new(0, 1, 80, 22));
+        assert_eq!(regions.tab_bar, Rect::new(0, 0, 80, TAB_BAR_HEIGHT));
+        assert_eq!(
+            regions.content,
+            Rect::new(
+                0,
+                TAB_BAR_HEIGHT,
+                80,
+                24 - TAB_BAR_HEIGHT - STATUSLINE_HEIGHT
+            )
+        );
         assert_eq!(regions.statusline, Rect::new(0, 23, 80, 1));
     }
 

@@ -5,7 +5,6 @@
 pub use crate::command::{complete_command, parse_command};
 use crate::index::{self, SortMode};
 use crate::keymap::{InputMode, Mode};
-use crate::shell::Tabs;
 use crate::status::StatusMessage;
 use bevy::app::AppExit;
 use bevy::prelude::*;
@@ -19,6 +18,14 @@ pub enum Action {
     OpenCommandLine(String),
     TabNext,
     TabPrev,
+    Contacts,
+    ContactsFocus,
+    ContactEdit,
+    ContactEditRaw,
+    ContactAdd,
+    ContactRemoveProperty,
+    NewContact,
+    DeleteContact,
     Echo(String),
     Cursor(Motion),
     Sort(SortMode),
@@ -127,8 +134,16 @@ pub fn apply_action(world: &mut World, action: &Action) {
                 .resource_mut::<crate::cmdline::CommandLineState>()
                 .prefill(prefill);
         }
-        Action::TabNext => world.resource_mut::<Tabs>().rotate(1),
-        Action::TabPrev => world.resource_mut::<Tabs>().rotate(-1),
+        Action::TabNext => crate::shell::switch_tab(world, 1),
+        Action::TabPrev => crate::shell::switch_tab(world, -1),
+        Action::Contacts => crate::shell::activate_tab(world, crate::shell::CONTACTS_TAB),
+        Action::ContactsFocus => crate::contacts::toggle_focus(world),
+        Action::ContactEdit => crate::contacts::edit_selected(world),
+        Action::ContactEditRaw => crate::contacts::edit_selected_raw(world),
+        Action::ContactAdd => crate::contacts::add_property(world),
+        Action::ContactRemoveProperty => crate::contacts::remove_selected_property(world),
+        Action::NewContact => crate::contacts::new_contact(world),
+        Action::DeleteContact => crate::contacts::delete_selected_contact(world),
         Action::Echo(text) => {
             let now = world.resource::<Time>().elapsed_secs_f64();
             world
@@ -201,6 +216,7 @@ fn dispatch_motion(world: &mut World, motion: Motion) {
         crate::screen::Screen::Pager => crate::pager::scroll(world, motion),
         crate::screen::Screen::Compose => crate::compose::scroll(world, motion),
         crate::screen::Screen::Index => index::move_cursor(world, motion),
+        crate::screen::Screen::Contacts => crate::contacts::move_cursor(world, motion),
     }
 }
 

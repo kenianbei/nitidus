@@ -8,8 +8,8 @@ use bevy::prelude::*;
 use crate::action::{apply_action, parse_command};
 use crate::command::describe;
 use crate::keymap::{
-    CONTEXT_COMPOSE, CONTEXT_GLOBAL, CONTEXT_INDEX, CONTEXT_PAGER, CONTEXT_SIDEBAR, HelpRow,
-    Keymaps,
+    CONTEXT_COMPOSE, CONTEXT_CONTACTS, CONTEXT_GLOBAL, CONTEXT_INDEX, CONTEXT_PAGER,
+    CONTEXT_SIDEBAR, HelpRow, Keymaps,
 };
 use crate::overlay::{ActiveOverlay, PickerItem, PickerSpec, open_picker};
 use crate::screen::Screen;
@@ -103,5 +103,6 @@ fn active_context(world: &World) -> &'static str {
         Screen::Pager => CONTEXT_PAGER,
         Screen::Compose => CONTEXT_COMPOSE,
         Screen::Index => CONTEXT_INDEX,
+        Screen::Contacts => CONTEXT_CONTACTS,
     }
 }

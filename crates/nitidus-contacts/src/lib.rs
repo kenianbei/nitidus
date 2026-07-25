@@ -1,18 +1,13 @@
-//! Contact management for nitidus: vCard domain model, persistence, and
-//! the contact book UI plugins.
+//! Contact management for nitidus: the vCard domain model and vdir
+//! persistence. Kept free of bevy — the contact tab UI lives in the
+//! nitidus bin crate and drives this through plain calls.
 
-pub fn crate_version() -> &'static str {
-    env!("CARGO_PKG_VERSION")
-}
+pub mod book;
+pub mod contact;
+pub mod store;
 
-#[cfg(test)]
-mod tests {
-    #![allow(clippy::unwrap_used, clippy::expect_used)]
+pub use calcard;
 
-    use super::*;
-
-    #[test]
-    fn crate_version_is_nonempty() {
-        assert!(!crate_version().is_empty());
-    }
-}
+pub use book::ContactBook;
+pub use contact::{Contact, ContactError, PhotoSource, escape_component};
+pub use store::{LoadIssue, StoreError, delete_contact, load_dir, save_contact};

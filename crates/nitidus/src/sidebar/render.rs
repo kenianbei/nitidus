@@ -28,10 +28,11 @@ pub(super) struct SidebarWindow {
 pub(super) fn refresh_sidebar(
     theme: Res<Theme>,
     state: Res<SidebarState>,
+    screen: Res<crate::screen::Screen>,
     rows: Res<SidebarRows>,
     mut widgets: Query<&mut Widget, With<SidebarWidget>>,
 ) -> Result {
-    if !(theme.is_changed() || state.is_changed() || rows.is_changed()) {
+    if !(theme.is_changed() || state.is_changed() || rows.is_changed() || screen.is_changed()) {
         return Ok(());
     }
     let Ok(mut widget) = widgets.single_mut() else {
@@ -39,7 +40,9 @@ pub(super) fn refresh_sidebar(
     };
     let last_height = widget.get_state::<SidebarWindow>()?.last_height;
     let window = SidebarWindow {
-        visible: state.visible,
+        // The contacts tab owns the whole content region; the mail
+        // sidebar must not bleed into it.
+        visible: state.visible && *screen != crate::screen::Screen::Contacts,
         lines: rows
             .0
             .iter()

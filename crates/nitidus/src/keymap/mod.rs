@@ -17,8 +17,9 @@ mod rows;
 pub use rows::{BindingRow, HelpRow};
 
 use defaults::{
-    DEFAULT_COMPOSE_BINDINGS, DEFAULT_GLOBAL_BINDINGS, DEFAULT_INDEX_BINDINGS,
-    DEFAULT_PAGER_BINDINGS, DEFAULT_PICKER_BINDINGS, DEFAULT_SIDEBAR_BINDINGS,
+    DEFAULT_COMPOSE_BINDINGS, DEFAULT_CONTACTS_BINDINGS, DEFAULT_GLOBAL_BINDINGS,
+    DEFAULT_INDEX_BINDINGS, DEFAULT_PAGER_BINDINGS, DEFAULT_PICKER_BINDINGS,
+    DEFAULT_SIDEBAR_BINDINGS,
 };
 
 #[derive(Clone, Copy, Debug, Default, Hash, PartialEq, Eq)]
@@ -41,6 +42,7 @@ pub const CONTEXT_PAGER: &str = "pager";
 pub const CONTEXT_PICKER: &str = "picker";
 pub const CONTEXT_SIDEBAR: &str = "sidebar";
 pub const CONTEXT_COMPOSE: &str = "compose";
+pub const CONTEXT_CONTACTS: &str = "contacts";
 
 /// Contexts accepted in keys.toml. Screens activate theirs as they land;
 /// binding an inactive context is allowed, a typo is not.
@@ -51,7 +53,7 @@ pub const KNOWN_CONTEXTS: &[&str] = &[
     CONTEXT_PICKER,
     CONTEXT_SIDEBAR,
     CONTEXT_COMPOSE,
-    "contacts",
+    CONTEXT_CONTACTS,
     "command_line",
 ];
 
@@ -96,6 +98,9 @@ impl Keymaps {
         }
         for (sequence, command) in DEFAULT_COMPOSE_BINDINGS {
             keymaps.bind(CONTEXT_COMPOSE, sequence, command)?;
+        }
+        for (sequence, command) in DEFAULT_CONTACTS_BINDINGS {
+            keymaps.bind(CONTEXT_CONTACTS, sequence, command)?;
         }
         for (context, bindings) in &raw.0 {
             if !KNOWN_CONTEXTS.contains(&context.as_str()) {
@@ -336,7 +341,7 @@ mod tests {
             "gg in index must make bare g wait for the chord"
         );
         assert_eq!(
-            keymaps.resolve_layered("contacts", &keys("g")),
+            keymaps.resolve_layered(CONTEXT_PICKER, &keys("g")),
             KeymapMatch::Exact(Action::TabNext),
             "contexts without the chord fire the global immediately"
         );

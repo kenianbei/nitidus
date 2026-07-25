@@ -65,6 +65,26 @@ pub(super) const DEFAULT_PAGER_BINDINGS: &[(&str, &str)] = &[
     ("f", ":forward"),
 ];
 
+pub(super) const DEFAULT_CONTACTS_BINDINGS: &[(&str, &str)] = &[
+    ("j", ":next"),
+    ("k", ":prev"),
+    ("<Down>", ":next"),
+    ("<Up>", ":prev"),
+    ("<PageDown>", ":next-page"),
+    ("<PageUp>", ":prev-page"),
+    ("gg", ":first"),
+    ("G", ":last"),
+    ("<Tab>", ":contacts-focus"),
+    ("<Enter>", ":contacts-focus"),
+    ("e", ":contact-edit"),
+    ("E", ":contact-edit-raw"),
+    ("a", ":contact-add"),
+    ("x", ":contact-remove-property"),
+    ("n", ":new-contact"),
+    ("D", ":delete-contact"),
+    ("?", ":help"),
+];
+
 pub(super) const DEFAULT_SIDEBAR_BINDINGS: &[(&str, &str)] = &[
     ("j", ":next"),
     ("k", ":prev"),

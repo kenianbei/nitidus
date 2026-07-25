@@ -10,8 +10,8 @@ use plurimus::{UiActions, UiEvent, UiInputBinding, Widget};
 
 use crate::action::apply_action;
 use crate::keymap::{
-    CONTEXT_COMPOSE, CONTEXT_INDEX, CONTEXT_PAGER, CONTEXT_SIDEBAR, InputMode, KeymapMatch,
-    Keymaps, Mode,
+    CONTEXT_COMPOSE, CONTEXT_CONTACTS, CONTEXT_INDEX, CONTEXT_PAGER, CONTEXT_SIDEBAR, InputMode,
+    KeymapMatch, Keymaps, Mode,
 };
 use crate::screen::Screen;
 use crate::status::{StatusMessage, expire_status_messages};
@@ -103,6 +103,7 @@ fn resolve_now(world: &mut World, now: f64) {
                 Screen::Index => CONTEXT_INDEX,
                 Screen::Pager => CONTEXT_PAGER,
                 Screen::Compose => CONTEXT_COMPOSE,
+                Screen::Contacts => CONTEXT_CONTACTS,
             }
         };
         let keymaps = world.resource::<Keymaps>();

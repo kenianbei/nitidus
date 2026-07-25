@@ -18,7 +18,11 @@ html2text.workspace = true
 jiff.workspace = true
 mail-builder.workspace = true
 mail-parser.workspace = true
+image.workspace = true
+ratatui-comfy-tabs.workspace = true
+ratatui-image.workspace = true
 ratatui-comfy-toaster.workspace = true
+nitidus-contacts.workspace = true
 nitidus-mail.workspace = true
 nitidus-ui-kit.workspace = true
 nucleo-matcher.workspace = true
@@ -37,6 +41,7 @@ zbus-secret-service-keyring-store = { version = "1.0.0", features = ["rt-async-i
 toml_edit = "0.25.13"
 
 [dev-dependencies]
+base64.workspace = true
 bevy.workspace = true
 nitidus-mail = { workspace = true, features = ["mock"] }
 nitidus-ui-kit.workspace = true
