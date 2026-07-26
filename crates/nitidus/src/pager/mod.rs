@@ -2,7 +2,7 @@
 //! through `MessageView`, and renders headers + body over the content
 //! region while `Screen::Pager` is active.
 
-mod body;
+pub(crate) mod body;
 mod html;
 pub(crate) mod ops;
 mod peek;

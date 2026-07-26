@@ -7,7 +7,7 @@ use bevy::prelude::*;
 use mail_parser::{Message as ParsedMessage, MessageParser};
 use nitidus_mail::{AccountId, EnvelopeId, FolderId};
 
-use super::{ComposeSession, ComposeState, ReplySource, editor};
+use super::{ComposeSession, ComposeState, ReplySource, ops};
 use crate::config::account::AccountConfig;
 use crate::prompt::{PromptRequest, open_prompt};
 use crate::status::StatusMessage;
@@ -261,12 +261,12 @@ pub fn start_from_raw(
                 if let Some(session) = world.resource_mut::<ComposeState>().0.as_mut() {
                     session.to = value;
                 }
-                editor::edit_body(world);
+                ops::edit_body(world);
             }),
         );
         open_prompt(world, request);
     } else {
-        editor::edit_body(world);
+        ops::edit_body(world);
     }
 }
 

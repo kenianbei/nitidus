@@ -5,6 +5,7 @@ pub mod action;
 pub mod addresses;
 pub mod app;
 pub mod bootstrap;
+pub mod clipboard;
 pub mod cmdline;
 pub mod command;
 pub mod compose;

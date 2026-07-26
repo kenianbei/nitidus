@@ -80,7 +80,6 @@ fn materialize(
         .body_text(0)
         .map(|text| text.into_owned())
         .unwrap_or_default();
-    std::fs::write(&body_path, &body)?;
 
     let mut attachments = Vec::new();
     for (index, part) in message.attachments().enumerate() {
@@ -93,6 +92,16 @@ fn materialize(
         attachments.push(path);
     }
 
+    // Sending lifted the tokens out into MIME parts; put them back so the
+    // recalled body declares its attachments again.
+    let mut body: Vec<String> = body.lines().map(str::to_owned).collect();
+    body.extend(
+        attachments
+            .iter()
+            .map(|path| super::token::AttachToken::new(path.clone()).render()),
+    );
+    std::fs::write(&body_path, format!("{}\n", body.join("\n")))?;
+
     let line = |header: Option<&mail_parser::Address<'_>>| {
         super::reply::address_line(header).unwrap_or_default()
     };
@@ -104,7 +113,7 @@ fn materialize(
         bcc: line(message.bcc()),
         subject: message.subject().unwrap_or_default().to_owned(),
         body_path,
-        body: body.lines().map(str::to_owned).collect(),
+        body,
         stage: ComposeStage::Review,
         in_reply_to: message
             .in_reply_to()

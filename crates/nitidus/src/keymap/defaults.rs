@@ -160,6 +160,7 @@ pub(super) const DEFAULT_COMPOSE_BINDINGS: &[(&str, &str)] = &[
     ("gg", ":first"),
     ("G", ":last"),
     ("e", ":compose-edit"),
+    ("E", ":compose-edit-external"),
     ("t", ":compose-to"),
     ("c", ":compose-cc"),
     ("b", ":compose-bcc"),
@@ -170,4 +171,36 @@ pub(super) const DEFAULT_COMPOSE_BINDINGS: &[(&str, &str)] = &[
     ("x", ":detach"),
     ("<Esc>", ":discard"),
     ("<Tab>", ":sidebar-focus"),
+];
+
+/// Inline body editor bindings. Printable keys are not bound — they type
+/// into the buffer — so only motions, edits, and mode exits appear here.
+/// Ctrl-c is the global quit and is deliberately not taken for copy.
+pub(super) const DEFAULT_EDITOR_BINDINGS: &[(&str, &str)] = &[
+    ("<Esc>", ":editor-done"),
+    ("<Left>", ":editor-left"),
+    ("<Right>", ":editor-right"),
+    ("<Up>", ":editor-up"),
+    ("<Down>", ":editor-down"),
+    ("<C-Left>", ":editor-word-back"),
+    ("<C-Right>", ":editor-word-forward"),
+    ("<Home>", ":editor-line-start"),
+    ("<End>", ":editor-line-end"),
+    ("<C-Up>", ":editor-paragraph-back"),
+    ("<C-Down>", ":editor-paragraph-forward"),
+    ("<PageUp>", ":editor-page-up"),
+    ("<PageDown>", ":editor-page-down"),
+    ("<C-Home>", ":editor-top"),
+    ("<C-End>", ":editor-bottom"),
+    ("<C-z>", ":editor-undo"),
+    ("<C-y>", ":editor-redo"),
+    ("<C-s>", ":editor-select"),
+    ("<C-a>", ":editor-select-all"),
+    ("<C-x>", ":editor-cut"),
+    ("<C-w>", ":editor-copy"),
+    ("<C-v>", ":editor-paste"),
+    ("<C-BackSpace>", ":editor-delete-word-back"),
+    ("<C-Delete>", ":editor-delete-word-forward"),
+    ("<C-k>", ":editor-delete-line-end"),
+    ("<C-p>", ":editor-preview"),
 ];

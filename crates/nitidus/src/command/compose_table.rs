@@ -14,13 +14,25 @@ pub(super) const COMPOSE_COMMANDS: &[CommandSpec] = &[
     },
     CommandSpec {
         name: "compose-edit",
-        summary: "edit the body in $EDITOR",
+        summary: "edit the body",
         aliases: &[],
         parse: |args| {
             no_args(
                 "compose-edit",
                 args,
                 Action::ComposeAction(ComposeOp::EditBody),
+            )
+        },
+    },
+    CommandSpec {
+        name: "compose-edit-external",
+        summary: "edit the body in $EDITOR",
+        aliases: &[],
+        parse: |args| {
+            no_args(
+                "compose-edit-external",
+                args,
+                Action::ComposeAction(ComposeOp::EditBodyExternal),
             )
         },
     },

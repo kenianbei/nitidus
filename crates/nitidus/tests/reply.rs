@@ -12,12 +12,12 @@ use bevy::prelude::*;
 use bevy_ratatui::crossterm::event::{KeyCode, KeyEvent};
 use nitidus::action::{Action, apply_action};
 use nitidus::cmdline::CommandLineState;
-use nitidus::compose::{ComposeDir, ComposePlugin, ComposeState, EditorCommand};
+use nitidus::compose::{ComposeDir, ComposePlugin, ComposeState, EditorCommand, InlineEditor};
 use nitidus::config::account::{AccountConfig, Outgoing, SendmailOutgoing};
 use nitidus::config::{Config, RawKeymaps};
 use nitidus::engine::{EnginePlugin, EngineResource};
 use nitidus::index::{IndexPlugin, IndexStatus};
-use nitidus::keymap::Keymaps;
+use nitidus::keymap::{InputMode, Keymaps, Mode};
 use nitidus::outbox::{OutboxDir, OutboxPlugin, OutboxState, SendDelay};
 use nitidus::overlay::OverlayPlugin;
 use nitidus::pager::{PagerPlugin, PagerState};
@@ -240,6 +240,9 @@ fn send_reply_and_wait(app: &mut App) {
     assert!(wait_for(app, |world| {
         world.resource::<ComposeState>().is_active()
     }));
+    // A reply opens the editor, where `y` is a letter; leave it first so
+    // the review screen takes the send.
+    press(app, KeyCode::Esc);
     press(app, KeyCode::Char('y'));
     assert!(
         wait_for(app, |world| {
@@ -297,4 +300,54 @@ fn save_sent_false_skips_the_copy() {
     let sent_count =
         std::fs::read_dir(harness.mail_root.join(".Sent/cur")).map_or(0, |entries| entries.count());
     assert_eq!(sent_count, 0, "save_sent = false must skip the Sent copy");
+}
+
+/// Every route into a body — new, reply, reply-all, forward — has to
+/// honour `ui.compose.editor`. Replies once called the external editor
+/// directly and ignored it.
+#[test]
+fn replying_opens_the_inline_editor() {
+    let harness = harness();
+    let mut app = reply_app(&harness, true);
+    wait_loaded(&mut app);
+    open_in_pager(&mut app);
+
+    press(&mut app, KeyCode::Char('r'));
+
+    assert_eq!(
+        app.world().resource::<Mode>().0,
+        InputMode::Editor,
+        "a reply must land in the inline editor like a new message does"
+    );
+    assert!(app.world().resource::<InlineEditor>().is_active());
+    assert!(
+        app.world()
+            .resource::<InlineEditor>()
+            .lines()
+            .unwrap()
+            .iter()
+            .any(|line| line == "> original body line"),
+        "the quoted reply must be in the buffer"
+    );
+}
+
+#[test]
+fn forwarding_opens_the_inline_editor_after_the_to_prompt() {
+    let harness = harness();
+    let mut app = reply_app(&harness, true);
+    wait_loaded(&mut app);
+    open_in_pager(&mut app);
+
+    press(&mut app, KeyCode::Char('f'));
+    assert_eq!(app.world().resource::<PromptState>().label(), Some("To: "));
+    for character in "bob@x.com".chars() {
+        press(&mut app, KeyCode::Char(character));
+    }
+    press(&mut app, KeyCode::Enter);
+
+    assert_eq!(
+        app.world().resource::<Mode>().0,
+        InputMode::Editor,
+        "forward must reach the editor once the To prompt is answered"
+    );
 }

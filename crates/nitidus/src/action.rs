@@ -67,6 +67,7 @@ pub enum Action {
     HelpScope,
     Compose,
     ComposeAction(ComposeOp),
+    Editor(EditorOp),
     UndoSend,
     Reply(crate::compose::ReplyKind),
     Recall,
@@ -87,6 +88,9 @@ pub enum Action {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ComposeOp {
     EditBody,
+    /// Suspend to `$EDITOR` regardless of `ui.compose.editor`, so the
+    /// escape hatch never depends on configuration.
+    EditBodyExternal,
     To,
     Cc,
     Bcc,
@@ -96,6 +100,46 @@ pub enum ComposeOp {
     Discard,
     Attach,
     Detach,
+}
+
+/// Operations on the inline body editor. Printable keys reach the text
+/// area directly; everything else arrives as one of these, so bindings
+/// stay rebindable and the help overlay keeps listing them.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum EditorOp {
+    /// Leave the editor, returning to the review screen.
+    Done,
+    Move(EditorMotion),
+    Undo,
+    Redo,
+    SelectToggle,
+    SelectAll,
+    Cut,
+    Copy,
+    Paste,
+    DeleteWordBack,
+    DeleteWordForward,
+    DeleteLineEnd,
+    /// Show what the token on this line points at.
+    Preview,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum EditorMotion {
+    Left,
+    Right,
+    Up,
+    Down,
+    WordForward,
+    WordBack,
+    LineStart,
+    LineEnd,
+    ParagraphForward,
+    ParagraphBack,
+    PageUp,
+    PageDown,
+    Top,
+    Bottom,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -226,6 +270,7 @@ pub fn apply_action(world: &mut World, action: &Action) {
         Action::HelpScope => crate::help::toggle_scope(world),
         Action::Compose => crate::compose::start_compose(world),
         Action::ComposeAction(op) => crate::compose::dispatch(world, *op),
+        Action::Editor(op) => crate::compose::inline::dispatch(world, *op),
         Action::UndoSend => crate::outbox::undo_send(world),
         Action::Reply(kind) => crate::compose::start_reply(world, *kind),
         Action::Recall => crate::compose::recall_selected(world),

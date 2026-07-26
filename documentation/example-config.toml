@@ -21,6 +21,12 @@ columns = ["flags", "date", "from", "subject"]
 # or force "time" | "short" | "iso".
 date = "auto"
 
+[ui.compose]
+# Which editor opens the message body: "inline" edits it in the TUI,
+# "external" suspends to $VISUAL/$EDITOR. `E` (:compose-edit-external)
+# always suspends, whichever this is.
+editor = "inline"
+
 [ui.pager]
 # When an opened message is marked read: "open" (immediately),
 # "never", or a number of seconds to peek before marking (e.g. 1.5).

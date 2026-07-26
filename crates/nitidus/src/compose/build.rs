@@ -57,7 +57,11 @@ pub fn build(session: &ComposeSession, mode: BuildMode) -> anyhow::Result<BuiltM
     let (from_name, from_addr) = split_display(&session.from)
         .ok_or_else(|| anyhow::anyhow!("account has no usable from address"))?;
 
-    let body = std::fs::read_to_string(&session.body_path)?;
+    // Attachment tokens declare the MIME parts below; they are markup for
+    // the composer and must never reach the wire.
+    let raw = std::fs::read_to_string(&session.body_path)?;
+    let lines: Vec<String> = raw.lines().map(str::to_owned).collect();
+    let body = format!("{}\n", super::token::strip(&lines).join("\n"));
     let mut builder = MessageBuilder::new()
         .message_id(generate_message_id(&from_addr))
         .from(address(from_name.clone(), from_addr.clone()))

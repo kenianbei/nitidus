@@ -14,6 +14,7 @@ nitidus-mail = { path = "crates/nitidus-mail" }
 nitidus-ui-kit = { path = "crates/nitidus-ui-kit" }
 
 ammonia = "4.1"
+arboard = { version = "3", default-features = false }
 anyhow = "1"
 calcard = "0.3"
 bevy = { version = "0.18", default-features = false, features = [
@@ -45,6 +46,7 @@ ratatui-comfy-tabs = "0.5"
 ratatui-explorer = "0.3"
 ratatui-image = "11"
 ratatui-comfy-toaster = "0.6"
+ratatui-textarea = "0.9"
 rusqlite = { version = "0.40", features = ["bundled"] }
 rusqlite_migration = "2.6"
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
@@ -64,6 +66,13 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tui-prompts = "0.6"
 utf7-imap = "0.3"
 uuid = { version = "1", features = ["v4"] }
+
+# The inline editor needs the screen position mapping, which is PRed against
+# ratatui/ratatui-textarea but not yet released — see
+# design/feature-inline-editor-v1.md §2.5. Remove this stanza and take the
+# crates.io release once it ships.
+[patch.crates-io]
+ratatui-textarea = { git = "https://github.com/kenianbei/ratatui-textarea", branch = "feature/screen-position-methods" }
 
 [workspace.lints.clippy]
 unwrap_used = "deny"

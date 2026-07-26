@@ -17,9 +17,9 @@ mod rows;
 pub use rows::{BindingRow, HelpRow};
 
 use defaults::{
-    DEFAULT_COMPOSE_BINDINGS, DEFAULT_CONTACTS_BINDINGS, DEFAULT_GLOBAL_BINDINGS,
-    DEFAULT_INDEX_BINDINGS, DEFAULT_PAGER_BINDINGS, DEFAULT_PICKER_BINDINGS,
-    DEFAULT_SIDEBAR_BINDINGS,
+    DEFAULT_COMPOSE_BINDINGS, DEFAULT_CONTACTS_BINDINGS, DEFAULT_EDITOR_BINDINGS,
+    DEFAULT_GLOBAL_BINDINGS, DEFAULT_INDEX_BINDINGS, DEFAULT_PAGER_BINDINGS,
+    DEFAULT_PICKER_BINDINGS, DEFAULT_SIDEBAR_BINDINGS,
 };
 
 #[derive(Clone, Copy, Debug, Default, Hash, PartialEq, Eq)]
@@ -29,6 +29,8 @@ pub enum InputMode {
     CommandLine,
     Prompt,
     Search,
+    /// The inline body editor owns the keyboard.
+    Editor,
 }
 
 /// The active input mode. A plain resource (not bevy `States`) so mode
@@ -44,6 +46,7 @@ pub const CONTEXT_PICKER: &str = "picker";
 pub const CONTEXT_SIDEBAR: &str = "sidebar";
 pub const CONTEXT_COMPOSE: &str = "compose";
 pub const CONTEXT_CONTACTS: &str = "contacts";
+pub const CONTEXT_EDITOR: &str = "editor";
 
 /// Contexts accepted in keys.toml. Screens activate theirs as they land;
 /// binding an inactive context is allowed, a typo is not.
@@ -55,6 +58,7 @@ pub const KNOWN_CONTEXTS: &[&str] = &[
     CONTEXT_SIDEBAR,
     CONTEXT_COMPOSE,
     CONTEXT_CONTACTS,
+    CONTEXT_EDITOR,
     "command_line",
 ];
 
@@ -102,6 +106,9 @@ impl Keymaps {
         }
         for (sequence, command) in DEFAULT_CONTACTS_BINDINGS {
             keymaps.bind(CONTEXT_CONTACTS, sequence, command)?;
+        }
+        for (sequence, command) in DEFAULT_EDITOR_BINDINGS {
+            keymaps.bind(CONTEXT_EDITOR, sequence, command)?;
         }
         for (context, bindings) in &raw.0 {
             if !KNOWN_CONTEXTS.contains(&context.as_str()) {

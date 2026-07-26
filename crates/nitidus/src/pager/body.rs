@@ -29,13 +29,9 @@ pub fn build_body_lines(part: &PartView, width: usize) -> Vec<BodyLine> {
         text.lines().map(str::to_owned).collect()
     };
     let width = width.max(16);
-    let mut in_signature = false;
+    let kinds = classify_lines(&logical);
     let mut lines = Vec::new();
-    for logical_line in &logical {
-        if logical_line == SIGNATURE_MARKER || logical_line.trim_end() == "--" {
-            in_signature = true;
-        }
-        let kind = classify(logical_line, in_signature);
+    for (logical_line, kind) in logical.iter().zip(kinds) {
         for wrapped in wrap_line(logical_line, kind, width) {
             lines.push(BodyLine {
                 text: wrapped,
@@ -44,6 +40,22 @@ pub fn build_body_lines(part: &PartView, width: usize) -> Vec<BodyLine> {
         }
     }
     lines
+}
+
+/// Classifies a whole body, carrying signature state forward: everything
+/// after the `-- ` separator is signature, whatever it looks like. Shared
+/// with the composer so a quote reads the same on both sides of the app.
+pub(crate) fn classify_lines(lines: &[String]) -> Vec<LineKind> {
+    let mut in_signature = false;
+    lines
+        .iter()
+        .map(|line| {
+            if line == SIGNATURE_MARKER || line.trim_end() == "--" {
+                in_signature = true;
+            }
+            classify(line, in_signature)
+        })
+        .collect()
 }
 
 /// RFC 3676: a line ending in a space flows into the next line of the

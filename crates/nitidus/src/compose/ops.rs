@@ -84,7 +84,7 @@ fn prompt_initial_subject(world: &mut World) {
             if let Some(session) = world.resource_mut::<ComposeState>().0.as_mut() {
                 session.subject = value;
             }
-            editor::edit_body(world);
+            edit_body(world);
         }),
     )
     .with_cancel(Box::new(abandon_new_session));
@@ -97,13 +97,28 @@ fn abandon_new_session(world: &mut World) {
     notice(world, "compose abandoned");
 }
 
+/// `ui.compose.editor` decides which editor the body opens in;
+/// `:compose-edit-external` bypasses this so the escape hatch never
+/// depends on configuration.
+pub(super) fn edit_body(world: &mut World) {
+    let inline = world
+        .get_resource::<crate::config::Config>()
+        .is_none_or(|config| config.ui.compose.editor == crate::config::EditorKind::Inline);
+    if inline {
+        super::inline::open(world);
+    } else {
+        editor::edit_body(world);
+    }
+}
+
 pub fn dispatch(world: &mut World, op: ComposeOp) {
     if !world.resource::<ComposeState>().is_active() {
         notice(world, "no message being composed (m starts one)");
         return;
     }
     match op {
-        ComposeOp::EditBody => editor::edit_body(world),
+        ComposeOp::EditBody => edit_body(world),
+        ComposeOp::EditBodyExternal => editor::edit_body(world),
         ComposeOp::To => prompt_header(world, HeaderField::To),
         ComposeOp::Cc => prompt_header(world, HeaderField::Cc),
         ComposeOp::Bcc => prompt_header(world, HeaderField::Bcc),

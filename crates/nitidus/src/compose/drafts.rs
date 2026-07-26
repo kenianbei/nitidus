@@ -14,6 +14,9 @@ use crate::status::StatusMessage;
 
 const ATTACH_WORDS: &[&str] = &["attach", "attached", "attachment", "attachments"];
 
+/// Attaching writes a token into the body rather than a side list: the
+/// body is what declares an attachment, so the token is the thing the
+/// user can see, move, and delete.
 pub(super) fn attach_prompt(world: &mut World) {
     let request = PromptRequest::new(
         "Attach file: ",
@@ -26,19 +29,37 @@ pub(super) fn attach_prompt(world: &mut World) {
                     .warn(format!("not a file: {}", path.display()), now);
                 return;
             }
-            if let Some(session) = world.resource_mut::<ComposeState>().0.as_mut() {
-                session.attachments.push(path);
-            }
+            insert_token(world, &super::token::AttachToken::new(path).render());
         }),
     );
     open_prompt(world, request);
 }
 
+/// Into the editor at the cursor when one is open, otherwise onto the end
+/// of the staged body.
+fn insert_token(world: &mut World, token: &str) {
+    if super::inline::insert_line(world, token) {
+        return;
+    }
+    if let Some(session) = world.resource_mut::<ComposeState>().0.as_mut() {
+        session.body.push(token.to_owned());
+        let outcome = session.write_body();
+        report_body_write(world, outcome);
+    }
+}
+
+fn report_body_write(world: &mut World, outcome: std::io::Result<()>) {
+    if let Err(error) = outcome {
+        let now = world.resource::<Time>().elapsed_secs_f64();
+        world
+            .resource_mut::<StatusMessage>()
+            .warn(format!("could not save the body: {error}"), now);
+    }
+}
+
 pub(super) fn detach_picker(world: &mut World) {
-    let attachments = world
-        .resource::<ComposeState>()
-        .session()
-        .map(|session| session.attachments.clone())
+    let attachments = current_body(world)
+        .map(|body| super::token::paths(&body))
         .unwrap_or_default();
     if attachments.is_empty() {
         let now = world.resource::<Time>().elapsed_secs_f64();
@@ -64,14 +85,35 @@ pub(super) fn detach_picker(world: &mut World) {
             title: "remove attachment".to_owned(),
             items,
             on_select: Box::new(move |world, picked| {
-                if let Some(session) = world.resource_mut::<ComposeState>().0.as_mut()
-                    && picked < session.attachments.len()
-                {
-                    session.attachments.remove(picked);
-                }
+                let Some(path) = attachments.get(picked).cloned() else {
+                    return;
+                };
+                remove_token(world, &path);
             }),
         },
     );
+}
+
+/// The body as it stands: the live buffer while editing, else the staged
+/// session body.
+fn current_body(world: &World) -> Option<Vec<String>> {
+    world.resource::<super::InlineEditor>().lines().or_else(|| {
+        world
+            .resource::<ComposeState>()
+            .session()
+            .map(|s| s.body.clone())
+    })
+}
+
+fn remove_token(world: &mut World, path: &std::path::Path) {
+    if super::inline::remove_token_line(world, path) {
+        return;
+    }
+    if let Some(session) = world.resource_mut::<ComposeState>().0.as_mut() {
+        session.body = super::token::remove(&session.body, path);
+        let outcome = session.write_body();
+        report_body_write(world, outcome);
+    }
 }
 
 fn expand_path(input: &str) -> std::path::PathBuf {

@@ -29,6 +29,8 @@ impl Plugin for RouterPlugin {
         app.init_resource::<crate::explorer::ExplorerState>();
         app.init_resource::<crate::addresses::AddressIndex>();
         app.init_resource::<crate::prompt::PromptState>();
+        app.init_resource::<crate::compose::InlineEditor>();
+        app.init_resource::<crate::compose::AttachPreview>();
         app.init_resource::<crate::sidebar::SidebarState>();
         app.init_resource::<Screen>();
         app.add_systems(Startup, spawn_router);
@@ -85,6 +87,12 @@ pub fn route_key(world: &mut World, _entity: Entity, event: UiEvent) -> Result {
     }
     if world.resource::<Mode>().0 == InputMode::Search {
         return crate::index::search::handle_key(world, key);
+    }
+    if world.resource::<crate::compose::AttachPreview>().is_open() {
+        return crate::compose::preview::handle_key(world, key);
+    }
+    if world.resource::<Mode>().0 == InputMode::Editor {
+        return crate::compose::inline::handle_key(world, key);
     }
     if world.resource::<crate::overlay::ActiveOverlay>().is_open() {
         return crate::overlay::handle_key(world, key);

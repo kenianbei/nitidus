@@ -68,6 +68,8 @@ fn send_app(dirs: &Dirs, sendmail_command: &str, delay: Duration) -> App {
     app.init_resource::<MailStore>();
     app.init_resource::<SyncTracker>();
     let mut config = Config::default();
+    // Driven through `EditorCommand`, so pin the `$EDITOR` path.
+    config.ui.compose.editor = nitidus::config::EditorKind::External;
     config.accounts.push(AccountConfig {
         name: "local".to_owned(),
         email: "norman@example.com".to_owned(),

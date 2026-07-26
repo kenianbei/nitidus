@@ -6,9 +6,11 @@ use anyhow::{Context, bail};
 use nitidus_mail::Flags;
 
 mod compose_table;
+mod editor_table;
 mod table;
 
 use compose_table::COMPOSE_COMMANDS;
+use editor_table::EDITOR_COMMANDS;
 use nucleo_matcher::pattern::{CaseMatching, Normalization, Pattern};
 use nucleo_matcher::{Config as MatcherConfig, Matcher};
 use table::COMMANDS;
@@ -74,7 +76,10 @@ pub fn describe(input: &str) -> Option<&'static str> {
 }
 
 fn commands() -> impl Iterator<Item = &'static CommandSpec> {
-    COMMANDS.iter().chain(COMPOSE_COMMANDS.iter())
+    COMMANDS
+        .iter()
+        .chain(COMPOSE_COMMANDS.iter())
+        .chain(EDITOR_COMMANDS.iter())
 }
 
 /// Fuzzy completion over command names, best match first.

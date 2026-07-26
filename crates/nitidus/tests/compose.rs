@@ -1,6 +1,9 @@
 //! Compose flow through the router: `m` runs the To → Subject → editor
 //! chain into review, header re-prompts keep values, Esc discards with
 //! confirmation, and abandoning mid-chain cleans up the body file.
+//!
+//! These pin the `$EDITOR` path, so the harness selects it explicitly;
+//! the inline editor that ships as the default has its own suite.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
@@ -30,6 +33,7 @@ fn compose_app(compose_dir: &std::path::Path) -> App {
     app.init_resource::<MailStore>();
     app.init_resource::<SyncTracker>();
     let mut config = Config::default();
+    config.ui.compose.editor = nitidus::config::EditorKind::External;
     config.accounts.push(AccountConfig {
         name: "local".to_owned(),
         email: "norman@example.com".to_owned(),

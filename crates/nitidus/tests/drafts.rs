@@ -79,6 +79,9 @@ fn drafts_app(harness: &Harness) -> App {
     app.init_resource::<CommandLineState>();
     app.init_resource::<MailStore>();
     let mut config = Config::default();
+    // These drive the review screen through `EditorCommand`, so they pin
+    // the `$EDITOR` path rather than the inline default.
+    config.ui.compose.editor = nitidus::config::EditorKind::External;
     let mut account_config = AccountConfig {
         name: "local".to_owned(),
         email: "norman@example.com".to_owned(),
