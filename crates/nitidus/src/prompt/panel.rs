@@ -5,8 +5,8 @@
 //! underneath repaint their cells.
 
 use bevy::prelude::*;
-use nitidus_ui_kit::layout;
 use nitidus_ui_kit::theme::Theme;
+use nitidus_ui_kit::{layer, layout};
 use plurimus::{Widget, WidgetLayout, WidgetOrder};
 use ratatui::layout::Rect;
 use ratatui::style::Style;
@@ -16,7 +16,6 @@ use ratatui::widgets::Paragraph;
 use super::PromptState;
 use crate::keymap::{InputMode, Mode};
 
-const PANEL_ORDER: i32 = 90;
 const MAX_PANEL_ROWS: u16 = 8;
 
 #[derive(Component)]
@@ -64,7 +63,7 @@ pub(super) fn refresh_panel(
             commands.spawn((
                 PromptPanel,
                 Widget::from_render_fn_with_state(render_panel, render),
-                WidgetOrder(PANEL_ORDER),
+                WidgetOrder(layer::PANEL),
                 panel_layout,
             ));
         }

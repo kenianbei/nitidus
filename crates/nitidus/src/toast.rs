@@ -15,9 +15,8 @@ use ratatui::widgets::WidgetRef;
 use ratatui_comfy_toaster::{ToastBuilder, ToastEngine, ToastEngineBuilder, ToastType};
 
 use crate::outbox::OutboxState;
-use nitidus_ui_kit::layout;
+use nitidus_ui_kit::{layer, layout};
 
-const TOAST_ORDER: i32 = 120;
 const SENT_TOAST: Duration = Duration::from_secs(4);
 /// The countdown toast refreshes once a second; re-showing with dedup
 /// keeps it a single surface.
@@ -79,7 +78,7 @@ fn spawn_toasts(mut commands: Commands) {
     let engine = ToastEngineBuilder::new(Rect::default()).dedup(true).build();
     commands.spawn((
         ToastLayer(Mutex::new(engine)),
-        WidgetOrder(TOAST_ORDER),
+        WidgetOrder(layer::TOAST),
         WidgetLayout::from(layout::content_layout()),
     ));
 }

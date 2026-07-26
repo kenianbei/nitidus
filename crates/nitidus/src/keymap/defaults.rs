@@ -148,6 +148,23 @@ pub(super) const DEFAULT_PICKER_BINDINGS: &[(&str, &str)] = &[
     ("<Tab>", ":help-scope"),
 ];
 
+/// Only single-key bindings are meaningful here, for the same reason as
+/// the picker: unbound printables type into the focused field. Left and
+/// Right dispatch on the focused field's kind, so one binding serves
+/// cursor motion and, later, option cycling.
+pub(super) const DEFAULT_FORM_BINDINGS: &[(&str, &str)] = &[
+    ("<Tab>", ":form-focus-next"),
+    ("<S-Tab>", ":form-focus-prev"),
+    ("<Down>", ":form-focus-next"),
+    ("<Up>", ":form-focus-prev"),
+    ("<Left>", ":form-left"),
+    ("<Right>", ":form-right"),
+    ("<Enter>", ":form-activate"),
+    ("<Esc>", ":form-cancel"),
+    ("<PageDown>", ":form-next-page"),
+    ("<PageUp>", ":form-prev-page"),
+];
+
 /// Review-screen bindings; the cheat-sheet footer is generated from
 /// this context, so summaries double as its captions.
 pub(super) const DEFAULT_COMPOSE_BINDINGS: &[(&str, &str)] = &[

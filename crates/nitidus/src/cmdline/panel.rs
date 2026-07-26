@@ -6,8 +6,8 @@
 //! beyond the rows that exist.
 
 use bevy::prelude::*;
-use nitidus_ui_kit::layout;
 use nitidus_ui_kit::theme::Theme;
+use nitidus_ui_kit::{layer, layout};
 use plurimus::{Widget, WidgetLayout, WidgetOrder};
 use ratatui::layout::Rect;
 use ratatui::style::Style;
@@ -18,7 +18,6 @@ use super::CommandLineState;
 use crate::command::describe;
 use crate::keymap::{InputMode, Mode};
 
-const PANEL_ORDER: i32 = 90;
 const MAX_PANEL_ROWS: u16 = 8;
 const NAME_COLUMN_WIDTH: usize = 22;
 
@@ -70,7 +69,7 @@ pub(super) fn refresh_panel(
             commands.spawn((
                 CompletionPanel,
                 Widget::from_render_fn_with_state(render_panel, render),
-                WidgetOrder(PANEL_ORDER),
+                WidgetOrder(layer::PANEL),
                 layout,
             ));
         }

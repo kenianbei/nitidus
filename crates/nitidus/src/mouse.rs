@@ -38,6 +38,10 @@ impl LocalMouse {
         matches!(self.kind, MouseEventKind::Down(MouseButton::Left))
     }
 
+    pub fn is_left_release(&self) -> bool {
+        matches!(self.kind, MouseEventKind::Up(MouseButton::Left))
+    }
+
     /// `Prev` for wheel-up, `Next` for wheel-down.
     pub fn wheel_motion(&self) -> Option<Motion> {
         match self.kind {
@@ -58,6 +62,9 @@ pub fn is_modal_open(world: &World) -> bool {
     world
         .get_resource::<crate::overlay::ActiveOverlay>()
         .is_some_and(|overlay| overlay.is_open())
+        || world
+            .get_resource::<crate::overlay::form::ActiveForm>()
+            .is_some_and(|form| form.is_open())
         || world
             .get_resource::<crate::explorer::ExplorerState>()
             .is_some_and(|explorer| explorer.is_open())

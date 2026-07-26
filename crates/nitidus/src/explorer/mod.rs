@@ -10,9 +10,9 @@ use std::path::PathBuf;
 
 use bevy::prelude::*;
 use bevy_ratatui::crossterm::event::{Event, KeyCode, KeyEvent};
-use nitidus_ui_kit::layout;
 use nitidus_ui_kit::theme::Theme;
-use plurimus::{Widget, WidgetLayout};
+use nitidus_ui_kit::{layer, layout};
+use plurimus::{Widget, WidgetLayout, WidgetOrder};
 use ratatui::layout::Rect;
 use ratatui::style::{Modifier, Style};
 use ratatui::text::Line;
@@ -170,6 +170,7 @@ fn spawn_explorer_widget(mut commands: Commands) {
             PANEL_WIDTH_PCT,
             PANEL_MAX_ROWS,
         )),
+        WidgetOrder(layer::OVERLAY),
         plurimus::UiActions::new(vec![plurimus::UiInputBinding::mouse_passthrough(
             mouse::handle,
         )]),

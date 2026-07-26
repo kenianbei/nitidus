@@ -8,8 +8,8 @@
 use std::sync::{Arc, Mutex};
 
 use bevy::prelude::*;
-use nitidus_ui_kit::layout;
 use nitidus_ui_kit::theme::Theme;
+use nitidus_ui_kit::{layer, layout};
 use plurimus::{Widget, WidgetLayout, WidgetOrder};
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::Style;
@@ -23,7 +23,6 @@ use crate::status::StatusMessage;
 
 const PANEL_WIDTH_PCT: u16 = 60;
 const PANEL_MAX_ROWS: u16 = 20;
-const OVERLAY_ORDER: i32 = 110;
 const HINT: &str = " any key closes ";
 
 #[derive(Resource, Default)]
@@ -124,7 +123,7 @@ fn spawn_preview(mut commands: Commands) {
             PANEL_WIDTH_PCT,
             PANEL_MAX_ROWS,
         )),
-        WidgetOrder(OVERLAY_ORDER),
+        WidgetOrder(layer::MODAL),
     ));
 }
 

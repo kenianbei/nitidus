@@ -56,8 +56,27 @@ fn collect_group(chars: &mut std::str::Chars) -> anyhow::Result<String> {
 
 fn parse_token(token: &str) -> anyhow::Result<KeyCombination> {
     let normalized = normalize_token(token);
-    crokey::parse(&normalized)
-        .map_err(|error| anyhow::anyhow!("unrecognized key {token:?}: {error}"))
+    let parsed = crokey::parse(&normalized)
+        .map_err(|error| anyhow::anyhow!("unrecognized key {token:?}: {error}"))?;
+    Ok(fold_back_tab(parsed))
+}
+
+/// A terminal reports Shift-Tab as `BackTab`, never as Tab with a shift
+/// modifier — so `<S-Tab>`, the spelling everyone reaches for, would
+/// compile to a combination no key event can ever match. Fold it onto
+/// the one crossterm actually delivers, which is also what `<BackTab>`
+/// parses to, so both spellings mean the same binding.
+fn fold_back_tab(combination: KeyCombination) -> KeyCombination {
+    use bevy_ratatui::crossterm::event::{KeyCode, KeyModifiers};
+
+    // Shift and nothing else: `<C-S-Tab>` is a different key that
+    // terminals do report as Tab with modifiers, and must survive.
+    let is_shift_tab = combination.codes == crokey::OneToThree::One(KeyCode::Tab)
+        && combination.modifiers == KeyModifiers::SHIFT;
+    if is_shift_tab {
+        return KeyCombination::new(KeyCode::BackTab, KeyModifiers::SHIFT);
+    }
+    combination
 }
 
 fn normalize_token(token: &str) -> String {
@@ -131,6 +150,46 @@ mod tests {
         let parsed = parse_key_sequence("Z").unwrap();
         let typed = KeyCombination::from(KeyEvent::new(KeyCode::Char('Z'), KeyModifiers::SHIFT));
         assert_eq!(parsed, vec![typed]);
+    }
+
+    /// A terminal never sends Tab-with-shift, so an `<S-Tab>` binding
+    /// taken literally would be unreachable in every context.
+    #[test]
+    fn shift_tab_matches_the_back_tab_a_terminal_actually_sends() {
+        use bevy_ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+        let pressed = KeyCombination::from(KeyEvent::new(KeyCode::BackTab, KeyModifiers::SHIFT));
+        assert_eq!(parse_key_sequence("<S-Tab>").unwrap(), vec![pressed]);
+        assert_eq!(
+            parse_key_sequence("<BackTab>").unwrap(),
+            parse_key_sequence("<S-Tab>").unwrap(),
+            "both spellings must mean one binding"
+        );
+    }
+
+    #[test]
+    fn a_plain_tab_binding_is_left_alone() {
+        use bevy_ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+        let pressed = KeyCombination::from(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+        assert_eq!(parse_key_sequence("<Tab>").unwrap(), vec![pressed]);
+        assert_ne!(
+            parse_key_sequence("<Tab>").unwrap(),
+            parse_key_sequence("<S-Tab>").unwrap()
+        );
+    }
+
+    /// Ctrl-Shift-Tab is a distinct key a terminal really does report as
+    /// Tab with modifiers, so folding must not swallow its Ctrl.
+    #[test]
+    fn ctrl_shift_tab_keeps_both_modifiers() {
+        use bevy_ratatui::crossterm::event::{KeyCode, KeyModifiers};
+        let parsed = parse_key_sequence("<C-S-Tab>").unwrap();
+        assert_eq!(
+            parsed,
+            vec![KeyCombination::new(
+                KeyCode::Tab,
+                KeyModifiers::CONTROL | KeyModifiers::SHIFT
+            )]
+        );
     }
 
     #[test]

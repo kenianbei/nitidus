@@ -18,7 +18,7 @@ pub use rows::{BindingRow, HelpRow};
 
 use defaults::{
     DEFAULT_COMPOSE_BINDINGS, DEFAULT_CONTACTS_BINDINGS, DEFAULT_EDITOR_BINDINGS,
-    DEFAULT_GLOBAL_BINDINGS, DEFAULT_INDEX_BINDINGS, DEFAULT_PAGER_BINDINGS,
+    DEFAULT_FORM_BINDINGS, DEFAULT_GLOBAL_BINDINGS, DEFAULT_INDEX_BINDINGS, DEFAULT_PAGER_BINDINGS,
     DEFAULT_PICKER_BINDINGS, DEFAULT_SIDEBAR_BINDINGS,
 };
 
@@ -43,6 +43,7 @@ pub const CONTEXT_GLOBAL: &str = "global";
 pub const CONTEXT_INDEX: &str = "index";
 pub const CONTEXT_PAGER: &str = "pager";
 pub const CONTEXT_PICKER: &str = "picker";
+pub const CONTEXT_FORM: &str = "form";
 pub const CONTEXT_SIDEBAR: &str = "sidebar";
 pub const CONTEXT_COMPOSE: &str = "compose";
 pub const CONTEXT_CONTACTS: &str = "contacts";
@@ -55,6 +56,7 @@ pub const KNOWN_CONTEXTS: &[&str] = &[
     CONTEXT_INDEX,
     CONTEXT_PAGER,
     CONTEXT_PICKER,
+    CONTEXT_FORM,
     CONTEXT_SIDEBAR,
     CONTEXT_COMPOSE,
     CONTEXT_CONTACTS,
@@ -97,6 +99,9 @@ impl Keymaps {
         }
         for (sequence, command) in DEFAULT_PICKER_BINDINGS {
             keymaps.bind(CONTEXT_PICKER, sequence, command)?;
+        }
+        for (sequence, command) in DEFAULT_FORM_BINDINGS {
+            keymaps.bind(CONTEXT_FORM, sequence, command)?;
         }
         for (sequence, command) in DEFAULT_SIDEBAR_BINDINGS {
             keymaps.bind(CONTEXT_SIDEBAR, sequence, command)?;
@@ -315,6 +320,26 @@ mod tests {
         let first_pager = rows.iter().position(|row| row.context == "pager").unwrap();
         assert!(rows[0].context == "global");
         assert!(first_index < first_pager);
+    }
+
+    /// The help overlay reads the trie, so folding `<S-Tab>` onto
+    /// `BackTab` must still print a spelling that parses back.
+    #[test]
+    fn the_form_context_lists_a_readable_back_focus_key() {
+        let keymaps = Keymaps::compile(&RawKeymaps::default()).unwrap();
+        let rows = keymaps.bindings(CONTEXT_FORM);
+        let back = rows
+            .iter()
+            .find(|row| row.command == ":form-focus-prev")
+            .unwrap_or_else(|| panic!("no back-focus binding: {rows:?}"));
+        assert_eq!(
+            back.keys, "BackTab",
+            "the help must print a key a user can bind back: {rows:?}"
+        );
+        assert!(
+            crate::config::parse_key_sequence("<BackTab>").is_ok(),
+            "and that spelling must round-trip through the parser"
+        );
     }
 
     #[test]

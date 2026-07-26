@@ -177,7 +177,11 @@ mod tests {
         app.init_resource::<PromptState>();
         app.init_resource::<StatusMessage>();
         app.init_resource::<ActiveOverlay>();
+        app.init_resource::<crate::overlay::form::ActiveForm>();
         app.init_resource::<Screen>();
+        app.insert_resource(
+            crate::keymap::Keymaps::compile(&crate::config::RawKeymaps::default()).unwrap(),
+        );
         app.insert_resource(IndexView {
             account: names.first().map(|name| AccountId::new(*name)),
             ..Default::default()
@@ -249,24 +253,49 @@ mod tests {
         );
     }
 
+    fn form_key(app: &mut App, code: KeyCode) {
+        crate::overlay::form::handle_key(app.world_mut(), KeyEvent::from(code)).unwrap();
+    }
+
+    fn form_type(app: &mut App, text: &str) {
+        for character in text.chars() {
+            form_key(app, KeyCode::Char(character));
+        }
+    }
+
     #[test]
     fn edit_account_updates_the_block_in_place() {
         let mut harness = harness(&["editable"]);
         edit_account(harness.app.world_mut());
         pick(&mut harness.app, 0);
-        // Chain with prefills: keep name, keep email, re-pick provider
-        // (custom), keep hosts, keep folders, keep auth (password cmd).
-        type_submit(&mut harness.app, ""); // name (prefilled "editable")
-        type_submit(&mut harness.app, ""); // email (prefilled)
-        pick(&mut harness.app, 2); // custom imap
-        type_submit(&mut harness.app, "mail.new-host.net");
-        type_submit(&mut harness.app, ""); // smtp = prefill
-        for _ in 0..4 {
-            type_submit(&mut harness.app, ""); // folders
-        }
-        pick(&mut harness.app, 2); // password command
-        type_submit(&mut harness.app, "pass show edited");
-        type_submit(&mut harness.app, "Edited Name"); // display name (was empty)
+
+        // The picker chooses which account; the form then opens prefilled
+        // with every step reachable, so one field can be changed alone.
+        let form = harness
+            .app
+            .world()
+            .resource::<crate::overlay::form::ActiveForm>();
+        assert_eq!(form.title(), Some("edit account — editable"));
+        assert_eq!(form.value("name").unwrap(), "editable");
+
+        form_key(&mut harness.app, KeyCode::Tab); // email
+        form_key(&mut harness.app, KeyCode::Tab); // display name
+        form_type(&mut harness.app, "Edited Name");
+
+        crate::overlay::form::go_to_page(harness.app.world_mut(), 2);
+        form_type(&mut harness.app, "mail.new-host.net");
+        form_key(&mut harness.app, KeyCode::Tab);
+        form_type(&mut harness.app, "smtp.new-host.net");
+        form_key(&mut harness.app, KeyCode::Enter);
+        assert_eq!(
+            harness
+                .app
+                .world()
+                .resource::<crate::overlay::form::ActiveForm>()
+                .title(),
+            Some("password — editable"),
+            "a keyring account with no stored secret chains into set-password"
+        );
 
         let content = std::fs::read_to_string(&harness.config_path).unwrap();
         let config: Config = toml::from_str(&content).unwrap();

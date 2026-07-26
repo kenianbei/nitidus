@@ -2,7 +2,7 @@
 //! OAuth defaults learned from the live Gmail and O365 smokes.
 
 use crate::config::account::{
-    AccountConfig, Backend, Encryption, ImapBackend, Oauth2Provider, Outgoing, SmtpOutgoing,
+    AccountConfig, Backend, Encryption, ImapBackend, Outgoing, SmtpOutgoing,
 };
 
 /// Mozilla's public Thunderbird client id — the ecosystem-standard
@@ -10,18 +10,10 @@ use crate::config::account::{
 /// is supported.
 pub(super) const THUNDERBIRD_CLIENT_ID: &str = "9e5f94bc-e8a4-4e73-b8be-63364c29d753";
 
-#[derive(Clone, Copy, PartialEq)]
-pub(super) enum Provider {
-    Gmail,
-    Outlook,
-    Custom,
-}
-
 #[derive(Clone, Default)]
 pub(super) struct Draft {
     pub(super) account: AccountConfig,
-    pub(super) oauth_provider: Option<Oauth2Provider>,
-    /// `Some(original name)` when re-running the chain as `:edit-account`.
+    /// `Some(original name)` when the form is editing rather than creating.
     pub(super) editing: Option<String>,
 }
 
@@ -41,7 +33,6 @@ pub(super) fn apply_gmail(draft: &mut Draft) {
     folders.trash = "[Gmail]/Trash".to_owned();
     folders.archive = "[Gmail]/All Mail".to_owned();
     folders.save_sent = false;
-    draft.oauth_provider = Some(Oauth2Provider::Google);
 }
 
 pub(super) fn apply_outlook(draft: &mut Draft) {
@@ -57,5 +48,4 @@ pub(super) fn apply_outlook(draft: &mut Draft) {
     folders.sent = "Sent Items".to_owned();
     folders.trash = "Deleted Items".to_owned();
     folders.save_sent = false;
-    draft.oauth_provider = Some(Oauth2Provider::Microsoft);
 }

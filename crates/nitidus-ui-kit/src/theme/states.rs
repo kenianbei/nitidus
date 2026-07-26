@@ -7,6 +7,8 @@ const FOCUSED_BG_LIGHTEN: f32 = 0.125;
 const HOVERED_BG_LIGHTEN: f32 = 0.25;
 const SELECTED_BG_LIGHTEN: f32 = 0.375;
 const SELECTED_FG_LIGHTEN: f32 = 0.2;
+const PRESSED_BG_LIGHTEN: f32 = 0.5;
+const PRESSED_FG_LIGHTEN: f32 = 0.3;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ThemeColors {
@@ -31,6 +33,7 @@ pub struct ThemeColorStates {
     pub focused: ThemeColors,
     pub hovered: ThemeColors,
     pub selected: ThemeColors,
+    pub pressed: ThemeColors,
 }
 
 impl ThemeColorStates {
@@ -43,6 +46,10 @@ impl ThemeColorStates {
             selected: ThemeColors::new(
                 seed.bg.lighten(SELECTED_BG_LIGHTEN),
                 seed.fg.lighten(SELECTED_FG_LIGHTEN),
+            ),
+            pressed: ThemeColors::new(
+                seed.bg.lighten(PRESSED_BG_LIGHTEN),
+                seed.fg.lighten(PRESSED_FG_LIGHTEN),
             ),
         }
     }
@@ -71,6 +78,7 @@ mod tests {
             states.focused.bg,
             states.hovered.bg,
             states.selected.bg,
+            states.pressed.bg,
         ];
         for (i, a) in backgrounds.iter().enumerate() {
             for b in backgrounds.iter().skip(i + 1) {
@@ -86,6 +94,7 @@ mod tests {
         assert!(states.focused.bg.r > states.normal.bg.r);
         assert!(states.hovered.bg.r > states.focused.bg.r);
         assert!(states.selected.bg.r > states.hovered.bg.r);
+        assert!(states.pressed.bg.r > states.selected.bg.r);
     }
 
     #[test]

@@ -57,6 +57,7 @@ pub enum Action {
     Fold(FoldOp),
     OverlayConfirm,
     OverlayCancel,
+    Form(FormOp),
     View,
     Pager(PagerOp),
     Sidebar(SidebarOp),
@@ -140,6 +141,21 @@ pub enum EditorMotion {
     PageDown,
     Top,
     Bottom,
+}
+
+/// Operations on an open form. Printable keys reach the focused field
+/// directly; everything else arrives as one of these, so bindings stay
+/// rebindable and the help overlay keeps listing them.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FormOp {
+    FocusNext,
+    FocusPrev,
+    Activate,
+    Cancel,
+    Left,
+    Right,
+    NextPage,
+    PrevPage,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -253,6 +269,7 @@ pub fn apply_action(world: &mut World, action: &Action) {
         }
         Action::OverlayConfirm => crate::overlay::confirm(world),
         Action::OverlayCancel => crate::overlay::close(world),
+        Action::Form(op) => crate::overlay::form::dispatch(world, *op),
         Action::View => {
             if crate::sidebar::is_focused(world) {
                 crate::sidebar::select(world);

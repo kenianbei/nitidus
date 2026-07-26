@@ -26,6 +26,7 @@ impl Plugin for RouterPlugin {
         app.init_resource::<PendingKeys>();
         app.init_resource::<StatusMessage>();
         app.init_resource::<crate::overlay::ActiveOverlay>();
+        app.init_resource::<crate::overlay::form::ActiveForm>();
         app.init_resource::<crate::explorer::ExplorerState>();
         app.init_resource::<crate::addresses::AddressIndex>();
         app.init_resource::<crate::prompt::PromptState>();
@@ -96,6 +97,12 @@ pub fn route_key(world: &mut World, _entity: Entity, event: UiEvent) -> Result {
     }
     if world.resource::<crate::overlay::ActiveOverlay>().is_open() {
         return crate::overlay::handle_key(world, key);
+    }
+    if world
+        .resource::<crate::overlay::form::ActiveForm>()
+        .is_open()
+    {
+        return crate::overlay::form::handle_key(world, key);
     }
     if world.resource::<crate::explorer::ExplorerState>().is_open() {
         return crate::explorer::handle_key(world, key);

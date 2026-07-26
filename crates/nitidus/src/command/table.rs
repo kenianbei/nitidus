@@ -4,7 +4,7 @@
 use nitidus_mail::Flags;
 
 use super::{CommandSpec, flag_action, named_arg, no_args, optional_arg};
-use crate::action::{Action, FlagOp, FoldOp, Motion, PagerOp, SidebarOp};
+use crate::action::{Action, FlagOp, FoldOp, FormOp, Motion, PagerOp, SidebarOp};
 use crate::index::SortMode;
 
 pub(super) const COMMANDS: &[CommandSpec] = &[
@@ -349,6 +349,54 @@ pub(super) const COMMANDS: &[CommandSpec] = &[
         summary: "close the picker",
         aliases: &[],
         parse: |args| no_args("cancel", args, Action::OverlayCancel),
+    },
+    CommandSpec {
+        name: "form-focus-next",
+        summary: "focus the next form field or button",
+        aliases: &[],
+        parse: |args| no_args("form-focus-next", args, Action::Form(FormOp::FocusNext)),
+    },
+    CommandSpec {
+        name: "form-focus-prev",
+        summary: "focus the previous form field or button",
+        aliases: &[],
+        parse: |args| no_args("form-focus-prev", args, Action::Form(FormOp::FocusPrev)),
+    },
+    CommandSpec {
+        name: "form-activate",
+        summary: "activate the focused button, or submit the form",
+        aliases: &[],
+        parse: |args| no_args("form-activate", args, Action::Form(FormOp::Activate)),
+    },
+    CommandSpec {
+        name: "form-cancel",
+        summary: "close the form without submitting",
+        aliases: &[],
+        parse: |args| no_args("form-cancel", args, Action::Form(FormOp::Cancel)),
+    },
+    CommandSpec {
+        name: "form-left",
+        summary: "move the cursor left in the focused field",
+        aliases: &[],
+        parse: |args| no_args("form-left", args, Action::Form(FormOp::Left)),
+    },
+    CommandSpec {
+        name: "form-right",
+        summary: "move the cursor right in the focused field",
+        aliases: &[],
+        parse: |args| no_args("form-right", args, Action::Form(FormOp::Right)),
+    },
+    CommandSpec {
+        name: "form-next-page",
+        summary: "go to the next form step",
+        aliases: &[],
+        parse: |args| no_args("form-next-page", args, Action::Form(FormOp::NextPage)),
+    },
+    CommandSpec {
+        name: "form-prev-page",
+        summary: "go back to the previous form step",
+        aliases: &[],
+        parse: |args| no_args("form-prev-page", args, Action::Form(FormOp::PrevPage)),
     },
     CommandSpec {
         name: "view",
