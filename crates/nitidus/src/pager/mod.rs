@@ -5,10 +5,12 @@
 mod body;
 mod html;
 pub(crate) mod ops;
+mod peek;
 mod render;
 mod save;
 
 pub use ops::{dispatch, open_selected, scroll};
+pub use peek::PeekTimer;
 
 use bevy::prelude::*;
 use nitidus_mail::message::MessageView;
@@ -27,8 +29,9 @@ impl Plugin for PagerPlugin {
         app.init_resource::<PagerState>();
         app.init_resource::<PagerStatus>();
         app.init_resource::<SaveDir>();
+        app.init_resource::<peek::PeekTimer>();
         app.add_systems(Startup, spawn_pager);
-        app.add_systems(Update, refresh_pager);
+        app.add_systems(Update, (peek::tick_peek, refresh_pager));
     }
 }
 
@@ -132,6 +135,9 @@ fn spawn_pager(mut commands: Commands) {
         PagerWidget,
         Widget::from_render_fn_with_state(render::render_pager, PagerWindow::default()),
         WidgetLayout::from(layout::content_layout()),
+        plurimus::UiActions::new(vec![plurimus::UiInputBinding::mouse_passthrough(
+            ops::handle_mouse,
+        )]),
     ));
 }
 

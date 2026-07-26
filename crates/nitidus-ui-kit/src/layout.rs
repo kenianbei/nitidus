@@ -96,11 +96,35 @@ pub fn centered_panel_layout(width_pct: u16, max_height: u16) -> LayoutFn {
     Arc::new(move |area| centered_panel(*area, width_pct, max_height))
 }
 
+/// Like `centered_panel_layout`, but the height cap scales with the
+/// terminal: the content height minus `vertical_margin` rows top and
+/// bottom.
+pub fn centered_tall_panel_layout(width_pct: u16, vertical_margin: u16) -> LayoutFn {
+    Arc::new(move |area| {
+        let content = split_shell(*area).content;
+        let max_height = content.height.saturating_sub(vertical_margin * 2).max(1);
+        centered_panel(*area, width_pct, max_height)
+    })
+}
+
 #[cfg(test)]
 mod tests {
     #![allow(clippy::unwrap_used, clippy::expect_used)]
 
     use super::*;
+
+    #[test]
+    fn tall_panel_scales_with_the_terminal() {
+        let layout = centered_tall_panel_layout(50, 1);
+        let chrome = TAB_BAR_HEIGHT + STATUSLINE_HEIGHT;
+
+        let short = layout(&Rect::new(0, 0, 80, 24));
+        assert_eq!(short.height, 24 - chrome - 2, "content minus margins");
+
+        let tall = layout(&Rect::new(0, 0, 80, 50));
+        assert_eq!(tall.height, 50 - chrome - 2);
+        assert!(tall.width >= 40, "width stays percentage-driven");
+    }
 
     #[test]
     fn splits_standard_terminal() {

@@ -3,6 +3,7 @@
 //! switching live here; the index and pager swap between the full
 //! content rect and the main column as visibility changes.
 
+mod mouse;
 mod ops;
 mod render;
 mod tree;
@@ -38,7 +39,13 @@ impl Plugin for SidebarPlugin {
         app.add_systems(Startup, spawn_sidebar);
         app.add_systems(
             Update,
-            (refresh_rows, render::refresh_sidebar, apply_visibility).chain(),
+            (
+                refresh_rows,
+                mouse::clear_departed_hover,
+                render::refresh_sidebar,
+                apply_visibility,
+            )
+                .chain(),
         );
     }
 }
@@ -80,6 +87,10 @@ fn spawn_sidebar(mut commands: Commands) {
         SidebarWidget,
         Widget::from_render_fn_with_state(render::render_sidebar, render::SidebarWindow::default()),
         WidgetLayout::from(layout::sidebar_layout(SIDEBAR_WIDTH)),
+        plurimus::UiActions::new(vec![plurimus::UiInputBinding::mouse_passthrough(
+            mouse::handle,
+        )]),
+        plurimus::UiHoverable,
     ));
 }
 

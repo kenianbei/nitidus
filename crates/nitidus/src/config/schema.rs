@@ -21,6 +21,7 @@ pub struct Config {
 pub struct UiConfig {
     pub theme: String,
     pub index: IndexUiConfig,
+    pub pager: PagerUiConfig,
 }
 
 impl Default for UiConfig {
@@ -28,7 +29,87 @@ impl Default for UiConfig {
         Self {
             theme: THEME_TAILWIND_DARK.to_owned(),
             index: IndexUiConfig::default(),
+            pager: PagerUiConfig::default(),
         }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct PagerUiConfig {
+    pub mark_read: MarkRead,
+    /// Open the next message after a destructive pager verb instead of
+    /// closing back to the index.
+    pub advance: bool,
+}
+
+impl Default for PagerUiConfig {
+    fn default() -> Self {
+        Self {
+            mark_read: MarkRead::default(),
+            advance: true,
+        }
+    }
+}
+
+/// When an opened message gains SEEN: `"open"` (immediately),
+/// `"never"`, or a positive number of seconds of viewing.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum MarkRead {
+    #[default]
+    Open,
+    Never,
+    After(std::time::Duration),
+}
+
+const MARK_READ_FORMS: &str = r#""open", "never", or a positive number of seconds"#;
+
+impl Serialize for MarkRead {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        match self {
+            MarkRead::Open => serializer.serialize_str("open"),
+            MarkRead::Never => serializer.serialize_str("never"),
+            MarkRead::After(delay) => serializer.serialize_f64(delay.as_secs_f64()),
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for MarkRead {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        deserializer.deserialize_any(MarkReadVisitor)
+    }
+}
+
+struct MarkReadVisitor;
+
+impl serde::de::Visitor<'_> for MarkReadVisitor {
+    type Value = MarkRead;
+
+    fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(formatter, "{MARK_READ_FORMS}")
+    }
+
+    fn visit_str<E: serde::de::Error>(self, value: &str) -> Result<MarkRead, E> {
+        match value {
+            "open" => Ok(MarkRead::Open),
+            "never" => Ok(MarkRead::Never),
+            other => Err(E::custom(format!(
+                "unknown mark_read {other:?} (expected {MARK_READ_FORMS})"
+            ))),
+        }
+    }
+
+    fn visit_f64<E: serde::de::Error>(self, value: f64) -> Result<MarkRead, E> {
+        if !value.is_finite() || value <= 0.0 {
+            return Err(E::custom(format!(
+                "mark_read seconds must be a positive number, got {value}"
+            )));
+        }
+        Ok(MarkRead::After(std::time::Duration::from_secs_f64(value)))
+    }
+
+    fn visit_i64<E: serde::de::Error>(self, value: i64) -> Result<MarkRead, E> {
+        self.visit_f64(value as f64)
     }
 }
 
@@ -133,6 +214,46 @@ mod tests {
             .to_string();
         assert!(message.contains("strftime"), "{message}");
         assert!(message.contains("iso"), "{message}");
+    }
+
+    #[test]
+    fn mark_read_parses_all_three_shapes() {
+        let open: Config = toml::from_str("[ui.pager]\nmark_read = \"open\"\n").unwrap();
+        assert_eq!(open.ui.pager.mark_read, MarkRead::Open);
+        let never: Config = toml::from_str("[ui.pager]\nmark_read = \"never\"\n").unwrap();
+        assert_eq!(never.ui.pager.mark_read, MarkRead::Never);
+        let secs: Config = toml::from_str("[ui.pager]\nmark_read = 1.5\n").unwrap();
+        assert_eq!(
+            secs.ui.pager.mark_read,
+            MarkRead::After(std::time::Duration::from_millis(1500))
+        );
+        let whole: Config = toml::from_str("[ui.pager]\nmark_read = 2\n").unwrap();
+        assert_eq!(
+            whole.ui.pager.mark_read,
+            MarkRead::After(std::time::Duration::from_secs(2))
+        );
+    }
+
+    #[test]
+    fn invalid_mark_read_values_are_rejected_with_the_accepted_forms() {
+        let unknown = toml::from_str::<Config>("[ui.pager]\nmark_read = \"fast\"\n")
+            .unwrap_err()
+            .to_string();
+        assert!(unknown.contains("fast"), "{unknown}");
+        assert!(unknown.contains("never"), "{unknown}");
+        for bad_number in ["mark_read = 0", "mark_read = -1.5"] {
+            let message = toml::from_str::<Config>(&format!("[ui.pager]\n{bad_number}\n"))
+                .unwrap_err()
+                .to_string();
+            assert!(message.contains("positive"), "{bad_number}: {message}");
+        }
+    }
+
+    #[test]
+    fn pager_defaults_mark_on_open_and_advance() {
+        let config: Config = toml::from_str("").unwrap();
+        assert_eq!(config.ui.pager.mark_read, MarkRead::Open);
+        assert!(config.ui.pager.advance);
     }
 
     #[test]

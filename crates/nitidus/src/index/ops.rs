@@ -24,7 +24,11 @@ pub fn move_cursor(world: &mut World, motion: Motion) {
     let new_id = {
         let index_view = world.resource::<IndexView>();
         let store = world.resource::<MailStore>();
-        let entries = &world.resource::<IndexOrder>().entries;
+        // Minimal harnesses route keys without the order resource.
+        let Some(order) = world.get_resource::<IndexOrder>() else {
+            return;
+        };
+        let entries = &order.entries;
         let envelopes = current_envelopes(store, index_view);
         let Some(row) = view::resolve_selection(index_view, envelopes, entries) else {
             return;
@@ -160,6 +164,55 @@ pub fn flag_selected(world: &mut World, flag: Flags, op: FlagOp) {
         .resource_mut::<MailStore>()
         .set_flags(&account, &folder, &id, updated);
     send_flag_write(world, &account, folder, id, updated);
+}
+
+/// Mouse: select the clicked visible row; a click on the row that is
+/// already selected opens it.
+pub(super) fn click_row(world: &mut World, row: usize) {
+    let clicked = {
+        let index_view = world.resource::<IndexView>();
+        let Some(order) = world.get_resource::<IndexOrder>() else {
+            return;
+        };
+        let envelopes = current_envelopes(world.resource::<MailStore>(), index_view);
+        order
+            .entries
+            .get(row)
+            .and_then(|entry| envelopes.get(entry.index as usize))
+            .map(|envelope| envelope.id.clone())
+    };
+    let Some(id) = clicked else { return };
+    if world.resource::<IndexView>().selected.as_ref() == Some(&id) {
+        return crate::pager::open_selected(world);
+    }
+    let mut index_view = world.resource_mut::<IndexView>();
+    index_view.selected = Some(id);
+    index_view.selected_row = row;
+}
+
+/// Marks one exact message SEEN, ignoring batch marks — the pager's
+/// mark-read path targets precisely the opened message.
+pub(crate) fn mark_seen(
+    world: &mut World,
+    account: &AccountId,
+    folder: &FolderId,
+    id: &EnvelopeId,
+) {
+    let current = world
+        .resource::<MailStore>()
+        .envelopes(account, folder)
+        .iter()
+        .find(|envelope| &envelope.id == id)
+        .map(|envelope| envelope.flags);
+    let Some(current) = current else { return };
+    if current.contains(Flags::SEEN) {
+        return;
+    }
+    let updated = current.with(Flags::SEEN);
+    world
+        .resource_mut::<MailStore>()
+        .set_flags(account, folder, id, updated);
+    send_flag_write(world, account, folder.clone(), id.clone(), updated);
 }
 
 /// Toggles resolve per message; flags are their own undo, so the

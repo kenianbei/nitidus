@@ -6,6 +6,7 @@ mod add;
 mod detail;
 mod draw;
 mod edit;
+mod mouse;
 mod mutate;
 mod photo;
 mod render;
@@ -119,5 +120,8 @@ fn spawn_contacts(mut commands: Commands) {
         ContactsWidget,
         Widget::from_render_fn_with_state(draw::render_contacts, render::ContactsWindow::default()),
         WidgetLayout::from(layout::content_layout()),
+        plurimus::UiActions::new(vec![plurimus::UiInputBinding::mouse_passthrough(
+            mouse::handle,
+        )]),
     ));
 }

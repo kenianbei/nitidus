@@ -50,6 +50,21 @@ pub fn delete_permanent_selected(world: &mut World) {
     confirm_permanent(world, target);
 }
 
+/// `a`/`:archive` — the staged move to the account's archive folder,
+/// with `:move`'s batch, undo, and unknown-folder behavior.
+pub fn archive_selected(world: &mut World) {
+    let account = if let Some(open) = world.resource::<PagerState>().open_message() {
+        open.account.clone()
+    } else {
+        let Some(account) = world.resource::<IndexView>().account.clone() else {
+            return;
+        };
+        account
+    };
+    let destination = configured_folder(world, account.as_str(), |folders| &folders.archive);
+    move_selected(world, &destination);
+}
+
 pub fn move_selected(world: &mut World, destination: &str) {
     if let Some(batch) = batch_targets(world) {
         let destination = FolderId::new(destination);
@@ -194,6 +209,7 @@ fn confirm_permanent(world: &mut World, target: RemovalTarget) {
 /// Optimistic removal, then a *staged* backend command: the row is out
 /// of the view instantly, the engine waits out the undo window.
 fn dispatch(world: &mut World, target: RemovalTarget, removal: Removal) {
+    let advance_to = pager_advance_target(world, &target);
     let removed = world
         .resource::<MailStore>()
         .envelopes(&target.account, &target.folder)
@@ -210,7 +226,7 @@ fn dispatch(world: &mut World, target: RemovalTarget, removal: Removal) {
         }
     }
     if target.was_in_pager {
-        crate::pager::ops::close(world);
+        exit_pager(world, advance_to);
     }
     let (command, notice) = match removal {
         Removal::Move(destination) => (
@@ -243,6 +259,38 @@ fn dispatch(world: &mut World, target: RemovalTarget, removal: Removal) {
     );
 }
 
+/// The auto-advance target: the row after the doomed one in the
+/// visible order, captured before the row leaves the store. `None`
+/// (advance off, last row, or not a pager verb) means close instead.
+fn pager_advance_target(world: &World, target: &RemovalTarget) -> Option<EnvelopeId> {
+    if !target.was_in_pager || !world.resource::<crate::config::Config>().ui.pager.advance {
+        return None;
+    }
+    let view = world.resource::<IndexView>();
+    let order = world.get_resource::<super::IndexOrder>()?;
+    let envelopes = super::current_envelopes(world.resource::<MailStore>(), view);
+    let row = order.entries.iter().position(|entry| {
+        envelopes
+            .get(entry.index as usize)
+            .is_some_and(|envelope| envelope.id == target.id)
+    })?;
+    order
+        .entries
+        .get(row + 1)
+        .and_then(|entry| envelopes.get(entry.index as usize))
+        .map(|envelope| envelope.id.clone())
+}
+
+fn exit_pager(world: &mut World, advance_to: Option<EnvelopeId>) {
+    match advance_to {
+        Some(next) => {
+            world.resource_mut::<IndexView>().selected = Some(next);
+            crate::pager::ops::open_selected(world);
+        }
+        None => crate::pager::ops::close(world),
+    }
+}
+
 /// The pager's open message when it is open, else the index selection.
 fn current_target(world: &mut World) -> Option<RemovalTarget> {
     if let Some(open) = world.resource::<PagerState>().open_message() {
@@ -263,11 +311,21 @@ fn current_target(world: &mut World) -> Option<RemovalTarget> {
 }
 
 fn trash_folder(world: &World, account: &str) -> String {
+    configured_folder(world, account, |folders| &folders.trash)
+}
+
+/// The account's configured special folder; an unknown account falls
+/// back to the compiled-in folder defaults.
+fn configured_folder(
+    world: &World,
+    account: &str,
+    pick: fn(&crate::config::account::Folders) -> &String,
+) -> String {
     world
         .resource::<crate::config::Config>()
         .accounts
         .iter()
         .find(|candidate| candidate.name == account)
-        .map(|config| config.folders.trash.clone())
-        .unwrap_or_else(|| "Trash".to_owned())
+        .map(|config| pick(&config.folders).clone())
+        .unwrap_or_else(|| pick(&crate::config::account::Folders::default()).clone())
 }

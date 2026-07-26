@@ -1,6 +1,6 @@
-//! Delete and move end to end over a maildir account: `d` moves to
-//! trash, `d` inside trash confirms then purges (decline keeps),
-//! `:move` files to a named folder, and pager `d` closes the pager.
+//! Removal verbs end to end over a maildir account: `d` moves to
+//! trash (permanent inside it), `a` archives, `:move` files, undo
+//! restores, and pager verbs advance or close per `ui.pager`.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
@@ -37,7 +37,7 @@ fn write_message(root: &Path, name: &str, subject: &str) {
     let body = format!(
         "From: Alice <alice@x.com>\r\nSubject: {subject}\r\nDate: Thu, 15 Feb 2024 12:00:00 +0000\r\nMessage-ID: <{name}@x>\r\n\r\nbody\r\n"
     );
-    std::fs::write(root.join("cur").join(format!("{name}:2,S")), body).unwrap();
+    std::fs::write(root.join("cur").join(format!("{name}:2,")), body).unwrap();
 }
 
 struct Harness {
@@ -82,6 +82,7 @@ fn harness() -> Harness {
         ..Default::default()
     };
     account_config.folders.trash = ".Trash".to_owned();
+    account_config.folders.archive = ".Archive".to_owned();
     config.accounts.push(account_config);
     app.insert_resource(config);
     app.insert_resource(Keymaps::compile(&RawKeymaps::default()).unwrap());
@@ -220,6 +221,61 @@ fn delete_inside_trash_confirms_and_declining_keeps() {
         ) == 0),
         "confirm must purge the message"
     );
+}
+
+#[test]
+fn archive_moves_the_selection_to_the_configured_folder() {
+    let mut harness = harness();
+    wait_inbox(&mut harness.app, 2);
+
+    press(&mut harness.app, KeyCode::Char('a'));
+    assert!(
+        wait_for(&mut harness.app, |_| file_count(
+            &harness.mail_root,
+            ".Archive"
+        ) == 1),
+        "the message never landed in the archive"
+    );
+    assert_eq!(file_count(&harness.mail_root, ""), 1, "one message remains");
+}
+
+#[test]
+fn batch_archive_moves_every_marked_message() {
+    let mut harness = harness();
+    wait_inbox(&mut harness.app, 2);
+
+    press(&mut harness.app, KeyCode::Char(' '));
+    press(&mut harness.app, KeyCode::Char(' '));
+    press(&mut harness.app, KeyCode::Char('a'));
+    assert!(
+        wait_for(&mut harness.app, |_| file_count(
+            &harness.mail_root,
+            ".Archive"
+        ) == 2),
+        "both marked messages must reach the archive"
+    );
+    assert_eq!(file_count(&harness.mail_root, ""), 0);
+}
+
+#[test]
+fn archive_to_an_unknown_folder_warns_without_staging() {
+    let mut harness = harness();
+    wait_inbox(&mut harness.app, 2);
+    harness.app.world_mut().resource_mut::<Config>().accounts[0]
+        .folders
+        .archive = ".Missing".to_owned();
+
+    press(&mut harness.app, KeyCode::Char('a'));
+    assert_eq!(
+        harness
+            .app
+            .world()
+            .resource::<nitidus::index::StagedOps>()
+            .pending(),
+        0,
+        "nothing may be staged toward a folder the store does not know"
+    );
+    assert_eq!(harness.app.world().resource::<IndexStatus>().total, 2);
 }
 
 #[test]
@@ -444,18 +500,36 @@ fn move_command_files_to_a_named_folder() {
     assert_eq!(harness.app.world().resource::<IndexStatus>().total, 1);
 }
 
-#[test]
-fn pager_delete_closes_the_pager_and_trashes_the_message() {
-    let mut harness = harness();
-    wait_inbox(&mut harness.app, 2);
-
-    press(&mut harness.app, KeyCode::Enter);
+fn open_pager(app: &mut App) {
+    press(app, KeyCode::Enter);
     assert!(
-        wait_for(&mut harness.app, |world| {
-            world.resource::<PagerState>().is_open()
-        }),
+        wait_for(app, |world| world.resource::<PagerState>().is_open()),
         "the pager never opened"
     );
+}
+
+fn inbox_flags(world: &World, id: &nitidus_mail::EnvelopeId) -> Option<nitidus_mail::Flags> {
+    world
+        .resource::<MailStore>()
+        .envelopes(&AccountId::new("local"), &FolderId::new("INBOX"))
+        .iter()
+        .find(|envelope| &envelope.id == id)
+        .map(|envelope| envelope.flags)
+}
+
+#[test]
+fn pager_delete_with_advance_off_closes_and_trashes() {
+    let mut harness = harness();
+    wait_inbox(&mut harness.app, 2);
+    harness
+        .app
+        .world_mut()
+        .resource_mut::<Config>()
+        .ui
+        .pager
+        .advance = false;
+
+    open_pager(&mut harness.app);
     press(&mut harness.app, KeyCode::Char('d'));
     assert!(
         wait_for(&mut harness.app, |_| file_count(
@@ -466,4 +540,118 @@ fn pager_delete_closes_the_pager_and_trashes_the_message() {
     );
     assert!(!harness.app.world().resource::<PagerState>().is_open());
     assert_eq!(*harness.app.world().resource::<Screen>(), Screen::Index);
+}
+
+#[test]
+fn pager_delete_advances_to_the_next_message_and_closes_on_the_last() {
+    let mut harness = harness();
+    wait_inbox(&mut harness.app, 2);
+
+    open_pager(&mut harness.app);
+    let first = harness
+        .app
+        .world()
+        .resource::<PagerState>()
+        .open_id()
+        .unwrap()
+        .clone();
+    press(&mut harness.app, KeyCode::Char('d'));
+    assert!(
+        wait_for(&mut harness.app, |world| {
+            let pager = world.resource::<PagerState>();
+            pager.open_id().is_some_and(|id| id != &first)
+        }),
+        "the pager never advanced to the next message"
+    );
+    assert_eq!(*harness.app.world().resource::<Screen>(), Screen::Pager);
+
+    press(&mut harness.app, KeyCode::Char('d'));
+    assert!(
+        wait_for(&mut harness.app, |world| {
+            *world.resource::<Screen>() == Screen::Index
+        }),
+        "deleting the last message must fall back to closing"
+    );
+    assert!(!harness.app.world().resource::<PagerState>().is_open());
+}
+
+#[test]
+fn peek_delay_marks_read_only_after_the_delay() {
+    let mut harness = harness();
+    wait_inbox(&mut harness.app, 2);
+    harness
+        .app
+        .world_mut()
+        .resource_mut::<Config>()
+        .ui
+        .pager
+        .mark_read = nitidus::config::MarkRead::After(Duration::from_millis(50));
+
+    let first = harness
+        .app
+        .world()
+        .resource::<IndexView>()
+        .selected
+        .clone()
+        .unwrap();
+    open_pager(&mut harness.app);
+    assert!(
+        !inbox_flags(harness.app.world(), &first)
+            .unwrap()
+            .contains(nitidus_mail::Flags::SEEN),
+        "peek must not mark read on open"
+    );
+    assert!(
+        wait_for(&mut harness.app, |world| {
+            inbox_flags(world, &first)
+                .is_some_and(|flags| flags.contains(nitidus_mail::Flags::SEEN))
+        }),
+        "the peek timer never marked the message read"
+    );
+}
+
+#[test]
+fn closing_before_the_peek_delay_leaves_the_message_unread() {
+    let mut harness = harness();
+    wait_inbox(&mut harness.app, 2);
+    harness
+        .app
+        .world_mut()
+        .resource_mut::<Config>()
+        .ui
+        .pager
+        .mark_read = nitidus::config::MarkRead::After(Duration::from_millis(200));
+
+    let first = harness
+        .app
+        .world()
+        .resource::<IndexView>()
+        .selected
+        .clone()
+        .unwrap();
+    open_pager(&mut harness.app);
+    press(&mut harness.app, KeyCode::Esc);
+    std::thread::sleep(Duration::from_millis(300));
+    harness.app.update();
+    assert!(
+        !inbox_flags(harness.app.world(), &first)
+            .unwrap()
+            .contains(nitidus_mail::Flags::SEEN),
+        "closing during the peek window must leave the message unread"
+    );
+}
+
+#[test]
+fn single_target_flag_toggle_advances_the_cursor() {
+    let mut harness = harness();
+    wait_inbox(&mut harness.app, 2);
+    assert_eq!(harness.app.world().resource::<IndexStatus>().selected, 1);
+
+    press(&mut harness.app, KeyCode::Char('u'));
+    assert!(
+        wait_for(&mut harness.app, |world| {
+            world.resource::<IndexStatus>().selected == 2
+        }),
+        "toggling read on a single message must advance the cursor"
+    );
 }

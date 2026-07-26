@@ -17,6 +17,7 @@ pub mod help;
 pub mod index;
 pub mod keymap;
 pub mod logging;
+pub mod mouse;
 pub mod outbox;
 pub mod overlay;
 pub mod pager;

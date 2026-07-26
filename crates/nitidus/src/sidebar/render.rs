@@ -22,7 +22,28 @@ pub(super) struct SidebarWindow {
     lines: Vec<Line<'static>>,
     top: usize,
     normal: Style,
+    hover_style: Style,
+    /// Mouse-hovered absolute row; survives refresh, cleared on leave.
+    hovered: Option<usize>,
     pub(super) last_height: u16,
+}
+
+impl SidebarWindow {
+    pub(super) fn is_visible(&self) -> bool {
+        self.visible
+    }
+
+    pub(super) fn top(&self) -> usize {
+        self.top
+    }
+
+    pub(super) fn has_hover(&self) -> bool {
+        self.hovered.is_some()
+    }
+
+    pub(super) fn set_hovered(&mut self, row: Option<usize>) {
+        self.hovered = row;
+    }
 }
 
 pub(super) fn refresh_sidebar(
@@ -38,7 +59,10 @@ pub(super) fn refresh_sidebar(
     let Ok(mut widget) = widgets.single_mut() else {
         return Ok(());
     };
-    let last_height = widget.get_state::<SidebarWindow>()?.last_height;
+    let (last_height, hovered) = {
+        let previous = widget.get_state::<SidebarWindow>()?;
+        (previous.last_height, previous.hovered)
+    };
     let window = SidebarWindow {
         // The contacts tab owns the whole content region; the mail
         // sidebar must not bleed into it.
@@ -51,6 +75,8 @@ pub(super) fn refresh_sidebar(
             .collect(),
         top: state.top,
         normal: theme.base.default.normal.style(),
+        hover_style: theme.base.default.hovered.style(),
+        hovered,
         last_height,
     };
     widget.set_state(window)?;
@@ -102,10 +128,27 @@ pub(super) fn render_sidebar(
     let visible: Vec<Line<'static>> = state
         .lines
         .iter()
+        .enumerate()
         .skip(state.top)
         .take(usize::from(area.height))
-        .cloned()
+        .map(|(index, line)| {
+            if state.hovered == Some(index) {
+                hovered_line(line, state.hover_style)
+            } else {
+                line.clone()
+            }
+        })
         .collect();
     frame.render_widget(Paragraph::new(visible).style(state.normal), area);
     Ok(())
+}
+
+/// Patches the hover background under each span's own foreground.
+fn hovered_line(line: &Line<'static>, hover: Style) -> Line<'static> {
+    let background = Style::new().bg(hover.bg.unwrap_or_default());
+    line.spans
+        .iter()
+        .map(|span| Span::styled(span.content.clone(), span.style.patch(background)))
+        .collect::<Vec<_>>()
+        .into()
 }

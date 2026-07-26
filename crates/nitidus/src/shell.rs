@@ -160,12 +160,50 @@ fn spawn_shell(mut commands: Commands) {
         TabBar,
         Widget::from_render_fn_with_state(render_tab_bar, TabBarState::default()),
         WidgetLayout::from(layout::tab_bar_layout()),
+        plurimus::UiActions::new(vec![plurimus::UiInputBinding::mouse_passthrough(
+            handle_tab_mouse,
+        )]),
     ));
     commands.spawn((
         Statusline,
         Widget::from_render_fn_with_state(render_statusline, StatuslineState::default()),
         WidgetLayout::from(layout::statusline_layout()),
     ));
+}
+
+/// Tab-bar mouse: a click on a tab box switches to it. The nav is
+/// rebuilt with the rendered labels so `tab_index_at` sees the same
+/// geometry the strip drew with.
+fn handle_tab_mouse(world: &mut World, entity: Entity, event: plurimus::UiEvent) -> Result {
+    let Some(local) = crate::mouse::local_event(world, entity, event) else {
+        return Ok(());
+    };
+    if !local.is_left_click() || crate::mouse::is_modal_open(world) {
+        return Ok(());
+    }
+    let Some(rect) = world.get::<plurimus::WidgetRect>(entity).map(|rect| rect.0) else {
+        return Ok(());
+    };
+    let clicked = {
+        let Some(state) = world
+            .get::<Widget>(entity)
+            .and_then(|widget| widget.get_state::<TabBarState>().ok())
+        else {
+            return Ok(());
+        };
+        let labels: Vec<&str> = state.labels.iter().map(String::as_str).collect();
+        let nav = TabNav::new(&labels, state.active).selection_flash(false);
+        nav.tab_index_at(
+            rect,
+            state.nav.scroll_offset,
+            local.raw.column,
+            local.raw.row,
+        )
+    };
+    if let Some(index) = clicked {
+        jump_tab(world, index + 1);
+    }
+    Ok(())
 }
 
 fn refresh_tab_bar(

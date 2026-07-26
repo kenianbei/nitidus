@@ -5,6 +5,7 @@
 //! rebindable `picker` context, with unbound printables typing into the
 //! filter (so global bindings never leak through a modal).
 
+mod mouse;
 mod render;
 
 use bevy::prelude::*;
@@ -22,7 +23,9 @@ use crate::keymap::{CONTEXT_PICKER, KeymapMatch, Keymaps};
 
 const OVERLAY_ORDER: i32 = 100;
 const PANEL_WIDTH_PCT: u16 = 50;
-const PANEL_MAX_HEIGHT: u16 = 16;
+/// Rows kept clear above and below the picker; the panel otherwise
+/// grows with the terminal (shrinking to its rows when few).
+const PANEL_VERTICAL_MARGIN: u16 = 1;
 const PICKER_PAGE_ROWS: usize = 8;
 
 pub struct OverlayPlugin;
@@ -33,7 +36,15 @@ impl Plugin for OverlayPlugin {
         // Idempotent with PlurimusUiPlugin's registration; keeps this
         // plugin usable in headless test apps.
         app.add_message::<UiFocusMessage>();
-        app.add_systems(Update, (sync_picker_entity, refresh_picker).chain());
+        app.add_systems(
+            Update,
+            (
+                sync_picker_entity,
+                mouse::clear_departed_hover,
+                refresh_picker,
+            )
+                .chain(),
+        );
     }
 }
 
@@ -217,12 +228,16 @@ fn sync_picker_entity(
                         render::render_picker,
                         PickerWindow::default(),
                     ),
-                    WidgetLayout::from(layout::centered_panel_layout(
+                    WidgetLayout::from(layout::centered_tall_panel_layout(
                         PANEL_WIDTH_PCT,
-                        PANEL_MAX_HEIGHT,
+                        PANEL_VERTICAL_MARGIN,
                     )),
                     WidgetOrder(OVERLAY_ORDER),
                     UiFocusable::new(0),
+                    plurimus::UiActions::new(vec![plurimus::UiInputBinding::mouse_passthrough(
+                        mouse::handle,
+                    )]),
+                    plurimus::UiHoverable,
                 ))
                 .id();
             focus.write(UiFocusMessage::set(entity));
@@ -259,6 +274,23 @@ fn refresh_picker(
             }
         })
         .collect();
-    widget.set_state(PickerWindow::new(picker, rows, &theme))?;
+    let hovered = widget
+        .get_state::<PickerWindow>()
+        .ok()
+        .and_then(|previous| previous.hovered_row());
+    let mut window = PickerWindow::new(picker, rows, &theme);
+    window.set_hovered(hovered);
+    widget.set_state(window)?;
     Ok(())
+}
+
+/// Mouse: jump the selection to a visible row.
+pub(super) fn select_row(world: &mut World, row: usize) {
+    let mut overlay = world.resource_mut::<ActiveOverlay>();
+    let Some(picker) = overlay.0.as_mut() else {
+        return;
+    };
+    if row < picker.matches.len() {
+        picker.selected = row;
+    }
 }

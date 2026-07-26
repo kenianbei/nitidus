@@ -27,6 +27,7 @@ pub struct IndexRow {
     pub deleted: bool,
     pub selected: bool,
     pub marked: bool,
+    pub hovered: bool,
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -38,6 +39,7 @@ pub struct RowStyles {
     pub unseen: Style,
     pub flagged: Style,
     pub deleted: Style,
+    pub hovered: Style,
 }
 
 impl RowStyles {
@@ -56,6 +58,7 @@ impl RowStyles {
             unseen: theme.index.unseen,
             flagged: theme.index.flagged,
             deleted: theme.index.deleted,
+            hovered: states.hovered.style(),
         }
     }
 }
@@ -103,6 +106,7 @@ pub(super) fn build_row(
         deleted: envelope.flags.contains(Flags::DELETED),
         selected: context.selected,
         marked: context.marked,
+        hovered: false,
     }
 }
 
@@ -243,11 +247,14 @@ pub fn row_line(
     Line::from(Span::styled(fitted, style))
 }
 
-/// Base by selection state, then the theme's role patches in a fixed
-/// order so precedence is deterministic: unseen, flagged, deleted.
+/// Base by selection state (selected > hovered > marked > normal),
+/// then the theme's role patches in a fixed order so precedence is
+/// deterministic: unseen, flagged, deleted.
 fn row_style(row: &IndexRow, styles: &RowStyles) -> Style {
     let mut style = if row.selected {
         styles.selected
+    } else if row.hovered {
+        styles.hovered
     } else if row.marked {
         styles.marked
     } else {
@@ -301,6 +308,7 @@ mod tests_highlight {
             unseen: false,
             flagged: false,
             deleted: false,
+            hovered: false,
             selected: false,
             marked: false,
         };
@@ -393,6 +401,31 @@ mod tests {
             row_style(&selected_flagged, &styles).fg,
             styles.flagged.fg,
             "the tint patches fg over the selected base"
+        );
+    }
+
+    #[test]
+    fn hover_beats_marked_and_loses_to_selected() {
+        let styles = RowStyles::from_theme(&nitidus_ui_kit::theme::tailwind_dark());
+        let hovered_marked = IndexRow {
+            hovered: true,
+            marked: true,
+            ..IndexRow::default()
+        };
+        assert_eq!(
+            row_style(&hovered_marked, &styles).bg,
+            styles.hovered.bg,
+            "hover highlights over the marked base"
+        );
+        let hovered_selected = IndexRow {
+            hovered: true,
+            selected: true,
+            ..IndexRow::default()
+        };
+        assert_eq!(
+            row_style(&hovered_selected, &styles).bg,
+            styles.selected.bg,
+            "the selection stays visually dominant"
         );
     }
 

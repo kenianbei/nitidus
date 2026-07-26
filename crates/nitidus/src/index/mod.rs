@@ -4,6 +4,7 @@
 
 mod filter;
 pub mod marks;
+mod mouse;
 mod ops;
 mod remove;
 mod render;
@@ -14,8 +15,9 @@ mod view;
 
 pub use filter::{clear_filters, push_limit};
 pub use marks::{batch_ids, mark_thread, toggle_mark, toggle_visual, unmark_all};
+pub(crate) use ops::mark_seen;
 pub use ops::{flag_selected, fold, move_cursor, reverse_sort, set_sort, toggle_threads};
-pub use remove::{delete_permanent_selected, delete_selected, move_selected};
+pub use remove::{archive_selected, delete_permanent_selected, delete_selected, move_selected};
 pub use staged::{OpDelay, StagedOps};
 pub use view::{IndexView, SortKey, SortMode, apply_motion, scrolled_top};
 
@@ -70,6 +72,7 @@ impl Plugin for IndexPlugin {
                 thread_view::refresh_order,
                 marks::clear_marks_on_folder_change,
                 staged::tick_staged,
+                mouse::clear_departed_hover,
                 refresh_index,
                 search::refresh_search_line,
             )
@@ -117,6 +120,10 @@ struct IndexWindowState {
     /// Retained search query — lights up matches in the rows.
     search: Option<String>,
     last_height: u16,
+    /// Absolute row of `rows[0]`, anchoring mouse row arithmetic.
+    window_top: usize,
+    /// Mouse-hovered absolute row; survives refresh, cleared on leave.
+    hovered_row: Option<usize>,
 }
 
 fn configure_view(mut index_view: ResMut<IndexView>, config: Res<Config>) {
@@ -150,6 +157,10 @@ fn spawn_index(mut commands: Commands, mut registry: NonSendMut<TachyonRegistry>
             IndexWidget,
             Widget::from_render_fn_with_state(render_index, IndexWindowState::default()),
             WidgetLayout::from(layout::content_layout()),
+            plurimus::UiActions::new(vec![plurimus::UiInputBinding::mouse_passthrough(
+                mouse::handle,
+            )]),
+            plurimus::UiHoverable,
         ))
         .id();
     enable_fx(&mut commands, &mut registry, entity);
@@ -187,7 +198,10 @@ fn refresh_index(
     let Ok(mut widget) = widgets.single_mut() else {
         return Ok(());
     };
-    let last_height = widget.get_state::<IndexWindowState>()?.last_height;
+    let (last_height, hovered_row) = {
+        let previous = widget.get_state::<IndexWindowState>()?;
+        (previous.last_height, previous.hovered_row)
+    };
     let viewport = usize::from(last_height).max(1);
     let selected_row = view::resolve_selection(&index_view, envelopes, &order.entries);
     // Cache writes bypass change detection: they are derived state, and
@@ -205,6 +219,7 @@ fn refresh_index(
         },
     );
     window.last_height = last_height;
+    window.hovered_row = hovered_row;
     window.active = *screen == crate::screen::Screen::Index;
     widget.set_state(window)?;
     let limited = !cached.limits.is_empty();
@@ -283,9 +298,10 @@ fn build_window_state(
     } else {
         None
     };
+    let (rows, window_top) = build_window_rows(&source, index_config.date);
     IndexWindowState {
         active: false,
-        rows: build_window_rows(&source, index_config.date),
+        rows,
         empty_message,
         context: render::RowContext {
             styles: RowStyles::from_theme(theme),
@@ -293,17 +309,22 @@ fn build_window_state(
         },
         search: source.index_view.search.clone(),
         last_height: 0,
+        window_top,
+        hovered_row: None,
     }
 }
 
-fn build_window_rows(source: &WindowSource<'_>, date: crate::config::DateFormat) -> Vec<IndexRow> {
+fn build_window_rows(
+    source: &WindowSource<'_>,
+    date: crate::config::DateFormat,
+) -> (Vec<IndexRow>, usize) {
     let index_view = source.index_view;
     let now = jiff::Zoned::now();
     // `entries` can be a frame staler than `envelopes` after a row
     // removal — clamp the window and resolve rows leniently.
     let window_top = index_view.top.min(source.entries.len());
     let window_end = (window_top + source.viewport.max(MIN_WINDOW_ROWS)).min(source.entries.len());
-    source.entries[window_top..window_end]
+    let rows = source.entries[window_top..window_end]
         .iter()
         .enumerate()
         .filter_map(|(offset, entry)| {
@@ -320,7 +341,8 @@ fn build_window_rows(source: &WindowSource<'_>, date: crate::config::DateFormat)
                 render::build_row(envelope, entry, &context)
             })
         })
-        .collect()
+        .collect();
+    (rows, window_top)
 }
 
 fn marked_row_count(
@@ -358,7 +380,16 @@ fn render_index(frame: &mut ratatui::Frame, area: Rect, state: &mut IndexWindowS
         .rows
         .iter()
         .take(usize::from(area.height))
-        .map(|row| render::row_line(row, area.width, &state.context, state.search.as_deref()))
+        .enumerate()
+        .map(|(offset, row)| {
+            let query = state.search.as_deref();
+            if state.hovered_row == Some(state.window_top + offset) && !row.selected {
+                let mut hovered = row.clone();
+                hovered.hovered = true;
+                return render::row_line(&hovered, area.width, &state.context, query);
+            }
+            render::row_line(row, area.width, &state.context, query)
+        })
         .collect();
     frame.render_widget(
         Paragraph::new(lines).style(state.context.styles.normal),

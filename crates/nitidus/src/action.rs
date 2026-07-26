@@ -80,6 +80,8 @@ pub enum Action {
     RemoveAccount,
     Delete,
     Move(String),
+    Archive,
+    ToggleAdvance,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -196,7 +198,7 @@ pub fn apply_action(world: &mut World, action: &Action) {
         }
         Action::Cursor(motion) => dispatch_motion(world, *motion),
         Action::Sort(mode) => index::set_sort(world, *mode),
-        Action::Flag { flag, op } => index::flag_selected(world, *flag, *op),
+        Action::Flag { flag, op } => flag_and_advance(world, *flag, *op),
         Action::ToggleThreads => index::toggle_threads(world),
         Action::Fold(op) => {
             if crate::sidebar::is_focused(world) {
@@ -237,7 +239,40 @@ pub fn apply_action(world: &mut World, action: &Action) {
         Action::RemoveAccount => crate::accounts::manage::remove_account(world),
         Action::Delete => crate::index::delete_selected(world),
         Action::Move(folder) => crate::index::move_selected(world, folder),
+        Action::Archive => crate::index::archive_selected(world),
+        Action::ToggleAdvance => toggle_advance(world),
     }
+}
+
+/// Single-target flag toggles advance the cursor (triage flow); batch
+/// flags and non-index screens keep the cursor still.
+fn flag_and_advance(world: &mut World, flag: Flags, op: FlagOp) {
+    let advance = world
+        .get_resource::<crate::screen::Screen>()
+        .is_some_and(|screen| *screen == crate::screen::Screen::Index)
+        && crate::index::batch_ids(world).is_empty();
+    index::flag_selected(world, flag, op);
+    if advance {
+        index::move_cursor(world, Motion::Next);
+    }
+}
+
+/// `:toggle-advance` — a session-only flip of `ui.pager.advance`.
+fn toggle_advance(world: &mut World) {
+    let advance = {
+        let mut config = world.resource_mut::<crate::config::Config>();
+        config.ui.pager.advance = !config.ui.pager.advance;
+        config.ui.pager.advance
+    };
+    let now = world.resource::<Time>().elapsed_secs_f64();
+    let text = if advance {
+        "auto-advance on"
+    } else {
+        "auto-advance off"
+    };
+    world
+        .resource_mut::<StatusMessage>()
+        .info(text.to_owned(), now);
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -365,6 +400,11 @@ mod tests {
                 flag: Flags::SEEN,
                 op: FlagOp::Toggle
             }
+        );
+        assert_eq!(parse_command(":archive").unwrap(), Action::Archive);
+        assert_eq!(
+            parse_command(":toggle-advance").unwrap(),
+            Action::ToggleAdvance
         );
         assert_eq!(
             parse_command(":unflag").unwrap(),

@@ -21,6 +21,14 @@ columns = ["flags", "date", "from", "subject"]
 # or force "time" | "short" | "iso".
 date = "auto"
 
+[ui.pager]
+# When an opened message is marked read: "open" (immediately),
+# "never", or a number of seconds to peek before marking (e.g. 1.5).
+mark_read = "open"
+# After deleting or archiving from the pager, open the next message
+# instead of returning to the index.
+advance = true
+
 # Accounts are an array of tables — repeat [[accounts]] per account.
 [[accounts]]
 name = "personal"

@@ -513,6 +513,18 @@ pub(super) const COMMANDS: &[CommandSpec] = &[
         parse: |args| named_arg("move", args, Action::Move(args.to_owned())),
     },
     CommandSpec {
+        name: "archive",
+        summary: "move the selection to the account's archive folder",
+        aliases: &[],
+        parse: |args| no_args("archive", args, Action::Archive),
+    },
+    CommandSpec {
+        name: "toggle-advance",
+        summary: "toggle auto-advance after pager delete/archive",
+        aliases: &[],
+        parse: |args| no_args("toggle-advance", args, Action::ToggleAdvance),
+    },
+    CommandSpec {
         name: "folder-delete",
         summary: "delete the selected empty folder",
         aliases: &[],

@@ -4,6 +4,8 @@
 //! (j/k/h/l, arrows, Ctrl-h hidden files); rendering is ours, so the
 //! panel matches the app's overlay chrome.
 
+mod mouse;
+
 use std::path::PathBuf;
 
 use bevy::prelude::*;
@@ -168,6 +170,9 @@ fn spawn_explorer_widget(mut commands: Commands) {
             PANEL_WIDTH_PCT,
             PANEL_MAX_ROWS,
         )),
+        plurimus::UiActions::new(vec![plurimus::UiInputBinding::mouse_passthrough(
+            mouse::handle,
+        )]),
     ));
 }
 

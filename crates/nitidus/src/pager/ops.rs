@@ -4,13 +4,13 @@
 use std::path::Path;
 
 use bevy::prelude::*;
+use nitidus_mail::MailCommand;
 use nitidus_mail::message::PartKind;
-use nitidus_mail::{Flags, MailCommand};
 use plurimus::Widget;
 
 use super::render::PagerWindow;
 use super::{PagerState, PagerWidget, body, html, save};
-use crate::action::{FlagOp, Motion, PagerOp};
+use crate::action::{Motion, PagerOp};
 use crate::engine::EngineResource;
 use crate::index::{self, IndexView};
 use crate::overlay::{PickerItem, PickerSpec, open_picker};
@@ -28,7 +28,14 @@ pub fn open_selected(world: &mut World) {
         return;
     };
     let folder = index_view.folder.clone();
-    index::flag_selected(world, Flags::SEEN, FlagOp::Set);
+    super::peek::arm(
+        world,
+        super::peek::PeekTarget {
+            account: account.clone(),
+            folder: folder.clone(),
+            id: id.clone(),
+        },
+    );
     let Some(engine) = world.get_resource::<EngineResource>() else {
         return;
     };
@@ -65,6 +72,7 @@ pub fn dispatch(world: &mut World, op: PagerOp) {
 }
 
 pub(crate) fn close(world: &mut World) {
+    super::peek::disarm(world);
     {
         let mut pager = world.resource_mut::<PagerState>();
         pager.open = None;
@@ -100,6 +108,20 @@ fn switch_part(world: &mut World, delta: isize) {
         .unwrap_or(0);
     let next = (current as isize + delta).rem_euclid(bodies.len() as isize) as usize;
     open.part = bodies[next];
+}
+
+/// Pager mouse: the wheel scrolls the body.
+pub(super) fn handle_mouse(world: &mut World, entity: Entity, event: plurimus::UiEvent) -> Result {
+    if *world.resource::<Screen>() != Screen::Pager || crate::mouse::is_modal_open(world) {
+        return Ok(());
+    }
+    let Some(local) = crate::mouse::local_event(world, entity, event) else {
+        return Ok(());
+    };
+    if let Some(motion) = local.wheel_motion() {
+        scroll(world, motion);
+    }
+    Ok(())
 }
 
 pub fn scroll(world: &mut World, motion: Motion) {
