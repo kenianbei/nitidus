@@ -451,6 +451,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "72b3254f16251a8381aa12e40e3c4d2f0199f8c6508fbecb9d91f575e0fbb8c6"
 
 [[package]]
+name = "base64"
+version = "0.23.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b25655df2c3cdd83c5e5b293b88acd880332b2ddadd7c30ac43144fdc0033da9"
+
+[[package]]
 name = "base64-simd"
 version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2696,11 +2702,12 @@ dependencies = [
 
 [[package]]
 name = "io-imap"
-version = "0.2.0"
+version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6fcb366dce5e2f55450fea83af544ae418baa8b3ac2527d8333812179df8e537"
+checksum = "bf80d07a7b61d9372cd5dd102097ec88f2d8a69ad8a19924fd043c7dbf4f8e7b"
 dependencies = [
- "base64 0.22.1",
+ "base64 0.23.0",
+ "chrono",
  "imap-codec",
  "log",
  "secrecy",
@@ -2729,11 +2736,11 @@ dependencies = [
 
 [[package]]
 name = "io-smtp"
-version = "0.2.0"
+version = "0.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2e89dc1706cc9640d7e202188b5c54ffb23b2644445123eea36073283bd95db3"
+checksum = "5934694b170fa01f94f6943f0d20513a5d6f53127b40d71a334acae92e28a6fa"
 dependencies = [
- "base64 0.22.1",
+ "base64 0.23.0",
  "bounded-static",
  "bounded-static-derive",
  "chumsky",
