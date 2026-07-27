@@ -68,14 +68,21 @@ user-visible except item 35; that is the point.
 
 ### 31. Version catch-up
 
-`io-imap` 0.2 → 0.3, `io-smtp` 0.2.0 → 0.2.3, both keeping
-`default-features = false`. One compile break (`ImapMailboxWatchError::Select*`
-→ `Examine*`). Inherits the Fastmail `COPYUID` fix, the SORT date-ordering fix,
-and the watcher's SELECT → EXAMINE change.
+`io-imap` 0.2 → 0.3.1, `io-smtp` 0.2.0 → 0.2.3, both keeping
+`default-features = false`. Inherits the Fastmail `COPYUID` fix and the SORT
+date-ordering fix.
 
 Mechanical, and first because everything downstream targets 0.3.
 
-_Doc:_ `refactor-himalaya-sync-v1` Phase 1 — already written.
+Shipped, with two predictions here corrected by doing it. There was **no**
+compile break: the `ImapMailboxWatchError::Select*` → `Examine*` rename touched
+variants we never match — we only `to_string()` the error. And the watcher's
+SELECT → EXAMINE change is inherited only on the `qresync_watch` path, which
+uses their `ImapMailboxWatch`; the `idle_watch` fallback issues its own
+`ImapMailboxSelect` and still resets `\Recent`. Item 36 picks that up, scoped to
+`idle_watch` alone.
+
+_Doc:_ `refactor-himalaya-sync-v1` Phase 1 — shipped.
 
 ### 32. The maildir swap
 
@@ -103,14 +110,32 @@ Sequenced before the flag model deliberately: the swap shrinks the maildir
 backend to a ~60-line wrapper, so item 34 rewires that instead of 700 lines of
 code this item deletes.
 
-_Doc:_ `refactor-himalaya-sync-v1` Phases 2–4 — written, R2 answered.
+_Doc:_ `refactor-himalaya-sync-v1` Phases 2–4 — shipped. That doc is closed;
+its `pimalaya-stream` phase became item 71.
 
-That doc also carries a **Phase 5**: adopting `pimalaya-stream` and converting
-every remote transport — IMAP, SMTP, OAuth and IDLE — from async tokio to
-blocking sockets on `spawn_blocking`, deleting `net.rs`. It is an alignment
-decision (R2 A1), taken knowing the crate is blocking-only today and that the
-tokio sibling module its docs anticipate does not exist yet. It runs last in
-that doc and has no separate item number here.
+Landed with one accepted behavior change (an undotted sibling directory is no
+longer a folder) and one finding worth carrying forward: `MaildirFlagsSet` is a
+silent no-op for entries in `new/`, so flag *placement* stayed ours and only the
+suffix *encoding* is upstream's. Item 33 should treat that split as input.
+
+The swap did **not** shrink the backend to a ~60-line wrapper as predicted here:
+non-test code went from 556 to 603 lines, because findings 6–9 and 11 each keep
+code on our side. Item 34's scope needs re-planning against that.
+
+### 71. Transport conversion
+
+Adopt `pimalaya-stream` and convert every remote transport — IMAP, SMTP, OAuth
+and IDLE — from async tokio to blocking sockets on `spawn_blocking`, deleting
+`net.rs`. An alignment decision (`refactor-himalaya-sync-v1` R2 A1), taken
+knowing the crate is blocking-only today and that the tokio sibling module its
+docs anticipate does not exist yet.
+
+Numbered out of sequence deliberately: item numbers here are identifiers that
+keep design doc names from colliding, not positions. It sits last in Phase A
+because it is the only item that risks the one remote path that works today,
+and it is independent of everything above it.
+
+_Doc:_ `refactor-transport-stream-v1` — written, pending R1 answers.
 
 ### 33. `MailBackend` target shape
 
@@ -188,6 +213,12 @@ concern — sessions that survive contact with real servers.
   command connection gets a keepalive (himalaya-tui pings every 60 s) or stays
   on lazy reconnect. Our IDLE path already has a 20-minute read timeout with
   backoff, so this is only about the command connection.
+- **SELECT → EXAMINE in `idle_watch`** — carried from item 31. `qresync_watch`
+  inherited the switch from `io-imap` 0.3; the fallback path still issues its
+  own `ImapMailboxSelect` (`imap/watch.rs:136`) and resets `\Recent` on every
+  re-open. `rfc3501::examine::ImapMailboxExamine` has the same constructor
+  shape, so it is a small change — it is here rather than in item 31 because it
+  is a behavior change and principle 5 keeps those out of a version bump.
 
 _Doc:_ `feature-session-hardening-v1` — to write.
 
