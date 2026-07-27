@@ -13,7 +13,7 @@ use super::{
 };
 use crate::config::account::{Encryption, Outgoing};
 use crate::engine::EngineResource;
-use crate::status::StatusMessage;
+use crate::status::MessageLog;
 
 pub(super) fn scan_outbox(world: &mut World) {
     let Ok(directory) = outbox_directory(world) else {
@@ -39,7 +39,7 @@ pub(super) fn scan_outbox(world: &mut World) {
     if recovered > 0 {
         let now = world.resource::<Time>().elapsed_secs_f64();
         world
-            .resource_mut::<StatusMessage>()
+            .resource_mut::<MessageLog>()
             .info(format!("outbox: resuming {recovered} queued send(s)"), now);
     }
 }
@@ -117,7 +117,7 @@ fn submit_entry(world: &mut World, index: usize) {
                 entry.meta.send_at_epoch_ms = epoch_ms() + RETRY_PARK_MS;
             }
             world
-                .resource_mut::<StatusMessage>()
+                .resource_mut::<MessageLog>()
                 .error(format!("send failed: {error:#}"), now);
         }
     }

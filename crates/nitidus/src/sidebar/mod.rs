@@ -9,8 +9,8 @@ mod render;
 mod tree;
 
 pub use ops::{
-    fold, folder_create, folder_delete, folder_rename, is_focused, move_cursor, select,
-    toggle_focus, toggle_visible,
+    fold, folder_create, folder_delete, folder_rename, move_cursor, select, toggle_focus,
+    toggle_visible,
 };
 pub use tree::{AccountSection, FolderEntry, RowKind, SidebarRow};
 
@@ -18,13 +18,12 @@ use std::collections::HashSet;
 
 use bevy::prelude::*;
 use nitidus_mail::{AccountId, FolderMeta};
-use nitidus_ui_kit::layout;
 use plurimus::{Widget, WidgetLayout};
 
 use crate::config::Config;
+use crate::panes::{MailPane, mail_layout};
 use crate::store::{MailStore, SyncTracker};
 
-pub const SIDEBAR_WIDTH: u16 = 24;
 pub(crate) const INBOX_NAME: &str = nitidus_mail::maildir::INBOX;
 /// Gmail's label-mirror namespace starts collapsed; it is rarely what
 /// the user is looking for.
@@ -36,6 +35,7 @@ impl Plugin for SidebarPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<SidebarState>();
         app.init_resource::<SidebarRows>();
+        app.init_resource::<crate::focus::PaneFocus>();
         app.add_systems(Startup, spawn_sidebar);
         app.add_systems(
             Update,
@@ -53,7 +53,6 @@ impl Plugin for SidebarPlugin {
 #[derive(Resource)]
 pub struct SidebarState {
     pub visible: bool,
-    pub focused: bool,
     pub selected: usize,
     pub top: usize,
     pub collapsed: HashSet<(AccountId, String)>,
@@ -65,7 +64,6 @@ impl Default for SidebarState {
     fn default() -> Self {
         Self {
             visible: true,
-            focused: false,
             selected: 0,
             top: 0,
             collapsed: HashSet::new(),
@@ -86,7 +84,7 @@ fn spawn_sidebar(mut commands: Commands) {
     commands.spawn((
         SidebarWidget,
         Widget::from_render_fn_with_state(render::render_sidebar, render::SidebarWindow::default()),
-        WidgetLayout::from(layout::sidebar_layout(SIDEBAR_WIDTH)),
+        WidgetLayout::from(mail_layout(MailPane::Folders, true)),
         plurimus::UiActions::new(vec![plurimus::UiInputBinding::mouse_passthrough(
             mouse::handle,
         )]),
@@ -202,32 +200,26 @@ fn clamp_selection(state: &mut SidebarState, rows: &[SidebarRow]) {
     state.top = state.top.min(state.selected);
 }
 
-/// Swaps the index/pager between the full content rect and the main
-/// column; the sidebar widget draws nothing while hidden.
+/// Re-columns the message and reading panes when the sidebar comes or
+/// goes; the sidebar widget draws nothing while hidden.
 fn apply_visibility(
     state: Res<SidebarState>,
     mut last_visible: Local<Option<bool>>,
     mut commands: Commands,
-    main_widgets: Query<
-        Entity,
-        Or<(
-            With<crate::index::IndexWidget>,
-            With<crate::pager::PagerWidget>,
-        )>,
-    >,
+    messages: Query<Entity, With<crate::index::IndexWidget>>,
+    reading: Query<Entity, With<crate::pager::PagerWidget>>,
 ) {
     if *last_visible == Some(state.visible) {
         return;
     }
     *last_visible = Some(state.visible);
-    let main = if state.visible {
-        layout::main_layout(SIDEBAR_WIDTH)
-    } else {
-        layout::content_layout()
-    };
-    for entity in &main_widgets {
+    for (entity, pane) in messages
+        .iter()
+        .map(|entity| (entity, MailPane::Messages))
+        .chain(reading.iter().map(|entity| (entity, MailPane::Reading)))
+    {
         commands
             .entity(entity)
-            .insert(WidgetLayout::from(main.clone()));
+            .insert(WidgetLayout::from(mail_layout(pane, state.visible)));
     }
 }

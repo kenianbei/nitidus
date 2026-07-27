@@ -20,8 +20,7 @@ use crate::config::account::{
 use crate::config::{Config, keyring};
 use crate::index::IndexView;
 use crate::overlay::form::{FormSpec, FormValues, open_form};
-use crate::screen::Screen;
-use crate::status::StatusMessage;
+use crate::status::MessageLog;
 
 use fields::{Prefill, resolved_oauth_provider};
 
@@ -79,7 +78,7 @@ fn finalize(world: &mut World, values: &FormValues, editing: Option<String>) {
     if taken {
         let now = world.resource::<Time>().elapsed_secs_f64();
         world
-            .resource_mut::<StatusMessage>()
+            .resource_mut::<MessageLog>()
             .warn(format!("account name {name} is already used"), now);
         return;
     }
@@ -162,7 +161,7 @@ fn write_and_register(world: &mut World, draft: Draft) {
     let now = world.resource::<Time>().elapsed_secs_f64();
     if let Err(error) = written {
         world
-            .resource_mut::<StatusMessage>()
+            .resource_mut::<MessageLog>()
             .warn(format!("account wizard: {error:#}"), now);
         return;
     }
@@ -175,7 +174,7 @@ fn write_and_register(world: &mut World, draft: Draft) {
     world.resource_mut::<Config>().accounts.push(draft.account);
     switch_active(world, &name);
     world
-        .resource_mut::<StatusMessage>()
+        .resource_mut::<MessageLog>()
         .info(format!("account {name} {verb}"), now);
     if needs_password {
         super::set_password(world);
@@ -203,7 +202,6 @@ fn switch_active(world: &mut World, name: &str) {
     view.account = Some(nitidus_mail::AccountId::new(name));
     view.folder = nitidus_mail::FolderId::new("INBOX");
     view.selected = None;
-    *world.resource_mut::<Screen>() = Screen::Index;
 }
 
 pub fn enter_on_first_run(world: &mut World) {
@@ -212,7 +210,7 @@ pub fn enter_on_first_run(world: &mut World) {
         .is_none_or(|config| !config.accounts.is_empty());
     if !has_accounts {
         let now = world.resource::<Time>().elapsed_secs_f64();
-        world.resource_mut::<StatusMessage>().info(
+        world.resource_mut::<MessageLog>().info(
             "no accounts configured — let's add one (Esc cancels)".to_owned(),
             now,
         );

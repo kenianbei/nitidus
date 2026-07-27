@@ -1,8 +1,12 @@
 //! Toast notifications via ratatui-comfy-toaster, drawn as a custom
-//! plurimus `DrawFn` layer above every widget. The engine is `!Sync`,
-//! so it rides inside a `Mutex` on the component (the crate's own
-//! recommendation); ticking happens in the draw call, which runs once
-//! per frame. Display-only: `z` and friends stay router bindings.
+//! plurimus `DrawFn` layer above every widget. Two feeders: the outbox
+//! countdown, and whatever `MessageLog` judged too loud for the
+//! statusline.
+//!
+//! The engine is `!Sync`, so it rides inside a `Mutex` on the component
+//! (the crate's own recommendation); ticking happens in the draw call,
+//! which runs once per frame. Display-only: `z` and friends stay router
+//! bindings.
 
 use std::sync::Mutex;
 use std::time::Duration;
@@ -15,9 +19,13 @@ use ratatui::widgets::WidgetRef;
 use ratatui_comfy_toaster::{ToastBuilder, ToastEngine, ToastEngineBuilder, ToastType};
 
 use crate::outbox::OutboxState;
+use crate::status::{MessageLog, Severity};
 use nitidus_ui_kit::{layer, layout};
 
 const SENT_TOAST: Duration = Duration::from_secs(4);
+/// Long enough to read a sentence without becoming furniture; the log
+/// keeps the copy either way.
+const MESSAGE_TOAST: Duration = Duration::from_secs(6);
 /// The countdown toast refreshes once a second; re-showing with dedup
 /// keeps it a single surface.
 const COUNTDOWN_ID_MESSAGE_PREFIX: &str = "sending in ";
@@ -29,7 +37,7 @@ impl Plugin for ToastPlugin {
         app.register_component_as::<dyn DrawFn, ToastLayer>();
         app.init_resource::<CountdownShown>();
         app.add_systems(Startup, spawn_toasts);
-        app.add_systems(Update, refresh_send_toasts);
+        app.add_systems(Update, (refresh_send_toasts, surface_logged_messages));
     }
 }
 
@@ -71,6 +79,26 @@ impl DrawFn for ToastLayer {
         engine.tick();
         engine.render_ref(area, frame.buffer_mut());
         Ok(())
+    }
+}
+
+/// Drains what `MessageLog` marked loud enough to interrupt. The policy
+/// lives in `status`; this only draws the result.
+fn surface_logged_messages(mut log: ResMut<MessageLog>, layers: Query<&ToastLayer>) {
+    let Ok(layer) = layers.single() else {
+        return;
+    };
+    for entry in log.take_pending() {
+        let toast_type = match entry.severity {
+            Severity::Error => ToastType::Error,
+            Severity::Warning => ToastType::Warning,
+            Severity::Info => ToastType::Info,
+        };
+        layer.show(
+            ToastBuilder::new(entry.text.into())
+                .toast_type(toast_type)
+                .duration(MESSAGE_TOAST),
+        );
     }
 }
 

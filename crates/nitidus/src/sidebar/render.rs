@@ -49,13 +49,20 @@ impl SidebarWindow {
 pub(super) fn refresh_sidebar(
     theme: Res<Theme>,
     state: Res<SidebarState>,
-    screen: Res<crate::screen::Screen>,
+    tabs: Res<crate::shell::Tabs>,
+    focus: Res<crate::focus::PaneFocus>,
     rows: Res<SidebarRows>,
     mut widgets: Query<&mut Widget, With<SidebarWidget>>,
 ) -> Result {
-    if !(theme.is_changed() || state.is_changed() || rows.is_changed() || screen.is_changed()) {
+    if !(theme.is_changed()
+        || state.is_changed()
+        || rows.is_changed()
+        || tabs.is_changed()
+        || focus.is_changed())
+    {
         return Ok(());
     }
+    let is_focused = focus.is(crate::focus::Pane::Folders);
     let Ok(mut widget) = widgets.single_mut() else {
         return Ok(());
     };
@@ -66,12 +73,12 @@ pub(super) fn refresh_sidebar(
     let window = SidebarWindow {
         // The contacts tab owns the whole content region; the mail
         // sidebar must not bleed into it.
-        visible: state.visible && *screen != crate::screen::Screen::Contacts,
+        visible: state.visible && !tabs.is_contacts(),
         lines: rows
             .0
             .iter()
             .enumerate()
-            .map(|(index, row)| row_line(row, index == state.selected, &state, &theme))
+            .map(|(index, row)| row_line(row, index == state.selected, is_focused, &theme))
             .collect(),
         top: state.top,
         normal: theme.base.default.normal.style(),
@@ -83,16 +90,11 @@ pub(super) fn refresh_sidebar(
     Ok(())
 }
 
-fn row_line(
-    row: &SidebarRow,
-    selected: bool,
-    state: &SidebarState,
-    theme: &Theme,
-) -> Line<'static> {
+fn row_line(row: &SidebarRow, selected: bool, is_focused: bool, theme: &Theme) -> Line<'static> {
     let states = &theme.base.default;
     let style = match &row.kind {
         RowKind::AccountHeader => theme.base.info.normal.style().add_modifier(Modifier::BOLD),
-        _ if selected && state.focused => states.selected.style(),
+        _ if selected && is_focused => states.selected.style(),
         _ if selected => states.selected.style().add_modifier(Modifier::DIM),
         RowKind::Synthetic => states.disabled.style(),
         RowKind::Folder(_) => states.normal.style(),

@@ -1,4 +1,4 @@
-//! Compose flow control: session start, the To → Subject prompt chain,
+//! Compose flow control: session start, the opening headers form,
 //! review-screen operations, and body-preview scrolling.
 
 use bevy::prelude::*;
@@ -7,9 +7,9 @@ use plurimus::Widget;
 use super::render::{ComposeWidget, ComposeWindow};
 use super::{ComposeSession, ComposeState, editor};
 use crate::action::{ComposeOp, Motion};
-use crate::prompt::{PromptRequest, open_prompt};
-use crate::screen::Screen;
-use crate::status::StatusMessage;
+use crate::addresses;
+use crate::overlay::form::{FieldSpec, FormSpec, open_form};
+use crate::status::MessageLog;
 
 const FALLBACK_PAGE_ROWS: usize = 20;
 
@@ -26,7 +26,6 @@ pub fn start_compose_to(world: &mut World, to: String) {
 
 fn start_compose_with(world: &mut World, to: Option<String>) {
     if world.resource::<ComposeState>().is_active() {
-        *world.resource_mut::<Screen>() = Screen::Compose;
         notice(world, "resuming the staged message (Esc discards)");
         return;
     }
@@ -42,53 +41,47 @@ fn start_compose_with(world: &mut World, to: Option<String>) {
         Ok(mut session) => {
             session.to = to.unwrap_or_default();
             world.resource_mut::<ComposeState>().0 = Some(session);
-            prompt_to(world);
+            open_headers_form(world);
         }
         Err(error) => notice(world, format!("compose: {error:#}")),
     }
 }
 
-fn prompt_to(world: &mut World) {
+const TO_FIELD: &str = "to";
+const SUBJECT_FIELD: &str = "subject";
+
+/// Both opening headers on one surface. They used to be two prompts in
+/// a chain, where Esc on the second threw away what you typed into the
+/// first and there was no way back to it.
+fn open_headers_form(world: &mut World) {
     let initial = world
         .resource::<ComposeState>()
         .session()
         .map(|session| session.to.clone())
         .unwrap_or_default();
-    let request = PromptRequest::new(
-        "To: ",
-        Box::new(|world, value| {
+    let spec = FormSpec::new(
+        "New message",
+        "Write",
+        vec![
+            address_field(world, TO_FIELD, "To").with_initial(initial),
+            FieldSpec::text(SUBJECT_FIELD, "Subject"),
+        ],
+        Box::new(|world, values| {
             if let Some(session) = world.resource_mut::<ComposeState>().0.as_mut() {
-                session.to = value;
-            }
-            prompt_initial_subject(world);
-        }),
-    )
-    .with_initial(initial)
-    .with_cancel(Box::new(abandon_new_session));
-    let request = address_completed(world, request);
-    open_prompt(world, request);
-}
-
-/// Attaches the address index snapshot to an address-field prompt.
-fn address_completed(world: &mut World, request: PromptRequest) -> PromptRequest {
-    let candidates = crate::addresses::snapshot_candidates(world);
-    request.with_completions(std::sync::Arc::new(move |segment: &str| {
-        crate::addresses::rank(&candidates, segment)
-    }))
-}
-
-fn prompt_initial_subject(world: &mut World) {
-    let request = PromptRequest::new(
-        "Subject: ",
-        Box::new(|world, value| {
-            if let Some(session) = world.resource_mut::<ComposeState>().0.as_mut() {
-                session.subject = value;
+                session.to = values.get(TO_FIELD).to_owned();
+                session.subject = values.get(SUBJECT_FIELD).to_owned();
             }
             edit_body(world);
         }),
     )
     .with_cancel(Box::new(abandon_new_session));
-    open_prompt(world, request);
+    open_form(world, spec);
+}
+
+/// A recipient field completing against the harvested address index.
+pub(super) fn address_field(world: &mut World, id: &'static str, label: &str) -> FieldSpec {
+    let candidates = addresses::snapshot_candidates(world);
+    FieldSpec::text(id, label).completed(move |segment| addresses::rank(&candidates, segment))
 }
 
 /// Esc during the initial chain: nothing typed is worth keeping.
@@ -140,13 +133,17 @@ enum HeaderField {
 }
 
 impl HeaderField {
-    fn label(self) -> &'static str {
+    fn title(self) -> &'static str {
         match self {
-            Self::To => "To: ",
-            Self::Cc => "Cc: ",
-            Self::Bcc => "Bcc: ",
-            Self::Subject => "Subject: ",
+            Self::To => "To",
+            Self::Cc => "Cc",
+            Self::Bcc => "Bcc",
+            Self::Subject => "Subject",
         }
+    }
+
+    fn is_address(self) -> bool {
+        matches!(self, Self::To | Self::Cc | Self::Bcc)
     }
 
     fn get(self, session: &ComposeSession) -> &str {
@@ -168,25 +165,32 @@ impl HeaderField {
     }
 }
 
+const HEADER_FIELD: &str = "value";
+
 fn prompt_header(world: &mut World, field: HeaderField) {
     let initial = world
         .resource::<ComposeState>()
         .session()
         .map(|session| field.get(session).to_owned())
         .unwrap_or_default();
-    let mut request = PromptRequest::new(
-        field.label(),
-        Box::new(move |world, value| {
-            if let Some(session) = world.resource_mut::<ComposeState>().0.as_mut() {
-                field.set(session, value);
-            }
-        }),
-    )
-    .with_initial(initial);
-    if matches!(field, HeaderField::To | HeaderField::Cc | HeaderField::Bcc) {
-        request = address_completed(world, request);
-    }
-    open_prompt(world, request);
+    let spec = if field.is_address() {
+        address_field(world, HEADER_FIELD, field.title())
+    } else {
+        FieldSpec::text(HEADER_FIELD, field.title())
+    };
+    open_form(
+        world,
+        FormSpec::new(
+            field.title(),
+            "Set",
+            vec![spec.with_initial(initial)],
+            Box::new(move |world, values| {
+                if let Some(session) = world.resource_mut::<ComposeState>().0.as_mut() {
+                    field.set(session, values.get(HEADER_FIELD).to_owned());
+                }
+            }),
+        ),
+    );
 }
 
 /// The actual queue step, entered after the warning chain passes.
@@ -209,7 +213,6 @@ pub(super) fn queue_send(world: &mut World) {
     match crate::outbox::queue(world, &session, &built.envelope, &built.bytes) {
         Ok(()) => {
             crate::addresses::harvest_recipients(world, &[&session.to, &session.cc, &session.bcc]);
-            *world.resource_mut::<Screen>() = Screen::Index;
             let seconds = world.resource::<crate::outbox::SendDelay>().0.as_secs();
             notice(world, format!("sending in {seconds}s — z undoes"));
         }
@@ -221,16 +224,24 @@ pub(super) fn queue_send(world: &mut World) {
 }
 
 fn confirm_discard(world: &mut World) {
-    let request = PromptRequest::new(
-        "Discard message? (y/n): ",
-        Box::new(|world, answer| {
-            if matches!(answer.trim().to_ascii_lowercase().as_str(), "y" | "yes") {
+    let subject = world
+        .resource::<ComposeState>()
+        .session()
+        .map(|session| session.subject.clone())
+        .filter(|subject| !subject.trim().is_empty());
+    crate::overlay::open_confirm(
+        world,
+        crate::overlay::ConfirmSpec::new(
+            "Discard",
+            "Discard this message?",
+            "Discard",
+            Box::new(|world| {
                 delete_session(world);
                 notice(world, "message discarded");
-            }
-        }),
+            }),
+        )
+        .with_detail(subject.into_iter().collect()),
     );
-    open_prompt(world, request);
 }
 
 fn delete_session(world: &mut World) {
@@ -243,7 +254,6 @@ fn delete_session(world: &mut World) {
             );
         }
     }
-    *world.resource_mut::<Screen>() = Screen::Index;
 }
 
 pub fn scroll(world: &mut World, motion: Motion) {
@@ -274,5 +284,5 @@ pub fn scroll(world: &mut World, motion: Motion) {
 
 fn notice(world: &mut World, text: impl Into<String>) {
     let now = world.resource::<Time>().elapsed_secs_f64();
-    world.resource_mut::<StatusMessage>().info(text.into(), now);
+    world.resource_mut::<MessageLog>().info(text.into(), now);
 }

@@ -19,9 +19,7 @@ use nitidus::index::IndexPlugin;
 use nitidus::keymap::Keymaps;
 use nitidus::outbox::{OutboxDir, OutboxPlugin, OutboxState, SendDelay};
 use nitidus::overlay::OverlayPlugin;
-use nitidus::prompt::PromptPlugin;
 use nitidus::router::{RouterPlugin, route_key};
-use nitidus::screen::Screen;
 use nitidus::shell::Tabs;
 use nitidus::store::{MailStore, SyncTracker};
 use nitidus_mail::MailEngine;
@@ -90,7 +88,6 @@ fn send_app(dirs: &Dirs, sendmail_command: &str, delay: Duration) -> App {
         IndexPlugin,
         ComposePlugin,
         OutboxPlugin,
-        PromptPlugin,
         OverlayPlugin,
         EnginePlugin,
     ));
@@ -117,10 +114,10 @@ fn type_text(app: &mut App, text: &str) {
 fn stage_message(app: &mut App) {
     press(app, KeyCode::Char('m'));
     type_text(app, "bob@example.com");
-    press(app, KeyCode::Enter);
+    press(app, KeyCode::Tab);
     type_text(app, "outbox test");
     press(app, KeyCode::Enter);
-    assert_eq!(*app.world().resource::<Screen>(), Screen::Compose);
+    assert!(app.world().resource::<ComposeState>().is_active());
 }
 
 fn wait_for(app: &mut App, mut is_done: impl FnMut(&World) -> bool) -> bool {
@@ -153,7 +150,7 @@ fn y_queues_with_countdown_and_z_restores_the_session() {
 
     press(&mut app, KeyCode::Char('y'));
     assert!(!app.world().resource::<ComposeState>().is_active());
-    assert_eq!(*app.world().resource::<Screen>(), Screen::Index);
+    assert!(!app.world().resource::<ComposeState>().is_active());
     assert_eq!(outbox_files(&dirs.outbox), 2, "eml + toml pair expected");
     assert!(body_path.exists(), "body survives while queued");
     assert!(
@@ -169,7 +166,7 @@ fn y_queues_with_countdown_and_z_restores_the_session() {
     assert_eq!(session.to, "bob@example.com");
     assert_eq!(session.subject, "outbox test");
     assert_eq!(session.body_path, body_path);
-    assert_eq!(*app.world().resource::<Screen>(), Screen::Compose);
+    assert!(app.world().resource::<ComposeState>().is_active());
     assert_eq!(outbox_files(&dirs.outbox), 0);
 }
 

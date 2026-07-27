@@ -10,7 +10,7 @@ use bevy::prelude::*;
 use nitidus_mail::{AccountId, EnvelopeSummary, FolderId, MailCommand};
 
 use crate::engine::EngineResource;
-use crate::status::StatusMessage;
+use crate::status::MessageLog;
 use crate::store::MailStore;
 
 pub const OP_DELAY: Duration = Duration::from_secs(5);
@@ -62,7 +62,7 @@ pub fn stage(world: &mut World, request: StageRequest) {
         due_at_secs: now + delay,
         notice: request.notice,
     });
-    world.resource_mut::<StatusMessage>().info(text, now);
+    world.resource_mut::<MessageLog>().info(text, now);
 }
 
 /// `z` — cancel the newest staged op, restoring its rows. Returns
@@ -79,7 +79,7 @@ pub fn undo_last(world: &mut World) -> bool {
     }
     let now = world.resource::<Time>().elapsed_secs_f64();
     world
-        .resource_mut::<StatusMessage>()
+        .resource_mut::<MessageLog>()
         .info(format!("undid {} ({restored} restored)", op.notice), now);
     true
 }

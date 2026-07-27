@@ -8,7 +8,7 @@ use bevy::prelude::*;
 use nitidus_mail::message::part_bytes;
 
 use super::{PagerState, SaveDir};
-use crate::status::StatusMessage;
+use crate::status::MessageLog;
 
 pub(super) fn save_attachment(world: &mut World, part_index: usize) {
     let Some((bytes, name)) = decoded_part(world, part_index) else {
@@ -17,7 +17,7 @@ pub(super) fn save_attachment(world: &mut World, part_index: usize) {
     let directory = world.resource::<SaveDir>().0.clone();
     let result = write_unique(&directory, &name, &bytes);
     let now = world.resource::<Time>().elapsed_secs_f64();
-    let mut status = world.resource_mut::<StatusMessage>();
+    let mut status = world.resource_mut::<MessageLog>();
     match result {
         Ok(path) => status.info(format!("saved {}", path.display()), now),
         Err(error) => status.warn(format!("save failed: {error}"), now),
@@ -32,7 +32,7 @@ pub(super) fn open_attachment(world: &mut World, part_index: usize) {
     let result =
         write_unique(&directory, &name, &bytes).and_then(|path| spawn_opener(&path).map(|()| path));
     let now = world.resource::<Time>().elapsed_secs_f64();
-    let mut status = world.resource_mut::<StatusMessage>();
+    let mut status = world.resource_mut::<MessageLog>();
     match result {
         Ok(path) => status.info(format!("opened {}", path.display()), now),
         Err(error) => status.warn(format!("open failed: {error}"), now),

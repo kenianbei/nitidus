@@ -1,7 +1,8 @@
-//! Completion panel for prompts opened `with_completions`: candidate
-//! rows in a bottom-anchored panel above the statusline, the Tab-cycle
-//! selection highlighted — the command line's panel, for prompts.
-//! Spawns while candidates exist, despawns otherwise so the widgets
+//! Completion candidates for the focused field, in a bottom-anchored
+//! panel above the statusline — the same place the command line puts
+//! its own, so completion always appears in one spot.
+//!
+//! Spawns while candidates exist and despawns otherwise, so the widgets
 //! underneath repaint their cells.
 
 use bevy::prelude::*;
@@ -13,13 +14,12 @@ use ratatui::style::Style;
 use ratatui::text::Line;
 use ratatui::widgets::Paragraph;
 
-use super::PromptState;
-use crate::keymap::{InputMode, Mode};
+use super::ActiveForm;
 
 const MAX_PANEL_ROWS: u16 = 8;
 
 #[derive(Component)]
-pub(super) struct PromptPanel;
+pub(super) struct FormPanel;
 
 #[derive(Clone, Default)]
 pub(super) struct PanelRender {
@@ -28,27 +28,24 @@ pub(super) struct PanelRender {
 }
 
 pub(super) fn refresh_panel(
-    mode: Res<Mode>,
-    prompt: Res<PromptState>,
+    form: Res<ActiveForm>,
     theme: Res<Theme>,
     mut commands: Commands,
-    mut widgets: Query<(Entity, &mut Widget), With<PromptPanel>>,
+    mut widgets: Query<(Entity, &mut Widget), With<FormPanel>>,
 ) -> Result {
-    if !(mode.is_changed() || prompt.is_changed() || theme.is_changed()) {
+    if !(form.is_changed() || theme.is_changed()) {
         return Ok(());
     }
-    let candidates = if mode.0 == InputMode::Prompt {
-        prompt.candidates()
-    } else {
-        &[]
-    };
+    let (candidates, selected) = form
+        .state()
+        .map_or((&[][..], None), super::state::FormState::candidates);
     if candidates.is_empty() {
         if let Ok((entity, _)) = widgets.single_mut() {
             commands.entity(entity).despawn();
         }
         return Ok(());
     }
-    let (lines, height) = visible_lines(candidates, prompt.cycle(), &theme);
+    let (lines, height) = visible_lines(candidates, selected, &theme);
     let render = PanelRender {
         lines,
         background: theme.base.default.normal.style(),
@@ -61,7 +58,7 @@ pub(super) fn refresh_panel(
         }
         Err(_) => {
             commands.spawn((
-                PromptPanel,
+                FormPanel,
                 Widget::from_render_fn_with_state(render_panel, render),
                 WidgetOrder(layer::PANEL),
                 panel_layout,

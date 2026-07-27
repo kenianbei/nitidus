@@ -91,8 +91,15 @@ dependencies; Phase 5 integrates external ecosystems.
     flag/move/delete, undo (`z`) for destructive index actions.
 26. **Index customization** — configurable columns, theme-driven row styling,
     conditional date display.
-27. **Comfort features** — mark-read delay (peek), archive single-key verb
-    tuning, auto-advance toggle, `:help keys` live table, mouse support pass.
+27. **Comfort features** — archive single-key verb tuning, auto-advance toggle,
+    `:help keys` live table, mouse support pass. (The mark-read delay this
+    shipped was retired by item 29, which made reading an explicit act.)
+28. **Overlay forms** — stepped modal forms with focus, validation, buttons and
+    mouse; the account wizard rebuilt on them.
+29. **UI refactor** — miller columns with the reading pane as a third column,
+    confirmations and the file browser as overlay surfaces on one stack,
+    feedback routed by severity into toasts and a message log, and the
+    bottom-row prompt retired in favour of forms.
 
 ## Phase 2 — Power triage & search
 

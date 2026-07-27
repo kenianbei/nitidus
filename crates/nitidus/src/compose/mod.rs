@@ -1,5 +1,5 @@
-//! The composer: a single compose session flowing To prompt → Subject
-//! prompt → `$EDITOR` → review screen. The session's body lives in a
+//! The composer: a single compose session flowing headers form →
+//! `$EDITOR` → review screen. The session's body lives in a
 //! crash-surviving file under the state dir; send/postpone are staged
 //! stubs until the 1c.15/1c.17 items land.
 
@@ -56,6 +56,7 @@ impl Plugin for ComposePlugin {
             (
                 intent::consume_reply_intent,
                 sync_attachments,
+                render::apply_placement,
                 render::refresh_compose,
                 persist::persist_session,
             )

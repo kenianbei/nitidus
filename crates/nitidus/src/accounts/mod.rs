@@ -12,7 +12,7 @@ use crate::config::keyring;
 use crate::engine::EngineResource;
 use crate::index::IndexView;
 use crate::overlay::form::{FieldSpec, FormSpec, open_form};
-use crate::status::StatusMessage;
+use crate::status::MessageLog;
 use crate::store::SyncTracker;
 
 /// Where account mutations write; tests point it at a temp file, the
@@ -61,7 +61,7 @@ pub fn set_password(world: &mut World) {
 fn store_password(world: &mut World, account: &str, secret: &str) {
     let now = world.resource::<Time>().elapsed_secs_f64();
     let outcome = keyring::store_password(account, secret);
-    let mut status = world.resource_mut::<StatusMessage>();
+    let mut status = world.resource_mut::<MessageLog>();
     match outcome {
         Ok(()) => {
             status.info(format!("keyring secret stored for {account}"), now);
@@ -77,7 +77,7 @@ pub fn delete_password(world: &mut World) {
         return;
     };
     let now = world.resource::<Time>().elapsed_secs_f64();
-    let mut status = world.resource_mut::<StatusMessage>();
+    let mut status = world.resource_mut::<MessageLog>();
     match keyring::delete_password(&account) {
         Ok(()) => status.info(format!("keyring secret removed for {account}"), now),
         Err(error) => status.warn(format!("delete-password: {error:#}"), now),
@@ -114,7 +114,7 @@ pub fn register_live(world: &mut World, name: &str) {
     };
     world.insert_resource(tracker);
     let now = world.resource::<Time>().elapsed_secs_f64();
-    let mut status = world.resource_mut::<StatusMessage>();
+    let mut status = world.resource_mut::<MessageLog>();
     match outcome {
         Ok(()) => status.info(format!("{name} connected — syncing INBOX"), now),
         Err(error) => status.warn(format!("{name}: {error:#}"), now),
@@ -127,7 +127,7 @@ pub fn deauthorize(world: &mut World) {
         return;
     };
     let now = world.resource::<Time>().elapsed_secs_f64();
-    let mut status = world.resource_mut::<StatusMessage>();
+    let mut status = world.resource_mut::<MessageLog>();
     match keyring::delete_oauth_refresh(&account) {
         Ok(()) => status.info(format!("oauth grant removed for {account}"), now),
         Err(error) => status.warn(format!("deauthorize: {error:#}"), now),
@@ -143,7 +143,7 @@ fn active_account(world: &mut World) -> Option<String> {
     if account.is_none() {
         let now = world.resource::<Time>().elapsed_secs_f64();
         world
-            .resource_mut::<StatusMessage>()
+            .resource_mut::<MessageLog>()
             .warn("no active account".to_owned(), now);
     }
     account
@@ -168,7 +168,8 @@ mod tests {
         app.add_plugins(MinimalPlugins);
         app.init_resource::<Mode>();
         app.init_resource::<ActiveForm>();
-        app.init_resource::<StatusMessage>();
+        app.init_resource::<crate::overlay::surface::OverlayStack>();
+        app.init_resource::<MessageLog>();
         app.insert_resource(Keymaps::compile(&RawKeymaps::default()).unwrap());
         app.insert_resource(IndexView {
             account: Some(AccountId::new(account)),

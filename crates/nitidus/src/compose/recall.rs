@@ -7,14 +7,13 @@ use mail_parser::{MessageParser, MimeHeaders};
 use nitidus_mail::{AccountId, EnvelopeId, FolderId};
 
 use super::{ComposeSession, ComposeStage, ComposeState};
-use crate::screen::Screen;
-use crate::status::StatusMessage;
+use crate::status::MessageLog;
 
 /// `e` / `:recall` — only in the account's drafts folder.
 pub fn recall_selected(world: &mut World) {
     let now = world.resource::<Time>().elapsed_secs_f64();
     if world.resource::<ComposeState>().is_active() {
-        world.resource_mut::<StatusMessage>().warn(
+        world.resource_mut::<MessageLog>().warn(
             "a message is already being composed (m resumes it)".to_owned(),
             now,
         );
@@ -27,7 +26,7 @@ pub fn recall_selected(world: &mut World) {
     let drafts = super::drafts::drafts_folder(world, account.as_str());
     if folder.as_str() != drafts {
         world
-            .resource_mut::<StatusMessage>()
+            .resource_mut::<MessageLog>()
             .info(format!("recall works in the drafts folder ({drafts})"), now);
         return;
     }
@@ -56,10 +55,9 @@ pub(crate) fn recall_from_raw(
         Err(error) => return warn(world, format!("recall: {error:#}")),
     };
     world.resource_mut::<ComposeState>().0 = Some(session);
-    *world.resource_mut::<Screen>() = Screen::Compose;
     let now = world.resource::<Time>().elapsed_secs_f64();
     world
-        .resource_mut::<StatusMessage>()
+        .resource_mut::<MessageLog>()
         .info("draft recalled — back to review".to_owned(), now);
 }
 
@@ -136,5 +134,5 @@ fn materialize(
 
 fn warn(world: &mut World, text: String) {
     let now = world.resource::<Time>().elapsed_secs_f64();
-    world.resource_mut::<StatusMessage>().warn(text, now);
+    world.resource_mut::<MessageLog>().warn(text, now);
 }

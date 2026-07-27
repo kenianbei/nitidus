@@ -13,8 +13,7 @@ use ratatui_textarea::{CursorMove, Scrolling, TextArea};
 use super::{ComposeStage, ComposeState};
 use crate::action::{EditorMotion, EditorOp, apply_action};
 use crate::keymap::{CONTEXT_EDITOR, InputMode, KeymapMatch, Keymaps, Mode};
-use crate::screen::Screen;
-use crate::status::StatusMessage;
+use crate::status::MessageLog;
 
 /// `TextArea` caches its screen map in `RefCell`s, so it is `Send` but not
 /// `Sync` — it cannot be a bare bevy resource or widget state. Sharing one
@@ -72,7 +71,6 @@ pub(super) fn open(world: &mut World) {
     if let Some(session) = world.resource_mut::<ComposeState>().0.as_mut() {
         session.stage = ComposeStage::Editing;
     }
-    *world.resource_mut::<Screen>() = Screen::Compose;
     world.resource_mut::<Mode>().0 = InputMode::Editor;
 }
 
@@ -110,7 +108,7 @@ fn write_body(world: &mut World, path: &std::path::Path) {
     if let Err(error) = std::fs::write(path, format!("{body}\n")) {
         let now = world.resource::<Time>().elapsed_secs_f64();
         world
-            .resource_mut::<StatusMessage>()
+            .resource_mut::<MessageLog>()
             .warn(format!("could not save the body: {error}"), now);
     }
 }
@@ -279,7 +277,7 @@ fn copy_or_cut(world: &mut World, op: EditorOp) {
     if let Err(error) = crate::clipboard::set(&yanked) {
         let now = world.resource::<Time>().elapsed_secs_f64();
         world
-            .resource_mut::<StatusMessage>()
+            .resource_mut::<MessageLog>()
             .warn(format!("clipboard: {error}"), now);
     }
 }

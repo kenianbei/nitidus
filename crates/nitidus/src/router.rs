@@ -9,12 +9,8 @@ use crokey::{KeyCombination, KeyCombinationFormat};
 use plurimus::{UiActions, UiEvent, UiInputBinding, Widget};
 
 use crate::action::apply_action;
-use crate::keymap::{
-    CONTEXT_COMPOSE, CONTEXT_CONTACTS, CONTEXT_INDEX, CONTEXT_PAGER, CONTEXT_SIDEBAR, InputMode,
-    KeymapMatch, Keymaps, Mode,
-};
-use crate::screen::Screen;
-use crate::status::{StatusMessage, expire_status_messages};
+use crate::keymap::{InputMode, KeymapMatch, Keymaps, Mode};
+use crate::status::{MessageLog, expire_status_messages};
 
 const CHORD_TIMEOUT_SECS: f64 = 0.5;
 
@@ -24,16 +20,17 @@ impl Plugin for RouterPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Mode>();
         app.init_resource::<PendingKeys>();
-        app.init_resource::<StatusMessage>();
+        app.init_resource::<MessageLog>();
         app.init_resource::<crate::overlay::ActiveOverlay>();
         app.init_resource::<crate::overlay::form::ActiveForm>();
         app.init_resource::<crate::explorer::ExplorerState>();
+        app.init_resource::<crate::overlay::surface::OverlayStack>();
         app.init_resource::<crate::addresses::AddressIndex>();
-        app.init_resource::<crate::prompt::PromptState>();
         app.init_resource::<crate::compose::InlineEditor>();
         app.init_resource::<crate::compose::AttachPreview>();
         app.init_resource::<crate::sidebar::SidebarState>();
-        app.init_resource::<Screen>();
+        app.init_resource::<crate::focus::PaneFocus>();
+        app.init_resource::<crate::shell::Tabs>();
         app.add_systems(Startup, spawn_router);
         app.add_systems(Update, (expire_pending, expire_status_messages));
     }
@@ -83,29 +80,14 @@ pub fn route_key(world: &mut World, _entity: Entity, event: UiEvent) -> Result {
     if world.resource::<Mode>().0 == InputMode::CommandLine {
         return crate::cmdline::handle_key(world, key);
     }
-    if world.resource::<Mode>().0 == InputMode::Prompt {
-        return crate::prompt::handle_key(world, key);
-    }
     if world.resource::<Mode>().0 == InputMode::Search {
         return crate::index::search::handle_key(world, key);
     }
-    if world.resource::<crate::compose::AttachPreview>().is_open() {
-        return crate::compose::preview::handle_key(world, key);
+    if let Some(handled) = crate::overlay::surface::route_key(world, key) {
+        return handled;
     }
     if world.resource::<Mode>().0 == InputMode::Editor {
         return crate::compose::inline::handle_key(world, key);
-    }
-    if world.resource::<crate::overlay::ActiveOverlay>().is_open() {
-        return crate::overlay::handle_key(world, key);
-    }
-    if world
-        .resource::<crate::overlay::form::ActiveForm>()
-        .is_open()
-    {
-        return crate::overlay::form::handle_key(world, key);
-    }
-    if world.resource::<crate::explorer::ExplorerState>().is_open() {
-        return crate::explorer::handle_key(world, key);
     }
     let now = world.resource::<Time>().elapsed_secs_f64();
     let mut pending = world.resource_mut::<PendingKeys>();
@@ -119,16 +101,7 @@ pub fn route_key(world: &mut World, _entity: Entity, event: UiEvent) -> Result {
 /// deeper than the last resolution — whole-buffer lookup is incremental.
 fn resolve_now(world: &mut World, now: f64) {
     let outcome = {
-        let context = if world.resource::<crate::sidebar::SidebarState>().focused {
-            CONTEXT_SIDEBAR
-        } else {
-            match world.resource::<Screen>() {
-                Screen::Index => CONTEXT_INDEX,
-                Screen::Pager => CONTEXT_PAGER,
-                Screen::Compose => CONTEXT_COMPOSE,
-                Screen::Contacts => CONTEXT_CONTACTS,
-            }
-        };
+        let context = crate::focus::active_context(world);
         let keymaps = world.resource::<Keymaps>();
         let pending = world.resource::<PendingKeys>();
         keymaps.resolve_layered(context, &pending.keys)
@@ -142,7 +115,7 @@ fn resolve_now(world: &mut World, now: f64) {
         KeymapMatch::Unbound => {
             let keys = std::mem::take(&mut world.resource_mut::<PendingKeys>().keys);
             world
-                .resource_mut::<StatusMessage>()
+                .resource_mut::<MessageLog>()
                 .warn(format!("unbound: {}", format_keys(&keys)), now);
         }
     }
@@ -212,8 +185,18 @@ mod tests {
         let mut app = router_app();
         press(&mut app, KeyCode::Char('x'));
         assert!(app.world().resource::<PendingKeys>().keys.is_empty());
-        let status = app.world().resource::<StatusMessage>();
-        assert!(status.current().unwrap().0.contains("unbound"));
+        let log = app.world().resource::<MessageLog>();
+        assert!(
+            log.entries()
+                .last()
+                .is_some_and(|entry| entry.text.contains("unbound")),
+            "an unbound key must be reported"
+        );
+        assert_eq!(
+            log.current(),
+            None,
+            "a warning belongs in a toast, not the status row"
+        );
     }
 
     #[test]
@@ -227,17 +210,35 @@ mod tests {
             0,
             "Tab is the local focus key, never tab switching"
         );
-        assert!(
-            app.world()
-                .resource::<crate::sidebar::SidebarState>()
-                .focused
-        );
+        assert!(crate::focus::is_focused(
+            app.world(),
+            crate::focus::Pane::Folders
+        ));
         press(&mut app, KeyCode::Tab);
         assert!(
-            !app.world()
-                .resource::<crate::sidebar::SidebarState>()
-                .focused,
+            !crate::focus::is_focused(app.world(), crate::focus::Pane::Folders),
             "Tab in the sidebar context must return focus"
+        );
+    }
+
+    /// Focus is stored per tab, so a focused mail pane cannot select the
+    /// sidebar context while the contact book is on screen — the leak the
+    /// old global `SidebarState.focused` flag had to be cleared to avoid.
+    #[test]
+    fn a_focused_mail_pane_does_not_claim_the_contacts_context() {
+        let mut app = router_app();
+        crate::focus::focus(app.world_mut(), crate::focus::Pane::Folders);
+        app.world_mut().resource_mut::<Tabs>().active = 1;
+
+        press(&mut app, KeyCode::Tab);
+
+        assert!(
+            crate::focus::is_focused(app.world(), crate::focus::Pane::ContactDetail),
+            "Tab must resolve against the contacts context and move the detail focus"
+        );
+        assert!(
+            crate::focus::is_focused(app.world(), crate::focus::Pane::Folders),
+            "the mail tab's own focus must survive untouched"
         );
     }
 
@@ -249,8 +250,7 @@ mod tests {
         assert_eq!(app.world().resource::<CommandLineState>().buffer, "echo hi");
         press(&mut app, KeyCode::Enter);
         assert_eq!(app.world().resource::<Mode>().0, InputMode::Normal);
-        let status = app.world().resource::<StatusMessage>();
-        assert_eq!(status.current().unwrap().0, "hi");
+        assert_eq!(app.world().resource::<MessageLog>().current(), Some("hi"));
     }
 
     #[test]

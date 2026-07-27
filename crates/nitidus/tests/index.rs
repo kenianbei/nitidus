@@ -14,7 +14,7 @@ use nitidus::config::Config;
 use nitidus::config::account::{AccountConfig, Backend, MaildirBackend};
 use nitidus::engine::{EnginePlugin, EngineResource};
 use nitidus::index::{IndexPlugin, IndexStatus, IndexView, SortKey, SortMode};
-use nitidus::status::StatusMessage;
+use nitidus::status::MessageLog;
 use nitidus::store::{MailStore, SyncTracker};
 use nitidus_mail::{AccountId, EnvelopeId, EnvelopeSummary, Flags, FolderId, JobId, MailEngine};
 
@@ -58,7 +58,7 @@ fn index_app(config: Config, envelopes: Vec<EnvelopeSummary>) -> App {
     }
     app.insert_resource(store);
     app.init_resource::<SyncTracker>();
-    app.init_resource::<StatusMessage>();
+    app.init_resource::<MessageLog>();
     app.init_resource::<nitidus::keymap::Mode>();
     app.add_plugins(IndexPlugin);
     app.update();
@@ -75,6 +75,17 @@ fn selected_id(app: &App) -> Option<String> {
         .selected
         .as_ref()
         .map(|id| id.as_str().to_owned())
+}
+
+/// The most recent thing the app told the user, whatever its severity —
+/// warnings and errors go to toasts now, not the status row.
+fn last_message(app: &App) -> String {
+    app.world()
+        .resource::<MessageLog>()
+        .entries()
+        .last()
+        .map(|entry| entry.text.clone())
+        .unwrap_or_default()
 }
 
 #[test]
@@ -312,8 +323,7 @@ fn accepted_search_repeats_with_wrap_in_both_directions() {
     apply_action(app.world_mut(), &Action::ClearFilters);
     apply_action(app.world_mut(), &Action::SearchNext);
     app.update();
-    let (message, _) = app.world().resource::<StatusMessage>().current().unwrap();
-    assert_eq!(message, "no search (press /)");
+    assert_eq!(last_message(&app), "no search (press /)");
 }
 
 #[test]

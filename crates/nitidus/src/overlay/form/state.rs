@@ -332,6 +332,30 @@ impl FormState {
         }
     }
 
+    /// The focused field's live candidates, for the panel.
+    pub(super) fn candidates(&self) -> (&[String], Option<usize>) {
+        let Focus::Field(index) = self.focus else {
+            return (&[], None);
+        };
+        self.fields
+            .get(index)
+            .map_or((&[], None), |field| (field.candidates(), field.cycle()))
+    }
+
+    pub(super) fn cycle_candidate(&mut self, forward: bool) {
+        let Focus::Field(index) = self.focus else {
+            return;
+        };
+        let changed = self
+            .fields
+            .get_mut(index)
+            .is_some_and(|field| field.cycle_candidate(forward));
+        if changed {
+            self.clear_error();
+            self.resync();
+        }
+    }
+
     pub(super) fn move_cursor(&mut self, cursor: Cursor) {
         let Focus::Field(index) = self.focus else {
             return;

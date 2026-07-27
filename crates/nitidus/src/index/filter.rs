@@ -6,7 +6,7 @@ use bevy::prelude::*;
 use nitidus_mail::EnvelopeSummary;
 
 use super::IndexView;
-use crate::status::StatusMessage;
+use crate::status::MessageLog;
 
 pub(super) fn matches(envelope: &EnvelopeSummary, needle_lower: &str) -> bool {
     envelope.subject.to_lowercase().contains(needle_lower)
@@ -47,7 +47,7 @@ pub fn push_limit(world: &mut World, text: &str) {
     let joined = view.limits.join("+");
     let now = world.resource::<Time>().elapsed_secs_f64();
     world
-        .resource_mut::<StatusMessage>()
+        .resource_mut::<MessageLog>()
         .info(format!("limit: {joined}"), now);
 }
 
@@ -62,7 +62,7 @@ pub fn clear_filters(world: &mut World) {
     view.filter_epoch += 1;
     let now = world.resource::<Time>().elapsed_secs_f64();
     world
-        .resource_mut::<StatusMessage>()
+        .resource_mut::<MessageLog>()
         .info("filters cleared".to_owned(), now);
 }
 

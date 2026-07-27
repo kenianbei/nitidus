@@ -10,7 +10,6 @@ use nitidus_contacts::{parse_all, save_contact, write_export};
 use super::ContactStore;
 use super::mutate::{contacts_dir, info, warn};
 use super::view::ContactsView;
-use crate::prompt::{PromptRequest, open_prompt};
 
 const DEFAULT_EXPORT_PATH: &str = "~/nitidus-contacts.vcf";
 
@@ -86,17 +85,29 @@ pub fn export_contacts(world: &mut World, path_argument: Option<&str>) {
     }
 }
 
+const EXPORT_FIELD: &str = "path";
+
 fn export_path_prompt(world: &mut World) {
-    let request = PromptRequest::new(
-        "Export to: ",
-        Box::new(|world: &mut World, path: String| {
-            if !path.trim().is_empty() {
-                run_export(world, expand_tilde(path.trim()));
-            }
-        }),
-    )
-    .with_initial(DEFAULT_EXPORT_PATH);
-    open_prompt(world, request);
+    crate::overlay::form::open_form(
+        world,
+        crate::overlay::form::FormSpec::new(
+            "Export contacts",
+            "Export",
+            vec![
+                crate::overlay::form::FieldSpec::text(EXPORT_FIELD, "Write to")
+                    .with_initial(DEFAULT_EXPORT_PATH)
+                    .validated(|value| {
+                        if value.trim().is_empty() {
+                            return Err("a path is required".to_owned());
+                        }
+                        Ok(())
+                    }),
+            ],
+            Box::new(|world: &mut World, values| {
+                run_export(world, expand_tilde(values.get(EXPORT_FIELD).trim()));
+            }),
+        ),
+    );
 }
 
 fn run_export(world: &mut World, path: PathBuf) {

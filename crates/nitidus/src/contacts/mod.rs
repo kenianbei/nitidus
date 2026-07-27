@@ -20,7 +20,7 @@ pub use add::{
 pub use edit::{edit_selected, edit_selected_raw, remove_selected_property};
 pub use photo::{PhotoPicker, set_photo};
 pub use transfer::{export_contacts, import_contacts};
-pub use view::{ContactsView, PaneFocus, move_cursor, toggle_focus};
+pub use view::{ContactsView, move_cursor, toggle_focus};
 
 use std::path::PathBuf;
 
@@ -40,6 +40,7 @@ impl Plugin for ContactsPlugin {
         app.init_resource::<ContactStore>();
         app.init_resource::<ContactsView>();
         app.init_resource::<ContactsStatus>();
+        app.init_resource::<crate::focus::PaneFocus>();
         app.add_systems(Startup, (load_book, spawn_contacts));
         app.add_systems(Update, render::refresh_contacts);
     }

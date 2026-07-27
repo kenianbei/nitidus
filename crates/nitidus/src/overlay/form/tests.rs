@@ -669,3 +669,100 @@ fn page_down_and_page_up_walk_the_steps() {
     press(&mut app, KeyCode::PageUp);
     assert_eq!(app.world().resource::<ActiveForm>().page(), Some(0));
 }
+
+fn completing_spec() -> FormSpec {
+    spec(vec![
+        FieldSpec::text("to", "To").completed(|segment| {
+            ["ada@example.com", "adam@example.com", "bob@example.com"]
+                .into_iter()
+                .filter(|candidate| candidate.starts_with(segment))
+                .map(str::to_owned)
+                .collect()
+        }),
+        FieldSpec::text("subject", "Subject"),
+    ])
+}
+
+fn press_ctrl(app: &mut App, code: KeyCode) {
+    let event = KeyEvent::new(code, KeyModifiers::CONTROL);
+    handle_key(app.world_mut(), event).unwrap();
+}
+
+/// Address completion was the one thing the bottom-row prompt could do
+/// that forms could not; the compose headers depend on it.
+#[test]
+fn a_completed_field_cycles_candidates_without_stealing_tab() {
+    let mut app = form_app();
+    open_form(app.world_mut(), completing_spec());
+    type_str(&mut app, "ad");
+
+    press_ctrl(&mut app, KeyCode::Char('n'));
+    assert_eq!(
+        app.world().resource::<ActiveForm>().value("to").unwrap(),
+        "ada@example.com"
+    );
+    press_ctrl(&mut app, KeyCode::Char('n'));
+    assert_eq!(
+        app.world().resource::<ActiveForm>().value("to").unwrap(),
+        "adam@example.com"
+    );
+    press_ctrl(&mut app, KeyCode::Char('p'));
+    assert_eq!(
+        app.world().resource::<ActiveForm>().value("to").unwrap(),
+        "ada@example.com"
+    );
+}
+
+#[test]
+fn tab_still_moves_focus_on_a_completed_field() {
+    let mut app = form_app();
+    open_form(app.world_mut(), completing_spec());
+    type_str(&mut app, "ad");
+
+    press(&mut app, KeyCode::Tab);
+    type_str(&mut app, "hi");
+
+    assert_eq!(
+        app.world().resource::<ActiveForm>().value("to").unwrap(),
+        "ad",
+        "Tab must leave the address alone"
+    );
+    assert_eq!(
+        app.world()
+            .resource::<ActiveForm>()
+            .value("subject")
+            .unwrap(),
+        "hi"
+    );
+}
+
+/// Completion works one address at a time, so a second recipient
+/// completes against its own segment and keeps the first.
+#[test]
+fn completion_rewrites_only_the_address_being_typed() {
+    let mut app = form_app();
+    open_form(app.world_mut(), completing_spec());
+    type_str(&mut app, "ada@example.com, bo");
+
+    press_ctrl(&mut app, KeyCode::Char('n'));
+
+    assert_eq!(
+        app.world().resource::<ActiveForm>().value("to").unwrap(),
+        "ada@example.com, bob@example.com"
+    );
+}
+
+#[test]
+fn a_field_without_candidates_ignores_the_completion_keys() {
+    let mut app = form_app();
+    open_form(app.world_mut(), completing_spec());
+    type_str(&mut app, "zz");
+
+    press_ctrl(&mut app, KeyCode::Char('n'));
+
+    assert_eq!(
+        app.world().resource::<ActiveForm>().value("to").unwrap(),
+        "zz",
+        "nothing matched, so nothing is inserted"
+    );
+}

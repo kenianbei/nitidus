@@ -1,25 +1,30 @@
 //! A modal file picker over ratatui-explorer: open with a title, an
 //! extension filter, and an `on_pick` callback; Enter on a matching
-//! file fires it, Esc cancels. Navigation is the explorer's own
-//! (j/k/h/l, arrows, Ctrl-h hidden files); rendering is ours, so the
-//! panel matches the app's overlay chrome.
+//! file fires it, Esc cancels. Keys resolve against the rebindable
+//! `explorer` context and drive the crate through its own `Input`
+//! vocabulary; rendering is ours, so the panel matches the app's
+//! overlay chrome.
 
 mod mouse;
 
 use std::path::PathBuf;
 
 use bevy::prelude::*;
-use bevy_ratatui::crossterm::event::{Event, KeyCode, KeyEvent};
+use bevy_ratatui::crossterm::event::KeyEvent;
+use crokey::KeyCombination;
+use nitidus_ui_kit::surface::{FrameChrome, draw_frame};
 use nitidus_ui_kit::theme::Theme;
 use nitidus_ui_kit::{layer, layout};
 use plurimus::{Widget, WidgetLayout, WidgetOrder};
 use ratatui::layout::Rect;
 use ratatui::style::{Modifier, Style};
 use ratatui::text::Line;
-use ratatui::widgets::{Block, Clear, Paragraph};
-use ratatui_explorer::FileExplorer;
+use ratatui::widgets::Paragraph;
+use ratatui_explorer::{FileExplorer, Input};
 
-use crate::status::StatusMessage;
+use crate::action::Motion;
+use crate::keymap::{CONTEXT_EXPLORER, KeymapMatch, Keymaps};
+use crate::status::MessageLog;
 
 const PANEL_WIDTH_PCT: u16 = 70;
 const PANEL_MAX_ROWS: u16 = 24;
@@ -57,6 +62,7 @@ pub struct ExplorerPlugin;
 impl Plugin for ExplorerPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<ExplorerState>();
+        app.init_resource::<crate::overlay::surface::OverlayStack>();
         app.add_systems(Startup, spawn_explorer_widget);
         app.add_systems(Update, refresh_explorer);
     }
@@ -80,11 +86,12 @@ pub fn open_explorer(world: &mut World, request: ExplorerRequest) {
                 title: request.title,
                 on_pick: request.on_pick,
             });
+            crate::overlay::surface::raise(world, crate::overlay::surface::Surface::Explorer);
         }
         Err(error) => {
             let now = world.resource::<Time>().elapsed_secs_f64();
             world
-                .resource_mut::<StatusMessage>()
+                .resource_mut::<MessageLog>()
                 .warn(format!("file browser failed: {error}"), now);
         }
     }
@@ -102,50 +109,81 @@ fn matches_extension(path: &std::path::Path, extensions: &[&str]) -> bool {
         })
 }
 
+/// Exact single-key `explorer` bindings win; anything else is ignored.
+/// No chord waits and no global fallback, matching the picker.
 pub fn handle_key(world: &mut World, key: KeyEvent) -> Result {
-    match key.code {
-        KeyCode::Esc => {
-            world.resource_mut::<ExplorerState>().0 = None;
-        }
-        KeyCode::Enter => confirm_or_descend(world, key)?,
-        _ => forward(world, key)?,
+    let outcome = {
+        let keymaps = world.resource::<Keymaps>();
+        keymaps.lookup(CONTEXT_EXPLORER, &[KeyCombination::from(key)])
+    };
+    if let KeymapMatch::Exact(action) = outcome {
+        crate::action::apply_action(world, &action);
     }
     Ok(())
 }
 
-/// Enter picks a file; on a directory it is plain navigation.
-fn confirm_or_descend(world: &mut World, key: KeyEvent) -> Result {
+pub fn close(world: &mut World) {
+    world.resource_mut::<ExplorerState>().0 = None;
+}
+
+/// Picks the selected file; on a directory it descends instead.
+pub fn confirm(world: &mut World) {
     let is_file = world
         .resource::<ExplorerState>()
         .0
         .as_ref()
         .is_some_and(|active| active.explorer.current().is_file());
     if !is_file {
-        return forward(world, key);
+        return descend(world);
     }
     let Some(active) = world.resource_mut::<ExplorerState>().0.take() else {
-        return Ok(());
+        return;
     };
     let path = active.explorer.current().path.clone();
     (active.on_pick)(world, path);
-    Ok(())
 }
 
-fn forward(world: &mut World, key: KeyEvent) -> Result {
+pub fn move_cursor(world: &mut World, motion: Motion) {
+    send(
+        world,
+        match motion {
+            Motion::Next => Input::Down,
+            Motion::Prev => Input::Up,
+            Motion::NextPage => Input::PageDown,
+            Motion::PrevPage => Input::PageUp,
+            Motion::First => Input::Home,
+            Motion::Last => Input::End,
+            Motion::Parent => Input::Left,
+        },
+    );
+}
+
+pub fn to_parent(world: &mut World) {
+    send(world, Input::Left);
+}
+
+pub fn descend(world: &mut World) {
+    send(world, Input::Right);
+}
+
+pub fn toggle_hidden(world: &mut World) {
+    send(world, Input::ToggleShowHidden);
+}
+
+fn send(world: &mut World, input: Input) {
     let failure = {
         let mut state = world.resource_mut::<ExplorerState>();
         state
             .0
             .as_mut()
-            .and_then(|active| active.explorer.handle(&Event::Key(key)).err())
+            .and_then(|active| active.explorer.handle(input).err())
     };
     if let Some(error) = failure {
         let now = world.resource::<Time>().elapsed_secs_f64();
         world
-            .resource_mut::<StatusMessage>()
+            .resource_mut::<MessageLog>()
             .warn(format!("file browser: {error}"), now);
     }
-    Ok(())
 }
 
 #[derive(Component)]
@@ -222,13 +260,15 @@ fn render_explorer(frame: &mut ratatui::Frame, area: Rect, state: &mut ExplorerW
     if !state.is_open {
         return Ok(());
     }
-    frame.render_widget(Clear, area);
-    let block = Block::bordered()
-        .title(format!(" {} ", state.title))
-        .title_bottom(Line::from(HINT).right_aligned())
-        .style(state.normal);
-    let inner = block.inner(area);
-    frame.render_widget(block, area);
+    let inner = draw_frame(
+        frame.buffer_mut(),
+        area,
+        FrameChrome {
+            title: &state.title,
+            hint: Some(HINT),
+            style: state.normal,
+        },
+    );
     let viewport = usize::from(inner.height.max(1));
     let top = scrolled_window_top(state.selected, viewport, state.rows.len());
     let lines: Vec<Line<'static>> = state

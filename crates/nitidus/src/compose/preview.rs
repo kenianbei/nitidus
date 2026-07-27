@@ -8,18 +8,19 @@
 use std::sync::{Arc, Mutex};
 
 use bevy::prelude::*;
+use nitidus_ui_kit::surface::{FrameChrome, draw_frame};
 use nitidus_ui_kit::theme::Theme;
 use nitidus_ui_kit::{layer, layout};
 use plurimus::{Widget, WidgetLayout, WidgetOrder};
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::Style;
 use ratatui::text::Line;
-use ratatui::widgets::{Block, Clear, Paragraph};
+use ratatui::widgets::Paragraph;
 use ratatui_image::StatefulImage;
 use ratatui_image::protocol::StatefulProtocol;
 
 use crate::contacts::PhotoPicker;
-use crate::status::StatusMessage;
+use crate::status::MessageLog;
 
 const PANEL_WIDTH_PCT: u16 = 60;
 const PANEL_MAX_ROWS: u16 = 20;
@@ -48,6 +49,7 @@ pub struct PreviewPlugin;
 impl Plugin for PreviewPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<AttachPreview>();
+        app.init_resource::<crate::overlay::surface::OverlayStack>();
         app.add_systems(Startup, spawn_preview);
         app.add_systems(Update, refresh_preview);
     }
@@ -58,12 +60,13 @@ pub(super) fn open(world: &mut World) {
     let Some(token) = super::inline::token_at_cursor(world) else {
         let now = world.resource::<Time>().elapsed_secs_f64();
         world
-            .resource_mut::<StatusMessage>()
+            .resource_mut::<MessageLog>()
             .info("no attachment on this line".to_owned(), now);
         return;
     };
     let preview = build(world, &token.path);
     world.resource_mut::<AttachPreview>().0 = Some(preview);
+    crate::overlay::surface::raise(world, crate::overlay::surface::Surface::AttachPreview);
 }
 
 pub fn close(world: &mut World) {
@@ -148,13 +151,15 @@ fn render_preview(frame: &mut ratatui::Frame, area: Rect, state: &mut PreviewWin
     let Some(preview) = &state.preview else {
         return Ok(());
     };
-    frame.render_widget(Clear, area);
-    let block = Block::bordered()
-        .title(format!(" {} ", preview.title))
-        .title_bottom(Line::from(HINT).right_aligned())
-        .style(state.normal);
-    let inner = block.inner(area);
-    frame.render_widget(block, area);
+    let inner = draw_frame(
+        frame.buffer_mut(),
+        area,
+        FrameChrome {
+            title: &preview.title,
+            hint: Some(HINT),
+            style: state.normal,
+        },
+    );
 
     let detail_rows = u16::try_from(preview.detail.len()).unwrap_or(u16::MAX);
     let [image_area, detail_area] =

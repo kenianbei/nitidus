@@ -9,9 +9,29 @@ use tui_prompts::{FocusState, State, TextState};
 use super::spec::{FieldSpec, SelectOption};
 use super::state::Cursor;
 
+/// Completion works on one address at a time: everything after the last
+/// comma.
+fn active_segment(value: &str) -> &str {
+    value
+        .rsplit_once(',')
+        .map_or(value, |(_, segment)| segment)
+        .trim_start()
+}
+
+fn replace_active_segment(value: &str, candidate: &str) -> String {
+    match value.rsplit_once(',') {
+        Some((prefix, _)) => format!("{prefix}, {candidate}"),
+        None => candidate.to_owned(),
+    }
+}
+
 pub(super) struct FieldRuntime {
     pub(super) spec: FieldSpec,
     editor: FieldEditor,
+    /// Candidates for the segment under the caret, refreshed on every
+    /// edit; `cycle` freezes a position in them while stepping.
+    candidates: Vec<String>,
+    cycle: Option<usize>,
 }
 
 enum FieldEditor {
@@ -35,7 +55,57 @@ impl FieldRuntime {
             text.move_end();
             FieldEditor::Text(text)
         };
-        Self { spec, editor }
+        let mut field = Self {
+            spec,
+            editor,
+            candidates: Vec::new(),
+            cycle: None,
+        };
+        field.refresh_candidates();
+        field
+    }
+
+    pub(super) fn candidates(&self) -> &[String] {
+        &self.candidates
+    }
+
+    pub(super) fn cycle(&self) -> Option<usize> {
+        self.cycle
+    }
+
+    /// Steps through the frozen candidate list, rewriting only the
+    /// segment being typed. The list is deliberately not recomputed
+    /// mid-cycle: matching against the value just inserted would strand
+    /// the cycle after one step.
+    pub(super) fn cycle_candidate(&mut self, forward: bool) -> bool {
+        if self.candidates.is_empty() {
+            return false;
+        }
+        let count = self.candidates.len();
+        let next = match self.cycle {
+            Some(current) if forward => (current + 1) % count,
+            Some(current) => (current + count - 1) % count,
+            None if forward => 0,
+            None => count - 1,
+        };
+        self.cycle = Some(next);
+        let FieldEditor::Text(text) = &mut self.editor else {
+            return false;
+        };
+        let replaced = replace_active_segment(text.value(), &self.candidates[next]);
+        *text = TextState::new().with_value(replaced);
+        text.move_end();
+        *text.focus_state_mut() = FocusState::Focused;
+        true
+    }
+
+    fn refresh_candidates(&mut self) {
+        let Some(complete) = self.spec.complete.clone() else {
+            return;
+        };
+        let value = self.value();
+        self.candidates = complete(active_segment(&value));
+        self.cycle = None;
     }
 
     pub(super) fn value(&self) -> String {
@@ -92,6 +162,7 @@ impl FieldRuntime {
             return false;
         }
         text.handle_key_event(key);
+        self.refresh_candidates();
         true
     }
 

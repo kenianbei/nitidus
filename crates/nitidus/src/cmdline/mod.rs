@@ -16,7 +16,7 @@ use ratatui::widgets::Paragraph;
 use crate::action::{apply_action, complete_command, parse_command};
 use crate::keymap::{InputMode, Mode};
 use crate::shell::Statusline;
-use crate::status::StatusMessage;
+use crate::status::MessageLog;
 use nitidus_ui_kit::layout;
 use nitidus_ui_kit::theme::Theme;
 
@@ -164,7 +164,7 @@ fn execute(world: &mut World) {
         }
         Err(error) => {
             world
-                .resource_mut::<StatusMessage>()
+                .resource_mut::<MessageLog>()
                 .error(format!("{error:#}"), now);
             close(world);
         }

@@ -14,8 +14,7 @@ use crate::action::{Motion, PagerOp};
 use crate::engine::EngineResource;
 use crate::index::{self, IndexView};
 use crate::overlay::{PickerItem, PickerSpec, open_picker};
-use crate::screen::Screen;
-use crate::status::StatusMessage;
+use crate::status::MessageLog;
 
 const FALLBACK_PAGE_ROWS: usize = 20;
 /// Anchors merge across wrapped lines, so any sane width works here.
@@ -28,14 +27,13 @@ pub fn open_selected(world: &mut World) {
         return;
     };
     let folder = index_view.folder.clone();
-    super::peek::arm(
-        world,
-        super::peek::PeekTarget {
-            account: account.clone(),
-            folder: folder.clone(),
-            id: id.clone(),
-        },
-    );
+    // Re-opening what the pane already holds is a network round trip for
+    // a message that is right there. A fetch in flight is deliberately
+    // not a reason to skip: it may be for a different message.
+    if world.resource::<PagerState>().open_id() == Some(&id) {
+        crate::focus::focus(world, crate::focus::Pane::Reading);
+        return;
+    }
     let Some(engine) = world.get_resource::<EngineResource>() else {
         return;
     };
@@ -44,7 +42,7 @@ pub fn open_selected(world: &mut World) {
     if let Err(error) = engine.0.send(&account, command) {
         let now = world.resource::<Time>().elapsed_secs_f64();
         world
-            .resource_mut::<StatusMessage>()
+            .resource_mut::<MessageLog>()
             .warn(format!("fetch failed: {error}"), now);
         return;
     }
@@ -53,7 +51,7 @@ pub fn open_selected(world: &mut World) {
         pager.open = None;
         pager.loading = Some(job);
     }
-    *world.resource_mut::<Screen>() = Screen::Pager;
+    crate::focus::focus(world, crate::focus::Pane::Reading);
 }
 
 pub fn dispatch(world: &mut World, op: PagerOp) {
@@ -68,17 +66,18 @@ pub fn dispatch(world: &mut World, op: PagerOp) {
         PagerOp::SavePart => with_attachment(world, save::save_attachment),
         PagerOp::OpenPart => with_attachment(world, save::open_attachment),
         PagerOp::Links => links(world),
+        PagerOp::Zoom => super::toggle_zoom(world),
     }
 }
 
 pub(crate) fn close(world: &mut World) {
-    super::peek::disarm(world);
+    super::unzoom(world);
     {
         let mut pager = world.resource_mut::<PagerState>();
         pager.open = None;
         pager.loading = None;
     }
-    *world.resource_mut::<Screen>() = Screen::Index;
+    crate::focus::focus(world, crate::focus::Pane::Messages);
 }
 
 fn adjacent(world: &mut World, motion: Motion) {
@@ -112,7 +111,7 @@ fn switch_part(world: &mut World, delta: isize) {
 
 /// Pager mouse: the wheel scrolls the body.
 pub(super) fn handle_mouse(world: &mut World, entity: Entity, event: plurimus::UiEvent) -> Result {
-    if *world.resource::<Screen>() != Screen::Pager || crate::mouse::is_modal_open(world) {
+    if crate::shell::on_contacts(world) || crate::mouse::is_modal_open(world) {
         return Ok(());
     }
     let Some(local) = crate::mouse::local_event(world, entity, event) else {
@@ -214,7 +213,7 @@ fn links(world: &mut World) {
     if anchors.is_empty() {
         let now = world.resource::<Time>().elapsed_secs_f64();
         world
-            .resource_mut::<StatusMessage>()
+            .resource_mut::<MessageLog>()
             .info("no links in this part".to_owned(), now);
         return;
     }
@@ -233,7 +232,7 @@ fn links(world: &mut World) {
             on_select: Box::new(move |world, picked| {
                 let href = &anchors[picked].href;
                 let now = world.resource::<Time>().elapsed_secs_f64();
-                let mut status = world.resource_mut::<StatusMessage>();
+                let mut status = world.resource_mut::<MessageLog>();
                 match save::spawn_opener(Path::new(href)) {
                     Ok(()) => status.info(format!("opening {href}"), now),
                     Err(error) => status.warn(format!("open failed: {error}"), now),

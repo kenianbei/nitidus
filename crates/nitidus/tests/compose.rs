@@ -16,9 +16,8 @@ use nitidus::config::{Config, RawKeymaps};
 use nitidus::index::IndexPlugin;
 use nitidus::keymap::Keymaps;
 use nitidus::overlay::OverlayPlugin;
-use nitidus::prompt::{PromptPlugin, PromptState};
+use nitidus::overlay::form::ActiveForm;
 use nitidus::router::{RouterPlugin, route_key};
-use nitidus::screen::Screen;
 use nitidus::shell::Tabs;
 use nitidus::store::{MailStore, SyncTracker};
 use plurimus::{TachyonRegistry, UiEvent};
@@ -47,13 +46,7 @@ fn compose_app(compose_dir: &std::path::Path) -> App {
     app.insert_resource(EditorCommand(
         "printf 'typed in the editor\\n' >>".to_owned(),
     ));
-    app.add_plugins((
-        RouterPlugin,
-        IndexPlugin,
-        ComposePlugin,
-        PromptPlugin,
-        OverlayPlugin,
-    ));
+    app.add_plugins((RouterPlugin, IndexPlugin, ComposePlugin, OverlayPlugin));
     app.update();
     app
 }
@@ -76,17 +69,12 @@ fn type_text(app: &mut App, text: &str) {
 
 fn compose_to_review(app: &mut App) {
     press(app, KeyCode::Char('m'));
-    assert_eq!(
-        app.world().resource::<PromptState>().label(),
-        Some("To: "),
-        "m must open the To prompt"
+    assert!(
+        app.world().resource::<ActiveForm>().is_open(),
+        "m must open the headers form"
     );
     type_text(app, "bob@example.com");
-    press(app, KeyCode::Enter);
-    assert_eq!(
-        app.world().resource::<PromptState>().label(),
-        Some("Subject: ")
-    );
+    press(app, KeyCode::Tab);
     type_text(app, "hello");
     press(app, KeyCode::Enter);
 }
@@ -97,7 +85,7 @@ fn compose_chain_reaches_review_with_edited_body() {
     let mut app = compose_app(dir.path());
     compose_to_review(&mut app);
 
-    assert_eq!(*app.world().resource::<Screen>(), Screen::Compose);
+    assert!(app.world().resource::<ComposeState>().is_active());
     let state = app.world().resource::<ComposeState>();
     let session = state.session().unwrap();
     assert_eq!(session.to, "bob@example.com");
@@ -126,19 +114,18 @@ fn header_reprompt_starts_from_the_current_value() {
 
     press(&mut app, KeyCode::Char('s'));
     assert_eq!(
-        app.world().resource::<PromptState>().label(),
-        Some("Subject: ")
-    );
-    assert_eq!(
-        app.world().resource::<PromptState>().value(),
+        app.world()
+            .resource::<ActiveForm>()
+            .value("value")
+            .as_deref(),
         Some("hello"),
-        "re-prompts must start from the existing value"
+        "re-opening must start from the existing value"
     );
     type_text(&mut app, " world");
     press(&mut app, KeyCode::Enter);
     let state = app.world().resource::<ComposeState>();
     assert_eq!(state.session().unwrap().subject, "hello world");
-    assert_eq!(*app.world().resource::<Screen>(), Screen::Compose);
+    assert!(app.world().resource::<ComposeState>().is_active());
 }
 
 #[test]
@@ -156,12 +143,13 @@ fn escape_discards_after_confirmation_and_deletes_the_body() {
     assert!(body_path.exists());
 
     press(&mut app, KeyCode::Esc);
-    assert_eq!(
-        app.world().resource::<PromptState>().label(),
-        Some("Discard message? (y/n): ")
+    assert!(
+        app.world()
+            .resource::<nitidus::overlay::confirm::ActiveConfirm>()
+            .is_open(),
+        "Esc must ask before discarding"
     );
     press(&mut app, KeyCode::Char('n'));
-    press(&mut app, KeyCode::Enter);
     assert!(
         app.world().resource::<ComposeState>().is_active(),
         "answering n must keep the session"
@@ -169,10 +157,8 @@ fn escape_discards_after_confirmation_and_deletes_the_body() {
 
     press(&mut app, KeyCode::Esc);
     press(&mut app, KeyCode::Char('y'));
-    press(&mut app, KeyCode::Enter);
     assert!(!app.world().resource::<ComposeState>().is_active());
     assert!(!body_path.exists(), "discard must delete the body file");
-    assert_eq!(*app.world().resource::<Screen>(), Screen::Index);
 }
 
 #[test]
@@ -200,7 +186,7 @@ fn m_resumes_an_existing_session_instead_of_starting_over() {
         .clone();
 
     // Simulate leaving via a sidebar folder switch, then return with m.
-    *app.world_mut().resource_mut::<Screen>() = Screen::Index;
+    app.world_mut().resource_mut::<Tabs>().active = 0;
     app.update();
     press(&mut app, KeyCode::Char('m'));
     let state = app.world().resource::<ComposeState>();
@@ -209,5 +195,5 @@ fn m_resumes_an_existing_session_instead_of_starting_over() {
         original,
         "m must resume, not restart"
     );
-    assert_eq!(*app.world().resource::<Screen>(), Screen::Compose);
+    assert!(app.world().resource::<ComposeState>().is_active());
 }

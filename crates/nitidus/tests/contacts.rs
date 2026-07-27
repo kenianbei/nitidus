@@ -12,17 +12,17 @@ use nitidus::compose::{ComposeDir, ComposePlugin, ComposeState, EditorCommand};
 use nitidus::config::Config;
 use nitidus::config::RawKeymaps;
 use nitidus::config::account::AccountConfig;
-use nitidus::contacts::{ContactsDir, ContactsPlugin, ContactsStatus, ContactsView, PaneFocus};
+use nitidus::contacts::{ContactsDir, ContactsPlugin, ContactsStatus, ContactsView};
 use nitidus::engine::StartupNotices;
 use nitidus::explorer::{ExplorerPlugin, ExplorerState};
+use nitidus::focus::{Pane, is_focused};
 use nitidus::keymap::Keymaps;
 use nitidus::overlay::OverlayPlugin;
-use nitidus::prompt::{PromptPlugin, PromptState};
+use nitidus::overlay::form::ActiveForm;
 use nitidus::router::{RouterPlugin, route_key};
-use nitidus::screen::{MailScreenMemory, Screen};
 use nitidus::shell::Tabs;
 use nitidus::sidebar::SidebarState;
-use nitidus::status::StatusMessage;
+use nitidus::status::MessageLog;
 use nitidus::store::MailStore;
 use plurimus::{TachyonRegistry, UiEvent};
 
@@ -54,10 +54,8 @@ fn harness(seed: impl FnOnce(&Path)) -> (App, tempfile::TempDir) {
     app.insert_resource(ContactsDir(root.path().to_path_buf()));
     app.insert_resource(StartupNotices(Vec::new()));
     app.init_resource::<Tabs>();
-    app.init_resource::<Screen>();
-    app.init_resource::<MailScreenMemory>();
     app.init_resource::<SidebarState>();
-    app.init_resource::<StatusMessage>();
+    app.init_resource::<MessageLog>();
     app.init_resource::<MailStore>();
     app.init_resource::<nitidus::index::IndexView>();
     app.init_resource::<nitidus::pager::PagerState>();
@@ -74,7 +72,6 @@ fn harness(seed: impl FnOnce(&Path)) -> (App, tempfile::TempDir) {
     app.insert_resource(Keymaps::compile(&RawKeymaps::default()).unwrap());
     app.add_plugins((
         RouterPlugin,
-        PromptPlugin,
         OverlayPlugin,
         ExplorerPlugin,
         ContactsPlugin,
@@ -99,6 +96,17 @@ fn open_contacts(app: &mut App) {
     app.update();
 }
 
+/// The most recent thing the app told the user, whatever its severity —
+/// warnings and errors go to toasts now, not the status row.
+fn last_message(app: &App) -> String {
+    app.world()
+        .resource::<MessageLog>()
+        .entries()
+        .last()
+        .map(|entry| entry.text.clone())
+        .unwrap_or_default()
+}
+
 #[test]
 fn seeded_vdir_loads_sorted_and_navigates() {
     let (mut app, _root) = harness(|dir| {
@@ -107,7 +115,7 @@ fn seeded_vdir_loads_sorted_and_navigates() {
         write_contact(dir, "uid-b", "Mel", "mel@example.com");
     });
     open_contacts(&mut app);
-    assert_eq!(*app.world().resource::<Screen>(), Screen::Contacts);
+    assert!(app.world().resource::<Tabs>().is_contacts());
     assert_eq!(
         *app.world().resource::<ContactsStatus>(),
         ContactsStatus {
@@ -132,26 +140,17 @@ fn tab_key_toggles_pane_focus_and_detail_cursor_moves() {
         write_contact(dir, "uid-a", "Ada", "ada@example.com");
     });
     open_contacts(&mut app);
-    assert_eq!(
-        app.world().resource::<ContactsView>().focus,
-        PaneFocus::Table
-    );
+    assert!(is_focused(app.world(), Pane::ContactList));
 
     press(&mut app, KeyCode::Tab);
-    assert_eq!(
-        app.world().resource::<ContactsView>().focus,
-        PaneFocus::Detail
-    );
+    assert!(is_focused(app.world(), Pane::ContactDetail));
     press(&mut app, KeyCode::Char('j'));
     assert_eq!(app.world().resource::<ContactsView>().detail_selected, 1);
     press(&mut app, KeyCode::Char('k'));
     assert_eq!(app.world().resource::<ContactsView>().detail_selected, 0);
 
     press(&mut app, KeyCode::Tab);
-    assert_eq!(
-        app.world().resource::<ContactsView>().focus,
-        PaneFocus::Table
-    );
+    assert!(is_focused(app.world(), Pane::ContactList));
 }
 
 #[test]
@@ -199,23 +198,53 @@ fn editing_a_phone_saves_and_preserves_exotic_properties() {
     );
 }
 
+fn open_name_editor(app: &mut App) {
+    open_contacts(app);
+    press(app, KeyCode::Tab);
+    press(app, KeyCode::Char('j'));
+    press(app, KeyCode::Char('e'));
+}
+
+fn name_card(dir: &Path) {
+    let card = "BEGIN:VCARD\r\nVERSION:4.0\r\nUID:uid-n\r\nFN:Ada Lovelace\r\nN:Lovelace;Ada;Augusta;Countess;\r\nEND:VCARD\r\n";
+    std::fs::write(dir.join("uid-n.vcf"), card).unwrap();
+}
+
 #[test]
-fn n_edit_prefills_every_component_so_enter_through_preserves_them() {
-    let (mut app, root) = harness(|dir| {
-        let card = "BEGIN:VCARD\r\nVERSION:4.0\r\nUID:uid-n\r\nFN:Ada Lovelace\r\nN:Lovelace;Ada;Augusta;Countess;\r\nEND:VCARD\r\n";
-        std::fs::write(dir.join("uid-n.vcf"), card).unwrap();
-    });
-    open_contacts(&mut app);
+fn the_name_editor_shows_every_component_at_once_and_submits_them_together() {
+    let (mut app, root) = harness(name_card);
+    open_name_editor(&mut app);
+
+    let form = app.world().resource::<ActiveForm>();
+    assert!(form.is_open(), "e opens the component form");
+    assert_eq!(form.value("Family name").as_deref(), Some("Lovelace"));
+    assert_eq!(form.value("Given name").as_deref(), Some("Ada"));
+    press(&mut app, KeyCode::Enter);
+
+    assert!(
+        read_card(root.path(), "uid-n").contains("N:Lovelace;Ada;Augusta;Countess;"),
+        "submitting untouched must preserve every component"
+    );
+}
+
+/// The components used to be one prompt each, so correcting the second
+/// meant walking past the first with no way back.
+#[test]
+fn editing_one_component_leaves_its_neighbours_alone() {
+    let (mut app, root) = harness(name_card);
+    open_name_editor(&mut app);
+
     press(&mut app, KeyCode::Tab);
-    press(&mut app, KeyCode::Char('j'));
-    press(&mut app, KeyCode::Char('e'));
-    for _ in 0..5 {
-        press(&mut app, KeyCode::Enter);
+    for _ in 0..3 {
+        press(&mut app, KeyCode::Backspace);
     }
+    type_text(&mut app, "Adele");
+    press(&mut app, KeyCode::Enter);
+
     let card = read_card(root.path(), "uid-n");
     assert!(
-        card.contains("N:Lovelace;Ada;Augusta;Countess;"),
-        "keeping every prefill must not lose components: {card}"
+        card.contains("N:Lovelace;Adele;Augusta;Countess;"),
+        "only the given name should have moved: {card}"
     );
 }
 
@@ -241,7 +270,7 @@ fn add_flow_files_a_typed_email() {
 }
 
 #[test]
-fn raw_editor_rejects_uid_replacement_and_reprompts() {
+fn raw_editor_rejects_uid_replacement_and_holds_the_form_open() {
     let (mut app, root) = harness(|dir| {
         write_contact(dir, "uid-a", "Ada", "ada@example.com");
     });
@@ -249,12 +278,7 @@ fn raw_editor_rejects_uid_replacement_and_reprompts() {
     press(&mut app, KeyCode::Tab);
     press(&mut app, KeyCode::Char('G'));
     press(&mut app, KeyCode::Char('E'));
-    let prefill = app
-        .world()
-        .resource::<PromptState>()
-        .value()
-        .unwrap()
-        .to_owned();
+    let prefill = app.world().resource::<ActiveForm>().value("line").unwrap();
     assert_eq!(prefill, "UID:uid-a", "the raw editor prefills the line");
     for _ in 0..prefill.chars().count() {
         press(&mut app, KeyCode::Backspace);
@@ -262,8 +286,8 @@ fn raw_editor_rejects_uid_replacement_and_reprompts() {
     type_text(&mut app, "UID:sneaky");
     press(&mut app, KeyCode::Enter);
     assert!(
-        app.world().resource::<PromptState>().is_open(),
-        "a rejected line must re-prompt"
+        app.world().resource::<ActiveForm>().is_open(),
+        "a rejected line must hold the form open"
     );
     assert!(
         read_card(root.path(), "uid-a").contains("UID:uid-a"),
@@ -366,13 +390,10 @@ fn import_skips_existing_uids_and_reports_counts() {
         read_card(root.path(), "uid-a").contains("FN:Ada"),
         "the existing card must not be clobbered"
     );
-    let (message, _) = app
-        .world()
-        .resource::<StatusMessage>()
-        .current()
-        .map(|(text, severity)| (text.to_owned(), severity))
-        .unwrap();
-    assert_eq!(message, "imported 1, skipped 1 existing, 1 failed");
+    assert_eq!(
+        last_message(&app),
+        "imported 1, skipped 1 existing, 1 failed"
+    );
 }
 
 #[test]
@@ -399,7 +420,7 @@ fn export_writes_the_book_once_and_refuses_overwrite() {
         &Action::ExportContacts(Some(target.display().to_string())),
     );
     app.update();
-    let (message, _) = app.world().resource::<StatusMessage>().current().unwrap();
+    let message = last_message(&app);
     assert!(
         message.contains("refusing to overwrite"),
         "second export must refuse: {message}"
@@ -407,16 +428,19 @@ fn export_writes_the_book_once_and_refuses_overwrite() {
 }
 
 #[test]
-fn no_arg_export_opens_a_prefilled_prompt() {
+fn no_arg_export_opens_a_prefilled_form() {
     let (mut app, _root) = harness(|dir| {
         write_contact(dir, "uid-a", "Ada", "ada@example.com");
     });
     open_contacts(&mut app);
     apply_action(app.world_mut(), &Action::ExportContacts(None));
     app.update();
-    let prompt = app.world().resource::<PromptState>();
-    assert_eq!(prompt.label(), Some("Export to: "));
-    assert_eq!(prompt.value(), Some("~/nitidus-contacts.vcf"));
+    let form = app.world().resource::<ActiveForm>();
+    assert!(form.is_open());
+    assert_eq!(
+        form.value("path").as_deref(),
+        Some("~/nitidus-contacts.vcf")
+    );
 }
 
 #[test]
@@ -562,9 +586,12 @@ fn add_contact_from_sender_prefills_and_saves() {
     apply_action(app.world_mut(), &Action::AddContact);
     app.update();
     assert_eq!(
-        app.world().resource::<PromptState>().value(),
+        app.world()
+            .resource::<ActiveForm>()
+            .value("name")
+            .as_deref(),
         Some("Katherine Johnson"),
-        "the name prompt prefills the sender display"
+        "the form prefills the sender display"
     );
     press(&mut app, KeyCode::Enter);
 
@@ -579,8 +606,8 @@ fn add_contact_from_sender_prefills_and_saves() {
     // A second A on the same sender refuses politely.
     apply_action(app.world_mut(), &Action::AddContact);
     app.update();
-    assert!(!app.world().resource::<PromptState>().is_open());
-    let (message, _) = app.world().resource::<StatusMessage>().current().unwrap();
+    assert!(!app.world().resource::<ActiveForm>().is_open());
+    let message = last_message(&app);
     assert!(message.contains("already in the contact book"), "{message}");
 }
 
@@ -610,11 +637,10 @@ fn mail_to_bridges_into_a_prefilled_composition() {
     press(&mut app, KeyCode::Char('m'));
 
     assert_eq!(app.world().resource::<Tabs>().active_label(), "mail");
-    assert_eq!(app.world().resource::<PromptState>().label(), Some("To: "));
     assert_eq!(
-        app.world().resource::<PromptState>().value(),
+        app.world().resource::<ActiveForm>().value("to").as_deref(),
         Some("Ada <ada@example.com>"),
-        "the To prompt prefills the contact"
+        "the headers form prefills the contact"
     );
     press(&mut app, KeyCode::Enter);
     let to = app

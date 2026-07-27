@@ -20,10 +20,9 @@ use nitidus::index::{IndexPlugin, IndexStatus};
 use nitidus::keymap::{InputMode, Keymaps, Mode};
 use nitidus::outbox::{OutboxDir, OutboxPlugin, OutboxState, SendDelay};
 use nitidus::overlay::OverlayPlugin;
+use nitidus::overlay::form::ActiveForm;
 use nitidus::pager::{PagerPlugin, PagerState};
-use nitidus::prompt::{PromptPlugin, PromptState};
 use nitidus::router::{RouterPlugin, route_key};
-use nitidus::screen::Screen;
 use nitidus::shell::Tabs;
 use nitidus::store::{MailStore, SyncTracker};
 use nitidus_mail::maildir::MaildirBackend;
@@ -110,7 +109,6 @@ fn reply_app(harness: &Harness, save_sent: bool) -> App {
         PagerPlugin,
         ComposePlugin,
         OutboxPlugin,
-        PromptPlugin,
         OverlayPlugin,
         EnginePlugin,
     ));
@@ -162,7 +160,7 @@ fn reply_from_pager_prefills_threads_and_skips_prompts() {
     open_in_pager(&mut app);
 
     press(&mut app, KeyCode::Char('r'));
-    assert_eq!(*app.world().resource::<Screen>(), Screen::Compose);
+    assert!(app.world().resource::<ComposeState>().is_active());
     let state = app.world().resource::<ComposeState>();
     let session = state.session().unwrap();
     assert_eq!(session.to, "Alice <alice@x.com>");
@@ -178,8 +176,8 @@ fn reply_from_pager_prefills_threads_and_skips_prompts() {
         session.body
     );
     assert!(
-        !app.world().resource::<PromptState>().is_open(),
-        "replies skip the prompts"
+        !app.world().resource::<ActiveForm>().is_open(),
+        "replies skip the headers form"
     );
 }
 
@@ -212,10 +210,9 @@ fn forward_prompts_for_to_with_inline_block() {
     open_in_pager(&mut app);
 
     press(&mut app, KeyCode::Char('f'));
-    assert_eq!(
-        app.world().resource::<PromptState>().label(),
-        Some("To: "),
-        "forward must prompt for the recipient"
+    assert!(
+        app.world().resource::<ActiveForm>().is_open(),
+        "forward must ask for the recipient"
     );
     for character in "dave@example.com".chars() {
         press(&mut app, KeyCode::Char(character));
@@ -339,7 +336,7 @@ fn forwarding_opens_the_inline_editor_after_the_to_prompt() {
     open_in_pager(&mut app);
 
     press(&mut app, KeyCode::Char('f'));
-    assert_eq!(app.world().resource::<PromptState>().label(), Some("To: "));
+    assert!(app.world().resource::<ActiveForm>().is_open());
     for character in "bob@x.com".chars() {
         press(&mut app, KeyCode::Char(character));
     }

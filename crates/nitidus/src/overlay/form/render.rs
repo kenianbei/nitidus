@@ -2,11 +2,12 @@
 //! these renderers only ever see the box they own — the frame draws
 //! beneath them, the controls on top.
 
+use nitidus_ui_kit::surface::{FrameChrome, draw_frame};
 use nitidus_ui_kit::theme::{Theme, ThemeColorStates, ThemeColors};
 use ratatui::layout::Rect;
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Clear, Paragraph};
+use ratatui::widgets::Paragraph;
 
 use super::geometry::{LABEL_WIDTH, value_area};
 use super::interaction::{Interaction, Visual};
@@ -32,11 +33,15 @@ pub(super) fn render_frame(
     area: Rect,
     view: &mut FrameView,
 ) -> bevy::prelude::Result {
-    frame.render_widget(Clear, area);
-    let block = Block::bordered()
-        .title(format!(" {} ", view.title))
-        .style(view.surface);
-    frame.render_widget(block, area);
+    draw_frame(
+        frame.buffer_mut(),
+        area,
+        FrameChrome {
+            title: &view.title,
+            hint: None,
+            style: view.surface,
+        },
+    );
     Ok(())
 }
 

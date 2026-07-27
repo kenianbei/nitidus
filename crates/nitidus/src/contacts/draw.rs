@@ -11,7 +11,6 @@ use ratatui_image::protocol::StatefulProtocol;
 
 use super::photo::PHOTO_ROWS;
 use super::render::{COLUMN_SHARES, ContactsWindow, DETAIL_LABEL_WIDTH, TABLE_PANE_PERCENT};
-use super::view::PaneFocus;
 
 pub(super) fn render_contacts(
     frame: &mut ratatui::Frame,
@@ -64,7 +63,7 @@ fn table_paragraph(state: &ContactsWindow, width: u16) -> Paragraph<'static> {
         .skip(state.table_top)
         .take(usize::from(state.table_height))
         .map(|row| {
-            let style = row_style(row.is_selected, state.focus == PaneFocus::Table, state);
+            let style = row_style(row.is_selected, !state.detail_focused, state);
             let cells: Vec<String> = row
                 .cells
                 .iter()
@@ -85,8 +84,7 @@ fn detail_paragraph(state: &ContactsWindow, width: u16) -> Paragraph<'static> {
         .skip(state.detail_top)
         .take(usize::from(state.detail_height))
         .map(|row| {
-            let selected_style =
-                row_style(row.is_selected, state.focus == PaneFocus::Detail, state);
+            let selected_style = row_style(row.is_selected, state.detail_focused, state);
             let label_style = if row.is_selected {
                 selected_style
             } else if row.is_modeled {

@@ -12,7 +12,7 @@ use ratatui::widgets::Paragraph;
 
 use super::{IndexOrder, IndexView, filter};
 use crate::keymap::{InputMode, Mode};
-use crate::status::StatusMessage;
+use crate::status::MessageLog;
 use crate::store::MailStore;
 
 #[derive(Resource, Default)]
@@ -126,7 +126,7 @@ fn repeat_search(world: &mut World, direction: isize) {
     let now = world.resource::<Time>().elapsed_secs_f64();
     let Some(query) = world.resource::<IndexView>().search.clone() else {
         return world
-            .resource_mut::<StatusMessage>()
+            .resource_mut::<MessageLog>()
             .info("no search (press /)".to_owned(), now);
     };
     let from_row = world.resource::<IndexView>().selected_row;
@@ -138,7 +138,7 @@ fn repeat_search(world: &mut World, direction: isize) {
     match find_match(world, &query, start, direction) {
         Some(row) => select_row(world, row),
         None => world
-            .resource_mut::<StatusMessage>()
+            .resource_mut::<MessageLog>()
             .info(format!("no match for {query}"), now),
     }
 }

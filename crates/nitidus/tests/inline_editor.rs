@@ -13,9 +13,8 @@ use nitidus::config::{Config, EditorKind, RawKeymaps};
 use nitidus::index::IndexPlugin;
 use nitidus::keymap::{InputMode, Keymaps, Mode};
 use nitidus::overlay::OverlayPlugin;
-use nitidus::prompt::{PromptPlugin, PromptState};
+use nitidus::overlay::form::ActiveForm;
 use nitidus::router::{RouterPlugin, route_key};
-use nitidus::screen::Screen;
 use nitidus::shell::Tabs;
 use nitidus::store::{MailStore, SyncTracker};
 use plurimus::{TachyonRegistry, UiEvent};
@@ -40,13 +39,7 @@ fn editor_app(compose_dir: &std::path::Path, kind: EditorKind) -> App {
     app.insert_resource(config);
     app.insert_resource(Keymaps::compile(&RawKeymaps::default()).unwrap());
     app.insert_resource(ComposeDir(compose_dir.to_path_buf()));
-    app.add_plugins((
-        RouterPlugin,
-        IndexPlugin,
-        ComposePlugin,
-        PromptPlugin,
-        OverlayPlugin,
-    ));
+    app.add_plugins((RouterPlugin, IndexPlugin, ComposePlugin, OverlayPlugin));
     app.update();
     app
 }
@@ -77,15 +70,12 @@ fn type_text(app: &mut App, text: &str) {
     }
 }
 
-/// Runs the To → Subject chain, which lands in the editor by default.
+/// Fills the headers form, which lands in the editor by default.
 fn compose_into_editor(app: &mut App) {
     press(app, KeyCode::Char('m'));
+    assert!(app.world().resource::<ActiveForm>().is_open());
     type_text(app, "bob@example.com");
-    press(app, KeyCode::Enter);
-    assert_eq!(
-        app.world().resource::<PromptState>().label(),
-        Some("Subject: ")
-    );
+    press(app, KeyCode::Tab);
     type_text(app, "hello");
     press(app, KeyCode::Enter);
 }
@@ -112,7 +102,7 @@ fn the_compose_chain_lands_in_the_inline_editor() {
 
     assert_eq!(app.world().resource::<Mode>().0, InputMode::Editor);
     assert!(app.world().resource::<InlineEditor>().is_active());
-    assert_eq!(*app.world().resource::<Screen>(), Screen::Compose);
+    assert!(app.world().resource::<ComposeState>().is_active());
 }
 
 #[test]

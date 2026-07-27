@@ -17,8 +17,9 @@ mod rows;
 pub use rows::{BindingRow, HelpRow};
 
 use defaults::{
-    DEFAULT_COMPOSE_BINDINGS, DEFAULT_CONTACTS_BINDINGS, DEFAULT_EDITOR_BINDINGS,
-    DEFAULT_FORM_BINDINGS, DEFAULT_GLOBAL_BINDINGS, DEFAULT_INDEX_BINDINGS, DEFAULT_PAGER_BINDINGS,
+    DEFAULT_COMPOSE_BINDINGS, DEFAULT_CONFIRM_BINDINGS, DEFAULT_CONTACTS_BINDINGS,
+    DEFAULT_EDITOR_BINDINGS, DEFAULT_EXPLORER_BINDINGS, DEFAULT_FORM_BINDINGS,
+    DEFAULT_GLOBAL_BINDINGS, DEFAULT_INDEX_BINDINGS, DEFAULT_LOG_BINDINGS, DEFAULT_PAGER_BINDINGS,
     DEFAULT_PICKER_BINDINGS, DEFAULT_SIDEBAR_BINDINGS,
 };
 
@@ -27,7 +28,6 @@ pub enum InputMode {
     #[default]
     Normal,
     CommandLine,
-    Prompt,
     Search,
     /// The inline body editor owns the keyboard.
     Editor,
@@ -44,6 +44,9 @@ pub const CONTEXT_INDEX: &str = "index";
 pub const CONTEXT_PAGER: &str = "pager";
 pub const CONTEXT_PICKER: &str = "picker";
 pub const CONTEXT_FORM: &str = "form";
+pub const CONTEXT_EXPLORER: &str = "explorer";
+pub const CONTEXT_CONFIRM: &str = "confirm";
+pub const CONTEXT_LOG: &str = "log";
 pub const CONTEXT_SIDEBAR: &str = "sidebar";
 pub const CONTEXT_COMPOSE: &str = "compose";
 pub const CONTEXT_CONTACTS: &str = "contacts";
@@ -57,6 +60,9 @@ pub const KNOWN_CONTEXTS: &[&str] = &[
     CONTEXT_PAGER,
     CONTEXT_PICKER,
     CONTEXT_FORM,
+    CONTEXT_EXPLORER,
+    CONTEXT_CONFIRM,
+    CONTEXT_LOG,
     CONTEXT_SIDEBAR,
     CONTEXT_COMPOSE,
     CONTEXT_CONTACTS,
@@ -102,6 +108,15 @@ impl Keymaps {
         }
         for (sequence, command) in DEFAULT_FORM_BINDINGS {
             keymaps.bind(CONTEXT_FORM, sequence, command)?;
+        }
+        for (sequence, command) in DEFAULT_EXPLORER_BINDINGS {
+            keymaps.bind(CONTEXT_EXPLORER, sequence, command)?;
+        }
+        for (sequence, command) in DEFAULT_CONFIRM_BINDINGS {
+            keymaps.bind(CONTEXT_CONFIRM, sequence, command)?;
+        }
+        for (sequence, command) in DEFAULT_LOG_BINDINGS {
+            keymaps.bind(CONTEXT_LOG, sequence, command)?;
         }
         for (sequence, command) in DEFAULT_SIDEBAR_BINDINGS {
             keymaps.bind(CONTEXT_SIDEBAR, sequence, command)?;

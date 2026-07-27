@@ -16,7 +16,7 @@ use nitidus::index::{IndexPlugin, IndexStatus, IndexView};
 use nitidus::overlay::OverlayPlugin;
 use nitidus::pager::PagerPlugin;
 use nitidus::sidebar::{RowKind, SidebarPlugin, SidebarRows, SidebarState};
-use nitidus::status::StatusMessage;
+use nitidus::status::MessageLog;
 use nitidus::store::{MailStore, SyncTracker};
 use nitidus_mail::maildir::MaildirBackend;
 use nitidus_mail::{AccountId, Flags, FolderId, MailCommand, MailEngine};
@@ -70,7 +70,7 @@ fn sidebar_app(root: &Path) -> App {
     });
     app.insert_resource(config);
     app.init_resource::<MailStore>();
-    app.init_resource::<StatusMessage>();
+    app.init_resource::<MessageLog>();
     app.insert_resource(EngineResource(engine));
     app.add_plugins((
         IndexPlugin,
@@ -157,7 +157,10 @@ fn selecting_a_folder_switches_the_index_and_syncs_lazily() {
         app.world_mut(),
         &Action::Sidebar(nitidus::action::SidebarOp::ToggleFocus),
     );
-    assert!(app.world().resource::<SidebarState>().focused);
+    assert!(nitidus::focus::is_focused(
+        app.world(),
+        nitidus::focus::Pane::Folders
+    ));
     apply_action(app.world_mut(), &Action::Cursor(Motion::Last));
     apply_action(app.world_mut(), &Action::View);
 
@@ -165,7 +168,7 @@ fn selecting_a_folder_switches_the_index_and_syncs_lazily() {
     let index_view = world.resource::<IndexView>();
     assert_eq!(index_view.folder, FolderId::new(".Work"));
     assert!(
-        !world.resource::<SidebarState>().focused,
+        !nitidus::focus::is_focused(world, nitidus::focus::Pane::Folders),
         "selecting a folder returns focus to the index"
     );
     assert!(
@@ -259,7 +262,7 @@ fn deleting_a_non_empty_folder_is_refused_with_a_warning() {
     apply_action(app.world_mut(), &Action::FolderDelete);
     assert!(
         wait_for(&mut app, |world| {
-            world.resource::<StatusMessage>().current().is_some()
+            world.resource::<MessageLog>().entries().len() > 0
         }),
         "refusal never surfaced a warning"
     );

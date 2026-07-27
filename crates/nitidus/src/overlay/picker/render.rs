@@ -1,11 +1,12 @@
 //! Picker panel rendering: a cleared, bordered floating block with a
 //! filter line and the ranked list, sized to fit within its layout rect.
 
+use nitidus_ui_kit::surface::{FrameChrome, draw_frame};
 use nitidus_ui_kit::theme::Theme;
 use ratatui::layout::Rect;
 use ratatui::style::Style;
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Clear, Paragraph};
+use ratatui::widgets::Paragraph;
 
 use super::PickerState;
 
@@ -98,12 +99,15 @@ pub(super) fn render_picker(
         height,
         ..area
     };
-    frame.render_widget(Clear, panel);
-    let block = Block::bordered()
-        .title(format!(" {} ", state.title))
-        .style(state.normal);
-    let inner = block.inner(panel);
-    frame.render_widget(block, panel);
+    let inner = draw_frame(
+        frame.buffer_mut(),
+        panel,
+        FrameChrome {
+            title: &state.title,
+            hint: None,
+            style: state.normal,
+        },
+    );
 
     let window = state.row_window(area);
     let mut lines = vec![Line::from(vec![

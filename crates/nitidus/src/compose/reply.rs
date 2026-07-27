@@ -9,8 +9,8 @@ use nitidus_mail::{AccountId, EnvelopeId, FolderId};
 
 use super::{ComposeSession, ComposeState, ReplySource, ops};
 use crate::config::account::AccountConfig;
-use crate::prompt::{PromptRequest, open_prompt};
-use crate::status::StatusMessage;
+const FORWARD_FIELD: &str = "to";
+use crate::status::MessageLog;
 
 const QUOTE_PREFIX: &str = "> ";
 const FORWARD_MARKER: &str = "---------- Forwarded message ----------";
@@ -201,7 +201,7 @@ fn reference_ids(message: &ParsedMessage) -> Vec<String> {
 }
 
 /// Builds and installs the session from raw message bytes; replies go
-/// straight to the editor, forward prompts for To first.
+/// straight to the editor, forward asks for To first.
 pub fn start_from_raw(
     world: &mut World,
     kind: ReplyKind,
@@ -210,7 +210,7 @@ pub fn start_from_raw(
 ) {
     if world.resource::<ComposeState>().is_active() {
         let now = world.resource::<Time>().elapsed_secs_f64();
-        world.resource_mut::<StatusMessage>().warn(
+        world.resource_mut::<MessageLog>().warn(
             "a message is already being composed (m resumes it)".to_owned(),
             now,
         );
@@ -225,7 +225,7 @@ pub fn start_from_raw(
         Err(error) => {
             let now = world.resource::<Time>().elapsed_secs_f64();
             world
-                .resource_mut::<StatusMessage>()
+                .resource_mut::<MessageLog>()
                 .warn(format!("reply: {error:#}"), now);
             return;
         }
@@ -236,7 +236,7 @@ pub fn start_from_raw(
         Err(error) => {
             let now = world.resource::<Time>().elapsed_secs_f64();
             world
-                .resource_mut::<StatusMessage>()
+                .resource_mut::<MessageLog>()
                 .warn(format!("reply: {error:#}"), now);
             return;
         }
@@ -255,16 +255,21 @@ pub fn start_from_raw(
     }
     world.resource_mut::<ComposeState>().0 = Some(session);
     if kind == ReplyKind::Forward {
-        let request = PromptRequest::new(
-            "To: ",
-            Box::new(|world, value| {
-                if let Some(session) = world.resource_mut::<ComposeState>().0.as_mut() {
-                    session.to = value;
-                }
-                ops::edit_body(world);
-            }),
+        let field = ops::address_field(world, FORWARD_FIELD, "To");
+        crate::overlay::form::open_form(
+            world,
+            crate::overlay::form::FormSpec::new(
+                "Forward to",
+                "Write",
+                vec![field],
+                Box::new(|world, values| {
+                    if let Some(session) = world.resource_mut::<ComposeState>().0.as_mut() {
+                        session.to = values.get(FORWARD_FIELD).to_owned();
+                    }
+                    ops::edit_body(world);
+                }),
+            ),
         );
-        open_prompt(world, request);
     } else {
         ops::edit_body(world);
     }

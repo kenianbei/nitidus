@@ -19,10 +19,9 @@ use nitidus::index::{IndexPlugin, IndexStatus, IndexView};
 use nitidus::keymap::Keymaps;
 use nitidus::outbox::{OutboxDir, OutboxPlugin, SendDelay};
 use nitidus::overlay::OverlayPlugin;
+use nitidus::overlay::form::ActiveForm;
 use nitidus::pager::PagerPlugin;
-use nitidus::prompt::{PromptPlugin, PromptState};
 use nitidus::router::{RouterPlugin, route_key};
-use nitidus::screen::Screen;
 use nitidus::shell::Tabs;
 use nitidus::store::{MailStore, SyncTracker};
 use nitidus_mail::maildir::MaildirBackend;
@@ -107,7 +106,6 @@ fn drafts_app(harness: &Harness) -> App {
         PagerPlugin,
         ComposePlugin,
         OutboxPlugin,
-        PromptPlugin,
         OverlayPlugin,
         EnginePlugin,
     ));
@@ -145,11 +143,14 @@ fn wait_for(app: &mut App, mut is_done: impl FnMut(&World) -> bool) -> bool {
 fn stage_with_attachment(app: &mut App, harness: &Harness) {
     press(app, KeyCode::Char('m'));
     type_text(app, "bob@example.com");
-    press(app, KeyCode::Enter);
+    press(app, KeyCode::Tab);
     type_text(app, "draft test");
     press(app, KeyCode::Enter);
     press(app, KeyCode::Char('b'));
-    assert_eq!(app.world().resource::<PromptState>().label(), Some("Bcc: "));
+    assert!(
+        app.world().resource::<ActiveForm>().is_open(),
+        "b must open the Bcc form"
+    );
     type_text(app, "secret@example.com");
     press(app, KeyCode::Enter);
     press(app, KeyCode::Char('a'));
@@ -251,7 +252,7 @@ fn crash_recovery_restores_the_session_from_the_sidecar() {
     assert_eq!(session.bcc, "secret@example.com");
     assert_eq!(session.subject, "draft test");
     assert_eq!(session.attachments.len(), 1);
-    assert_eq!(*app.world().resource::<Screen>(), Screen::Compose);
+    assert!(app.world().resource::<ComposeState>().is_active());
 }
 
 #[test]
@@ -260,21 +261,26 @@ fn empty_subject_warning_gates_send_and_decline_keeps_review() {
     let mut app = drafts_app(&harness);
     press(&mut app, KeyCode::Char('m'));
     type_text(&mut app, "bob@example.com");
-    press(&mut app, KeyCode::Enter);
-    press(&mut app, KeyCode::Enter); // empty subject
+    press(&mut app, KeyCode::Enter); // subject left empty
 
     press(&mut app, KeyCode::Char('y'));
-    assert_eq!(
-        app.world().resource::<PromptState>().label(),
-        Some("Send without a subject? (y/n): ")
+    let question = app
+        .world()
+        .resource::<nitidus::overlay::confirm::ActiveConfirm>()
+        .question()
+        .map(str::to_owned);
+    assert!(
+        question
+            .as_deref()
+            .is_some_and(|text| text.contains("subject")),
+        "sending without a subject must ask about it, got {question:?}"
     );
     press(&mut app, KeyCode::Char('n'));
-    press(&mut app, KeyCode::Enter);
     assert!(
         app.world().resource::<ComposeState>().is_active(),
         "declining must keep the session"
     );
-    assert_eq!(*app.world().resource::<Screen>(), Screen::Compose);
+    assert!(app.world().resource::<ComposeState>().is_active());
 }
 
 #[test]
@@ -292,17 +298,23 @@ fn forgotten_attachment_warning_fires_on_unquoted_mentions() {
     app.insert_resource(EditorCommand(script.display().to_string()));
     press(&mut app, KeyCode::Char('m'));
     type_text(&mut app, "bob@example.com");
-    press(&mut app, KeyCode::Enter);
+    press(&mut app, KeyCode::Tab);
     type_text(&mut app, "has subject");
     press(&mut app, KeyCode::Enter);
 
     press(&mut app, KeyCode::Char('y'));
-    assert_eq!(
-        app.world().resource::<PromptState>().label(),
-        Some("No attachment — send anyway? (y/n): ")
+    let question = app
+        .world()
+        .resource::<nitidus::overlay::confirm::ActiveConfirm>()
+        .question()
+        .map(str::to_owned);
+    assert!(
+        question
+            .as_deref()
+            .is_some_and(|text| text.contains("attachment")),
+        "a body mentioning an attachment must ask, got {question:?}"
     );
     press(&mut app, KeyCode::Char('y'));
-    press(&mut app, KeyCode::Enter);
     assert!(
         !app.world().resource::<ComposeState>().is_active(),
         "accepting must queue the send"

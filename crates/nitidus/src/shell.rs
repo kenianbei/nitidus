@@ -17,8 +17,7 @@ use crate::engine::EngineStatus;
 use crate::index::IndexStatus;
 use crate::pager::PagerStatus;
 use crate::router::PendingKeys;
-use crate::screen::{MailScreenMemory, Screen};
-use crate::status::{Severity, StatusMessage};
+use crate::status::MessageLog;
 
 pub const MAIL_TAB: &str = "mail";
 pub const CONTACTS_TAB: &str = "contacts";
@@ -28,8 +27,7 @@ pub struct ShellPlugin;
 impl Plugin for ShellPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Tabs>();
-        app.init_resource::<MailScreenMemory>();
-        app.init_resource::<StatusMessage>();
+        app.init_resource::<MessageLog>();
         app.init_resource::<IndexStatus>();
         app.init_resource::<ContactsStatus>();
         app.init_resource::<PagerStatus>();
@@ -68,22 +66,24 @@ impl Tabs {
     pub fn position_of(&self, label: &str) -> Option<usize> {
         self.labels.iter().position(|candidate| candidate == label)
     }
+
+    pub fn is_contacts(&self) -> bool {
+        self.active_label() == CONTACTS_TAB
+    }
 }
 
-/// Rotates tabs and drives `Screen` to the new tab's owner.
+/// Which tab owns the content region. Everything that used to ask
+/// `Screen` asks this or `ComposeState::is_active` instead.
+pub fn on_contacts(world: &World) -> bool {
+    world.get_resource::<Tabs>().is_some_and(Tabs::is_contacts)
+}
+
 pub fn switch_tab(world: &mut World, delta: isize) {
-    if refuse_while_composing(world) {
-        return;
-    }
     world.resource_mut::<Tabs>().rotate(delta);
     apply_active_tab(world);
 }
 
-/// Jumps to a named tab (`:contacts`) from anywhere but the composer.
 pub fn activate_tab(world: &mut World, label: &str) {
-    if refuse_while_composing(world) {
-        return;
-    }
     let Some(position) = world.resource::<Tabs>().position_of(label) else {
         return;
     };
@@ -93,9 +93,6 @@ pub fn activate_tab(world: &mut World, label: &str) {
 
 /// `1`/`2`/`:tab <n>` — positional jump, 1-based.
 pub fn jump_tab(world: &mut World, position: usize) {
-    if refuse_while_composing(world) {
-        return;
-    }
     let count = world.resource::<Tabs>().labels.len();
     if position == 0 || position > count {
         return;
@@ -104,29 +101,11 @@ pub fn jump_tab(world: &mut World, position: usize) {
     apply_active_tab(world);
 }
 
-/// The composer stays modal until sent, postponed, or discarded —
-/// tabbing away would orphan an open editing session.
-fn refuse_while_composing(world: &mut World) -> bool {
-    if *world.resource::<Screen>() != Screen::Compose {
-        return false;
-    }
-    let now = world.resource::<Time>().elapsed_secs_f64();
-    world.resource_mut::<StatusMessage>().warn(
-        "finish or discard the composition before switching tabs".to_owned(),
-        now,
-    );
-    true
-}
-
+/// Leaving the mail tab parks its focus on the message list, so coming
+/// back never lands on a pane that is no longer on screen.
 fn apply_active_tab(world: &mut World) {
-    let label = world.resource::<Tabs>().active_label().to_owned();
-    let current = *world.resource::<Screen>();
-    if label == CONTACTS_TAB && current != Screen::Contacts {
-        world.resource_mut::<MailScreenMemory>().0 = current;
-        world.resource_mut::<crate::sidebar::SidebarState>().focused = false;
-        *world.resource_mut::<Screen>() = Screen::Contacts;
-    } else if label == MAIL_TAB && current == Screen::Contacts {
-        *world.resource_mut::<Screen>() = world.resource::<MailScreenMemory>().0;
+    if world.resource::<Tabs>().is_contacts() {
+        crate::focus::focus(world, crate::focus::Pane::Messages);
     }
 }
 
@@ -252,7 +231,7 @@ struct StatuslineInputs<'w> {
     theme: Res<'w, Theme>,
     tabs: Res<'w, Tabs>,
     pending: Res<'w, PendingKeys>,
-    status: Res<'w, StatusMessage>,
+    status: Res<'w, MessageLog>,
     engine_status: Res<'w, EngineStatus>,
     index_status: Res<'w, IndexStatus>,
     contacts_status: Res<'w, ContactsStatus>,
@@ -334,18 +313,12 @@ fn left_segment(inputs: &StatuslineInputs<'_>) -> String {
 
 fn center_segment(
     pending: &PendingKeys,
-    status: &StatusMessage,
+    status: &MessageLog,
     pager_status: &PagerStatus,
     theme: &Theme,
 ) -> (String, Style) {
-    if let Some((text, severity)) = status.current() {
-        let palette = &theme.paper;
-        let style = match severity {
-            Severity::Info => palette.info.normal.style(),
-            Severity::Warning => palette.warning.normal.style(),
-            Severity::Error => palette.error.normal.style(),
-        };
-        return (text.to_owned(), style);
+    if let Some(text) = status.current() {
+        return (text.to_owned(), theme.paper.info.normal.style());
     }
     if let Some(hint) = pending.hint() {
         return (hint, theme.paper.default.focused.style());
@@ -450,34 +423,28 @@ mod tests {
         let mut app = App::new();
         app.add_plugins(MinimalPlugins);
         app.init_resource::<Tabs>();
-        app.init_resource::<Screen>();
-        app.init_resource::<MailScreenMemory>();
-        app.init_resource::<StatusMessage>();
+        app.init_resource::<MessageLog>();
         app.init_resource::<crate::sidebar::SidebarState>();
+        app.init_resource::<crate::focus::PaneFocus>();
         app.update();
         app
     }
 
     #[test]
-    fn tab_switch_drives_screen_and_restores_the_mail_screen() {
+    fn switching_tabs_parks_the_mail_focus_on_the_message_list() {
         let mut app = tab_switch_app();
         let world = app.world_mut();
-        *world.resource_mut::<Screen>() = Screen::Pager;
-        world.resource_mut::<crate::sidebar::SidebarState>().focused = true;
+        crate::focus::focus(world, crate::focus::Pane::Folders);
 
         switch_tab(world, 1);
-        assert_eq!(*world.resource::<Screen>(), Screen::Contacts);
+        assert!(world.resource::<Tabs>().is_contacts());
         assert!(
-            !world.resource::<crate::sidebar::SidebarState>().focused,
+            !crate::focus::is_focused(world, crate::focus::Pane::Folders),
             "the mail sidebar must lose focus when leaving the mail tab"
         );
 
         switch_tab(world, 1);
-        assert_eq!(
-            *world.resource::<Screen>(),
-            Screen::Pager,
-            "returning to the mail tab must restore the screen it left"
-        );
+        assert!(!world.resource::<Tabs>().is_contacts());
     }
 
     #[test]
@@ -485,24 +452,24 @@ mod tests {
         let mut app = tab_switch_app();
         let world = app.world_mut();
         activate_tab(world, CONTACTS_TAB);
-        assert_eq!(*world.resource::<Screen>(), Screen::Contacts);
+        assert!(world.resource::<Tabs>().is_contacts());
         assert_eq!(world.resource::<Tabs>().active_label(), CONTACTS_TAB);
         activate_tab(world, "no-such-tab");
         assert_eq!(world.resource::<Tabs>().active_label(), CONTACTS_TAB);
     }
 
+    /// Tabbing away used to be refused outright. Drafts survive the
+    /// switch through postpone and recall, so the guard cost more than
+    /// it protected.
     #[test]
-    fn composing_refuses_tab_switches_with_a_notice() {
+    fn tabbing_away_mid_composition_is_allowed() {
         let mut app = tab_switch_app();
         let world = app.world_mut();
-        *world.resource_mut::<Screen>() = Screen::Compose;
+        world.init_resource::<crate::compose::ComposeState>();
+
         switch_tab(world, 1);
-        assert_eq!(*world.resource::<Screen>(), Screen::Compose);
-        assert_eq!(world.resource::<Tabs>().active, 0);
-        assert!(
-            world.resource::<StatusMessage>().current().is_some(),
-            "refusal must be explained in the statusline"
-        );
+
+        assert!(world.resource::<Tabs>().is_contacts());
     }
 
     #[test]

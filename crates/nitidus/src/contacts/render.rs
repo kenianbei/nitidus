@@ -2,16 +2,18 @@
 //! org) beside a detail pane, one widget owning the whole content
 //! region. Viewport heights feed back through the widget state.
 
+use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 use nitidus_ui_kit::theme::Theme;
 use plurimus::Widget;
 use ratatui::style::{Modifier, Style};
 
 use super::photo::{self, PhotoCell, PhotoPicker};
-use super::view::{ContactsView, PaneFocus};
+use super::view::ContactsView;
 use super::{ContactStore, ContactsStatus, ContactsWidget, detail};
+use crate::focus::{Pane, PaneFocus};
 use crate::index::scrolled_top;
-use crate::screen::Screen;
+use crate::shell::Tabs;
 
 pub(super) const TABLE_PANE_PERCENT: u16 = 45;
 pub(super) const DETAIL_LABEL_WIDTH: usize = 18;
@@ -24,7 +26,7 @@ pub(super) struct ContactsWindow {
     pub(super) table_rows: Vec<TableRow>,
     pub(super) detail_rows: Vec<DetailLine>,
     pub(super) empty_message: Option<String>,
-    pub(super) focus: PaneFocus,
+    pub(super) detail_focused: bool,
     pub(super) table_top: usize,
     pub(super) detail_top: usize,
     pub(super) styles: PaneStyles,
@@ -56,18 +58,30 @@ pub(super) struct PaneStyles {
     pub(super) dim: Style,
 }
 
+/// The presentation context every contact-book frame reads: how to
+/// paint, whether the tab is on screen, and which pane holds focus.
+#[derive(SystemParam)]
+pub(super) struct Chrome<'w> {
+    theme: Res<'w, Theme>,
+    tabs: Res<'w, Tabs>,
+    focus: Res<'w, PaneFocus>,
+}
+
+impl Chrome<'_> {
+    fn is_changed(&self) -> bool {
+        self.theme.is_changed() || self.tabs.is_changed() || self.focus.is_changed()
+    }
+}
+
 pub(super) fn refresh_contacts(
-    theme: Res<Theme>,
-    screen: Res<Screen>,
+    chrome: Chrome,
     store: Res<ContactStore>,
     picker: Option<Res<PhotoPicker>>,
     mut view: ResMut<ContactsView>,
     mut status: ResMut<ContactsStatus>,
     mut widgets: Query<&mut Widget, With<ContactsWidget>>,
 ) -> Result {
-    let changed =
-        theme.is_changed() || screen.is_changed() || store.is_changed() || view.is_changed();
-    if !changed {
+    if !(chrome.is_changed() || store.is_changed() || view.is_changed()) {
         return Ok(());
     }
     let Ok(mut widget) = widgets.single_mut() else {
@@ -88,9 +102,10 @@ pub(super) fn refresh_contacts(
         cached.detail_selected,
         cached.detail_viewport,
     );
-    let mut window = build_window(&theme, &store, cached);
+    let detail_focused = chrome.focus.is(Pane::ContactDetail);
+    let mut window = build_window(&chrome.theme, &store, cached, detail_focused);
     window.photo = current_photo(&picker, &store, cached, previous_photo.as_ref());
-    window.active = *screen == Screen::Contacts;
+    window.active = chrome.tabs.is_contacts();
     window.table_height = table_height;
     window.detail_height = detail_height;
     widget.set_state(window)?;
@@ -119,7 +134,12 @@ fn clamp_selection(view: &mut ContactsView, store: &ContactStore) {
     view.detail_selected = view.detail_selected.min(detail_last);
 }
 
-fn build_window(theme: &Theme, store: &ContactStore, view: &ContactsView) -> ContactsWindow {
+fn build_window(
+    theme: &Theme,
+    store: &ContactStore,
+    view: &ContactsView,
+    detail_focused: bool,
+) -> ContactsWindow {
     let states = &theme.base.default;
     let styles = PaneStyles {
         normal: states.normal.style(),
@@ -163,7 +183,7 @@ fn build_window(theme: &Theme, store: &ContactStore, view: &ContactsView) -> Con
         table_rows,
         detail_rows,
         empty_message,
-        focus: view.focus,
+        detail_focused,
         table_top: view.table_top,
         detail_top: view.detail_top,
         styles,

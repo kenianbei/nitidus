@@ -10,8 +10,7 @@ use nitidus_mail::{AccountId, EnvelopeId, FolderId};
 use serde::{Deserialize, Serialize};
 
 use super::{ComposeSession, ComposeStage, ComposeState, ReplySource};
-use crate::screen::Screen;
-use crate::status::StatusMessage;
+use crate::status::MessageLog;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct SessionMeta {
@@ -145,7 +144,7 @@ pub(super) fn notice_orphans(world: &mut World) {
     let count = orphans(&directory).len();
     if count > 0 {
         let now = world.resource::<Time>().elapsed_secs_f64();
-        world.resource_mut::<StatusMessage>().info(
+        world.resource_mut::<MessageLog>().info(
             format!("{count} unfinished draft(s) — :recover restores the newest"),
             now,
         );
@@ -156,7 +155,7 @@ pub(super) fn notice_orphans(world: &mut World) {
 pub fn recover(world: &mut World) {
     let now = world.resource::<Time>().elapsed_secs_f64();
     if world.resource::<ComposeState>().is_active() {
-        world.resource_mut::<StatusMessage>().warn(
+        world.resource_mut::<MessageLog>().warn(
             "a message is already being composed (m resumes it)".to_owned(),
             now,
         );
@@ -167,7 +166,7 @@ pub fn recover(world: &mut World) {
     };
     let Some(meta_path) = orphans(&directory).into_iter().next() else {
         world
-            .resource_mut::<StatusMessage>()
+            .resource_mut::<MessageLog>()
             .info("no unfinished drafts to recover".to_owned(), now);
         return;
     };
@@ -178,14 +177,13 @@ pub fn recover(world: &mut World) {
         Ok(meta) => {
             let session = meta.into_session(meta_path.with_extension("md"));
             world.resource_mut::<ComposeState>().0 = Some(session);
-            *world.resource_mut::<Screen>() = Screen::Compose;
             world
-                .resource_mut::<StatusMessage>()
+                .resource_mut::<MessageLog>()
                 .info("draft recovered — back to review".to_owned(), now);
         }
         Err(error) => {
             world
-                .resource_mut::<StatusMessage>()
+                .resource_mut::<MessageLog>()
                 .warn(format!("recover {}: {error:#}", meta_path.display()), now);
         }
     }

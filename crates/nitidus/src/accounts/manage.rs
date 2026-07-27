@@ -11,8 +11,7 @@ use crate::config::Config;
 use crate::engine::{CacheResource, EngineResource};
 use crate::index::IndexView;
 use crate::overlay::{PickerItem, PickerSpec, open_picker};
-use crate::prompt::{PromptRequest, open_prompt};
-use crate::status::StatusMessage;
+use crate::status::MessageLog;
 use crate::store::{MailStore, SyncTracker};
 
 pub fn edit_account(world: &mut World) {
@@ -23,16 +22,17 @@ pub fn edit_account(world: &mut World) {
 
 pub fn remove_account(world: &mut World) {
     pick_account(world, "remove account", |world, name| {
-        let label = format!("Remove account {name}? (y/n): ");
-        let request = PromptRequest::new(
-            label,
-            Box::new(move |world, answer| {
-                if matches!(answer.trim().to_ascii_lowercase().as_str(), "y" | "yes") {
-                    perform_removal(world, &name);
-                }
-            }),
+        let detail = name.clone();
+        crate::overlay::open_confirm(
+            world,
+            crate::overlay::ConfirmSpec::new(
+                "Remove account",
+                "Remove this account?",
+                "Remove",
+                Box::new(move |world| perform_removal(world, &name)),
+            )
+            .with_detail(vec![detail]),
         );
-        open_prompt(world, request);
     });
 }
 
@@ -49,7 +49,7 @@ fn pick_account(
         .collect();
     if names.is_empty() {
         let now = world.resource::<Time>().elapsed_secs_f64();
-        world.resource_mut::<StatusMessage>().info(
+        world.resource_mut::<MessageLog>().info(
             "no accounts configured — :new-account adds one".to_owned(),
             now,
         );
@@ -84,7 +84,7 @@ fn perform_removal(world: &mut World, name: &str) {
     let now = world.resource::<Time>().elapsed_secs_f64();
     if let Err(error) = removed {
         world
-            .resource_mut::<StatusMessage>()
+            .resource_mut::<MessageLog>()
             .warn(format!("remove-account: {error:#}"), now);
         return;
     }
@@ -94,7 +94,7 @@ fn perform_removal(world: &mut World, name: &str) {
         .retain(|account| account.name != name);
     detach_runtime(world, name);
     fall_back_active(world, name);
-    world.resource_mut::<StatusMessage>().info(
+    world.resource_mut::<MessageLog>().info(
         format!("account {name} removed (its keyring secrets were kept)"),
         now,
     );
@@ -145,8 +145,6 @@ mod tests {
     use crate::config::keyring::use_mock_keyring;
     use crate::keymap::Mode;
     use crate::overlay::ActiveOverlay;
-    use crate::prompt::PromptState;
-    use crate::screen::Screen;
 
     struct Harness {
         app: App,
@@ -174,11 +172,11 @@ mod tests {
         let mut app = App::new();
         app.add_plugins(MinimalPlugins);
         app.init_resource::<Mode>();
-        app.init_resource::<PromptState>();
-        app.init_resource::<StatusMessage>();
+        app.init_resource::<MessageLog>();
         app.init_resource::<ActiveOverlay>();
+        app.init_resource::<crate::overlay::surface::OverlayStack>();
         app.init_resource::<crate::overlay::form::ActiveForm>();
-        app.init_resource::<Screen>();
+        app.init_resource::<crate::overlay::confirm::ActiveConfirm>();
         app.insert_resource(
             crate::keymap::Keymaps::compile(&crate::config::RawKeymaps::default()).unwrap(),
         );
@@ -195,19 +193,16 @@ mod tests {
         }
     }
 
-    fn type_submit(app: &mut App, text: &str) {
-        for character in text.chars() {
-            crate::prompt::handle_key(app.world_mut(), KeyEvent::from(KeyCode::Char(character)))
-                .unwrap();
-        }
-        crate::prompt::handle_key(app.world_mut(), KeyEvent::from(KeyCode::Enter)).unwrap();
+    fn answer(app: &mut App, key: char) {
+        crate::overlay::confirm::handle_key(app.world_mut(), KeyEvent::from(KeyCode::Char(key)))
+            .unwrap();
     }
 
     fn pick(app: &mut App, index: usize) {
         for _ in 0..index {
             crate::overlay::move_selection(app.world_mut(), crate::action::Motion::Next);
         }
-        crate::overlay::confirm(app.world_mut());
+        crate::overlay::picker::confirm(app.world_mut());
     }
 
     #[test]
@@ -219,12 +214,11 @@ mod tests {
             harness
                 .app
                 .world()
-                .resource::<PromptState>()
-                .label()
-                .unwrap()
-                .contains("Remove account alpha?")
+                .resource::<crate::overlay::confirm::ActiveConfirm>()
+                .is_open(),
+            "removing an account must ask first"
         );
-        type_submit(&mut harness.app, "y");
+        answer(&mut harness.app, 'y');
 
         let content = std::fs::read_to_string(&harness.config_path).unwrap();
         assert!(!content.contains("alpha"), "{content}");
@@ -244,7 +238,7 @@ mod tests {
         let mut harness = harness(&["solo"]);
         remove_account(harness.app.world_mut());
         pick(&mut harness.app, 0);
-        type_submit(&mut harness.app, "n");
+        answer(&mut harness.app, 'n');
         assert_eq!(harness.app.world().resource::<Config>().accounts.len(), 1);
         assert!(
             std::fs::read_to_string(&harness.config_path)

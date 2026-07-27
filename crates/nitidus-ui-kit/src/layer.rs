@@ -8,6 +8,11 @@
 /// Screen content: the index, pager, sidebar, compose review.
 pub const BASE: i32 = 0;
 
+/// A base pane drawn over its neighbours: the reading overlay. Still
+/// screen content, so every panel and overlay covers it in turn — a
+/// picker opened from the reading pane has to stay visible.
+pub const ZOOM: i32 = 10;
+
 /// Attached to a base surface and dismissed with it: completion panels
 /// above the command line and the prompt.
 pub const PANEL: i32 = 90;
@@ -30,7 +35,7 @@ mod tests {
 
     #[test]
     fn ladder_ascends() {
-        let rungs = [BASE, PANEL, OVERLAY, MODAL, TOAST];
+        let rungs = [BASE, ZOOM, PANEL, OVERLAY, MODAL, TOAST];
         for pair in rungs.windows(2) {
             assert!(
                 pair[0] < pair[1],

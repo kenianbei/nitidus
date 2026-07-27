@@ -11,8 +11,7 @@ use bevy::prelude::*;
 use bevy_ratatui::RatatuiContext;
 
 use super::{ComposeStage, ComposeState};
-use crate::screen::Screen;
-use crate::status::StatusMessage;
+use crate::status::MessageLog;
 
 const FALLBACK_EDITOR: &str = "vi";
 
@@ -41,11 +40,10 @@ pub(super) fn edit_body(world: &mut World) {
             session.stage = ComposeStage::Review;
         }
     }
-    *world.resource_mut::<Screen>() = Screen::Compose;
     if let Err(error) = outcome {
         let now = world.resource::<Time>().elapsed_secs_f64();
         world
-            .resource_mut::<StatusMessage>()
+            .resource_mut::<MessageLog>()
             .warn(format!("editor: {error}"), now);
     }
 }

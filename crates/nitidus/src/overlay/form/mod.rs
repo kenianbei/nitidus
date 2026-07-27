@@ -18,6 +18,7 @@ mod field;
 mod geometry;
 mod interaction;
 mod mouse;
+mod panel;
 mod render;
 mod spec;
 mod state;
@@ -38,6 +39,7 @@ pub struct FormPlugin;
 impl Plugin for FormPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<ActiveForm>();
+        app.init_resource::<crate::overlay::surface::OverlayStack>();
         // Idempotent with PlurimusUiPlugin's registration; keeps this
         // plugin usable in headless test apps.
         app.add_message::<UiFocusMessage>();
@@ -47,6 +49,7 @@ impl Plugin for FormPlugin {
                 entity::sync_form_entities,
                 entity::mirror_focus,
                 entity::refresh_form,
+                panel::refresh_panel,
                 interaction::sync_interaction,
             )
                 .chain(),
@@ -102,6 +105,7 @@ impl ActiveForm {
 
 pub fn open_form(world: &mut World, spec: FormSpec) {
     world.resource_mut::<ActiveForm>().0 = Some(FormState::new(spec));
+    super::surface::raise(world, super::surface::Surface::Form);
 }
 
 /// Runs `on_cancel` and closes. Safe to call when nothing is open.
@@ -169,6 +173,12 @@ fn primary(world: &mut World) {
     }
 }
 
+fn cycle_candidate(world: &mut World, forward: bool) {
+    if let Some(state) = world.resource_mut::<ActiveForm>().state_mut() {
+        state.cycle_candidate(forward);
+    }
+}
+
 fn next_page(world: &mut World) {
     if let Some(state) = world.resource_mut::<ActiveForm>().state_mut() {
         state.next_page();
@@ -195,6 +205,8 @@ pub fn dispatch(world: &mut World, op: FormOp) {
         FormOp::Cancel => cancel(world),
         FormOp::Left => move_cursor(world, Cursor::Left),
         FormOp::Right => move_cursor(world, Cursor::Right),
+        FormOp::CompleteNext => cycle_candidate(world, true),
+        FormOp::CompletePrev => cycle_candidate(world, false),
         FormOp::NextPage => next_page(world),
         FormOp::PrevPage => prev_page(world),
     }

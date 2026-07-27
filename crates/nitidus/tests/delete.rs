@@ -18,9 +18,7 @@ use nitidus::index::{IndexPlugin, IndexStatus, IndexView};
 use nitidus::keymap::Keymaps;
 use nitidus::overlay::OverlayPlugin;
 use nitidus::pager::{PagerPlugin, PagerState};
-use nitidus::prompt::{PromptPlugin, PromptState};
 use nitidus::router::{RouterPlugin, route_key};
-use nitidus::screen::Screen;
 use nitidus::shell::Tabs;
 use nitidus::store::{MailStore, SyncTracker};
 use nitidus_mail::maildir::MaildirBackend;
@@ -93,7 +91,6 @@ fn harness() -> Harness {
         RouterPlugin,
         IndexPlugin,
         PagerPlugin,
-        PromptPlugin,
         OverlayPlugin,
         EnginePlugin,
     ));
@@ -201,12 +198,15 @@ fn delete_inside_trash_confirms_and_declining_keeps() {
 
     switch_folder(&mut harness.app, ".Trash", 1);
     press(&mut harness.app, KeyCode::Char('d'));
-    assert_eq!(
-        harness.app.world().resource::<PromptState>().label(),
-        Some("Delete permanently? (y/n): ")
+    assert!(
+        harness
+            .app
+            .world()
+            .resource::<nitidus::overlay::confirm::ActiveConfirm>()
+            .is_open(),
+        "a permanent delete inside the trash must ask first"
     );
-    type_text(&mut harness.app, "n");
-    press(&mut harness.app, KeyCode::Enter);
+    press(&mut harness.app, KeyCode::Char('n'));
     std::thread::sleep(Duration::from_millis(50));
     harness.app.update();
     assert_eq!(file_count(&harness.mail_root, ".Trash"), 1, "decline keeps");
@@ -403,12 +403,17 @@ fn batch_permanent_delete_confirms_with_the_count() {
     press(&mut harness.app, KeyCode::Char(' '));
     press(&mut harness.app, KeyCode::Char(' '));
     press(&mut harness.app, KeyCode::Char('D'));
-    assert_eq!(
-        harness.app.world().resource::<PromptState>().label(),
-        Some("Delete 2 permanently? (y/n): ")
+    let question = harness
+        .app
+        .world()
+        .resource::<nitidus::overlay::confirm::ActiveConfirm>()
+        .question()
+        .map(str::to_owned);
+    assert!(
+        question.as_deref().is_some_and(|text| text.contains('2')),
+        "the question must name how many are going, got {question:?}"
     );
-    type_text(&mut harness.app, "y");
-    press(&mut harness.app, KeyCode::Enter);
+    press(&mut harness.app, KeyCode::Char('y'));
     assert!(
         wait_for(&mut harness.app, |_| file_count(&harness.mail_root, "")
             == 0),
@@ -539,7 +544,6 @@ fn pager_delete_with_advance_off_closes_and_trashes() {
         "the open message never reached trash"
     );
     assert!(!harness.app.world().resource::<PagerState>().is_open());
-    assert_eq!(*harness.app.world().resource::<Screen>(), Screen::Index);
 }
 
 #[test]
@@ -563,12 +567,15 @@ fn pager_delete_advances_to_the_next_message_and_closes_on_the_last() {
         }),
         "the pager never advanced to the next message"
     );
-    assert_eq!(*harness.app.world().resource::<Screen>(), Screen::Pager);
+    assert!(nitidus::focus::is_focused(
+        harness.app.world(),
+        nitidus::focus::Pane::Reading
+    ));
 
     press(&mut harness.app, KeyCode::Char('d'));
     assert!(
         wait_for(&mut harness.app, |world| {
-            *world.resource::<Screen>() == Screen::Index
+            !world.resource::<PagerState>().is_open()
         }),
         "deleting the last message must fall back to closing"
     );
@@ -576,17 +583,9 @@ fn pager_delete_advances_to_the_next_message_and_closes_on_the_last() {
 }
 
 #[test]
-fn peek_delay_marks_read_only_after_the_delay() {
+fn mark_read_open_flags_the_message_once_its_fetch_lands() {
     let mut harness = harness();
     wait_inbox(&mut harness.app, 2);
-    harness
-        .app
-        .world_mut()
-        .resource_mut::<Config>()
-        .ui
-        .pager
-        .mark_read = nitidus::config::MarkRead::After(Duration::from_millis(50));
-
     let first = harness
         .app
         .world()
@@ -594,24 +593,26 @@ fn peek_delay_marks_read_only_after_the_delay() {
         .selected
         .clone()
         .unwrap();
-    open_pager(&mut harness.app);
     assert!(
         !inbox_flags(harness.app.world(), &first)
             .unwrap()
             .contains(nitidus_mail::Flags::SEEN),
-        "peek must not mark read on open"
+        "setup: the message starts unread"
     );
+
+    open_pager(&mut harness.app);
+
     assert!(
         wait_for(&mut harness.app, |world| {
             inbox_flags(world, &first)
                 .is_some_and(|flags| flags.contains(nitidus_mail::Flags::SEEN))
         }),
-        "the peek timer never marked the message read"
+        "a message that arrived in the reading pane must be marked read"
     );
 }
 
 #[test]
-fn closing_before_the_peek_delay_leaves_the_message_unread() {
+fn mark_read_never_leaves_the_message_unread_in_the_pane_and_zoomed() {
     let mut harness = harness();
     wait_inbox(&mut harness.app, 2);
     harness
@@ -620,8 +621,7 @@ fn closing_before_the_peek_delay_leaves_the_message_unread() {
         .resource_mut::<Config>()
         .ui
         .pager
-        .mark_read = nitidus::config::MarkRead::After(Duration::from_millis(200));
-
+        .mark_read = nitidus::config::MarkRead::Never;
     let first = harness
         .app
         .world()
@@ -629,15 +629,17 @@ fn closing_before_the_peek_delay_leaves_the_message_unread() {
         .selected
         .clone()
         .unwrap();
+
     open_pager(&mut harness.app);
-    press(&mut harness.app, KeyCode::Esc);
-    std::thread::sleep(Duration::from_millis(300));
+    press(&mut harness.app, KeyCode::Char('Z'));
+    std::thread::sleep(Duration::from_millis(50));
     harness.app.update();
+
     assert!(
         !inbox_flags(harness.app.world(), &first)
             .unwrap()
             .contains(nitidus_mail::Flags::SEEN),
-        "closing during the peek window must leave the message unread"
+        "never must hold in the pane and in the overlay alike"
     );
 }
 

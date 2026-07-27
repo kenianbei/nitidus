@@ -56,21 +56,9 @@ impl LocalMouse {
     }
 }
 
-/// Base surfaces ignore the mouse while a modal owns input — the
-/// picker, the file explorer, or a y/n prompt.
+/// Base surfaces ignore the mouse while a modal owns input.
 pub fn is_modal_open(world: &World) -> bool {
-    world
-        .get_resource::<crate::overlay::ActiveOverlay>()
-        .is_some_and(|overlay| overlay.is_open())
-        || world
-            .get_resource::<crate::overlay::form::ActiveForm>()
-            .is_some_and(|form| form.is_open())
-        || world
-            .get_resource::<crate::explorer::ExplorerState>()
-            .is_some_and(|explorer| explorer.is_open())
-        || world
-            .get_resource::<crate::prompt::PromptState>()
-            .is_some_and(|prompt| prompt.is_open())
+    crate::overlay::surface::is_any_open(world)
 }
 
 #[cfg(test)]

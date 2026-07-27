@@ -38,20 +38,25 @@ experience.
 - Undo (`z`) for archive/delete/move.
 - Configurable index columns and theme-driven row styling.
 
-#### Pager
+#### Reading pane
 
+- A third column beside the folder tree and the message list; loading is
+  explicit, so browsing the list never fetches.
+- Zoom to a centered overlay for full-width reading, capped by config.
 - Header weeding/ordering, smart wrap, format=flowed, quote coloring +
   skip-quoted.
 - Styled native rendering: quote levels, link list with open/copy, signature
   dimming.
 - MIME part switcher; attachment list with save/open.
 - HTML tier 1: native HTML→styled text, remote content blocked by default.
-- Mark-read delay (peek).
+- Mark-read on arrival, or never.
 
 #### Compose
 
 - External `$EDITOR` composing (TUI suspends; sync continues).
-- Review screen before send with keybinding cheat-sheet.
+- A reply writes in the reading column beside the message it answers; a new
+  message opens over the panes.
+- Review before send with keybinding cheat-sheet.
 - Reply/reply-all/forward with proper quoting and threading headers.
 - Attachments, forgotten-attachment warning, empty-subject warning.
 - Postpone/recall drafts (server-synced); crash recovery of in-progress
@@ -72,12 +77,17 @@ experience.
 #### Keys, Commands, Config
 
 - Modal per-context keymaps, multi-key vim-style sequences, chord timeout hints.
+- Overlay surfaces for anything that asks: pickers, forms, confirmations, the
+  file browser, the message log. One stack decides which holds the keyboard.
+- Feedback by severity: notices on the statusline, warnings and errors as
+  toasts, everything kept in a message log.
 - Everything-is-a-command: `:` line with history + completion; keys bind to
   command strings.
 - Complete out-of-box defaults; `:help keys` live table.
 - TOML config + keybinding files, all optional; no plaintext secrets.
 - Seed-color theme system with derived interaction states.
-- Tabs as the universal container (index, pager, compose, contacts).
+- Tabs as the universal container (mail, contacts); panes within a tab, and
+  focus decides which keymap context is live.
 
 ### Roadmap
 
@@ -103,8 +113,8 @@ excluded until their phase.
   spans, styles, and the stock widgets (tables, lists, paragraphs, blocks).
 - **ratatui-image** (11) — contact photo thumbnails in the contact book:
   auto-negotiates kitty/iTerm2/sixel/halfblock graphics per terminal.
-- **tui-prompts** — single-line text inputs: command line, header fields, search
-  prompts, property editors (driven via plurimus key passthrough).
+- **tui-prompts** — single-line text inputs: the command line, search, and every
+  overlay form field (driven via plurimus key passthrough).
 - **image** (0.25) — decoding contact photos (and later inline images) into
   pixel data for ratatui-image.
 - **io-imap** (0.2) — IMAP protocol: connect/auth (XOAUTH2), folder listing,

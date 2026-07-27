@@ -8,9 +8,9 @@ use bevy::prelude::*;
 use nitidus_mail::{AccountId, EnvelopeId, FolderId, MailCommand};
 
 use super::IndexView;
+use crate::overlay::{ConfirmSpec, open_confirm};
 use crate::pager::PagerState;
-use crate::prompt::{PromptRequest, open_prompt};
-use crate::status::StatusMessage;
+use crate::status::MessageLog;
 use crate::store::MailStore;
 
 #[derive(Clone)]
@@ -71,7 +71,7 @@ pub fn move_selected(world: &mut World, destination: &str) {
         if !is_known_folder(world, &batch.account, &destination) {
             let now = world.resource::<Time>().elapsed_secs_f64();
             return world
-                .resource_mut::<StatusMessage>()
+                .resource_mut::<MessageLog>()
                 .warn(format!("unknown folder {destination}"), now);
         }
         return dispatch_batch(world, batch, Removal::Move(destination));
@@ -83,12 +83,12 @@ pub fn move_selected(world: &mut World, destination: &str) {
     let destination = FolderId::new(destination);
     if destination == target.folder {
         return world
-            .resource_mut::<StatusMessage>()
+            .resource_mut::<MessageLog>()
             .info("message is already there".to_owned(), now);
     }
     if !is_known_folder(world, &target.account, &destination) {
         return world
-            .resource_mut::<StatusMessage>()
+            .resource_mut::<MessageLog>()
             .warn(format!("unknown folder {destination}"), now);
     }
     dispatch(world, target, Removal::Move(destination));
@@ -129,15 +129,17 @@ fn batch_targets(world: &World) -> Option<BatchTarget> {
 }
 
 fn confirm_batch_purge(world: &mut World, batch: BatchTarget) {
-    let request = PromptRequest::new(
-        format!("Delete {} permanently? (y/n): ", batch.ids.len()),
-        Box::new(move |world, answer| {
-            if matches!(answer.trim().to_ascii_lowercase().as_str(), "y" | "yes") {
-                dispatch_batch(world, batch, Removal::Purge);
-            }
-        }),
+    let count = batch.ids.len();
+    open_confirm(
+        world,
+        ConfirmSpec::new(
+            "Delete permanently",
+            format!("Delete {count} messages permanently?"),
+            "Delete",
+            Box::new(move |world| dispatch_batch(world, batch, Removal::Purge)),
+        )
+        .with_detail(vec!["This cannot be undone.".to_owned()]),
     );
-    open_prompt(world, request);
 }
 
 /// One staged op for the whole set: rows out instantly, one `z`
@@ -192,15 +194,28 @@ fn dispatch_batch(world: &mut World, batch: BatchTarget, removal: Removal) {
 }
 
 fn confirm_permanent(world: &mut World, target: RemovalTarget) {
-    let request = PromptRequest::new(
-        "Delete permanently? (y/n): ",
-        Box::new(move |world, answer| {
-            if matches!(answer.trim().to_ascii_lowercase().as_str(), "y" | "yes") {
-                dispatch(world, target, Removal::Purge);
-            }
-        }),
+    let subject = subject_of(world, &target);
+    open_confirm(
+        world,
+        ConfirmSpec::new(
+            "Delete permanently",
+            "Delete this message permanently?",
+            "Delete",
+            Box::new(move |world| dispatch(world, target, Removal::Purge)),
+        )
+        .with_detail(subject.into_iter().collect()),
     );
-    open_prompt(world, request);
+}
+
+/// The subject of the message about to go, so the question names what
+/// it is acting on rather than leaving the user to trust the cursor.
+fn subject_of(world: &World, target: &RemovalTarget) -> Option<String> {
+    world
+        .resource::<MailStore>()
+        .envelopes(&target.account, &target.folder)
+        .iter()
+        .find(|envelope| envelope.id == target.id)
+        .map(|envelope| envelope.subject.clone())
 }
 
 /// Optimistic removal from the view, then the backend command; a

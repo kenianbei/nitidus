@@ -28,6 +28,8 @@ pub struct IndexRow {
     pub selected: bool,
     pub marked: bool,
     pub hovered: bool,
+    /// This row's message is the one in the reading pane.
+    pub reading: bool,
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -40,6 +42,7 @@ pub struct RowStyles {
     pub flagged: Style,
     pub deleted: Style,
     pub hovered: Style,
+    pub reading: Style,
 }
 
 impl RowStyles {
@@ -59,6 +62,7 @@ impl RowStyles {
             flagged: theme.index.flagged,
             deleted: theme.index.deleted,
             hovered: states.hovered.style(),
+            reading: theme.index.reading,
         }
     }
 }
@@ -68,6 +72,7 @@ pub(super) struct RowBuildContext<'a> {
     pub date: DateFormat,
     pub selected: bool,
     pub marked: bool,
+    pub reading: bool,
 }
 
 /// Column order and styles resolved once per refresh, shared by every
@@ -107,6 +112,7 @@ pub(super) fn build_row(
         selected: context.selected,
         marked: context.marked,
         hovered: false,
+        reading: context.reading,
     }
 }
 
@@ -269,6 +275,9 @@ fn row_style(row: &IndexRow, styles: &RowStyles) -> Style {
     if row.deleted {
         style = style.patch(styles.deleted);
     }
+    if row.reading {
+        style = style.patch(styles.reading);
+    }
     style
 }
 
@@ -301,6 +310,7 @@ mod tests_highlight {
     #[test]
     fn matching_query_splits_the_row_into_highlight_spans() {
         let row = IndexRow {
+            reading: false,
             flag_cell: String::new(),
             date: "Jul 25".to_owned(),
             from: "Ada".to_owned(),

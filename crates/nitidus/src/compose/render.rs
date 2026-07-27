@@ -3,21 +3,26 @@
 //! rebindings show up automatically.
 
 use bevy::prelude::*;
-use nitidus_ui_kit::layout;
 use nitidus_ui_kit::theme::Theme;
-use plurimus::{Widget, WidgetLayout};
+use nitidus_ui_kit::{layer, layout};
+use plurimus::{LayoutFn, Widget, WidgetLayout, WidgetOrder};
 use ratatui::layout::Rect;
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::Paragraph;
+use std::sync::Arc;
 
 use super::{ComposeSession, ComposeState, InlineEditor};
 use crate::command::describe;
+use crate::config::Config;
 use crate::keymap::{CONTEXT_COMPOSE, CONTEXT_EDITOR, Keymaps};
-use crate::screen::Screen;
-use crate::sidebar::SIDEBAR_WIDTH;
+use crate::panes::{MailPane, mail_layout};
 
 const CHEAT_ROWS: u16 = 2;
+/// Until the first refresh reads the real one out of config.
+const DEFAULT_MAX_WIDTH: u16 = 100;
+const NEW_TITLE: &str = "New message";
+const REPLY_TITLE: &str = "Reply";
 
 #[derive(Component)]
 pub struct ComposeWidget;
@@ -25,6 +30,7 @@ pub struct ComposeWidget;
 #[derive(Clone, Default)]
 pub(super) struct ComposeWindow {
     active: bool,
+    title: String,
     lines: Vec<Line<'static>>,
     cheat: Vec<Line<'static>>,
     pub(super) scroll: usize,
@@ -58,19 +64,60 @@ pub(super) fn spawn_compose(mut commands: Commands) {
     commands.spawn((
         ComposeWidget,
         Widget::from_render_fn_with_state(render_compose, ComposeWindow::default()),
-        WidgetLayout::from(layout::main_layout(SIDEBAR_WIDTH)),
+        WidgetLayout::from(compose_layout(true, false, DEFAULT_MAX_WIDTH)),
+        WidgetOrder(layer::ZOOM),
     ));
+}
+
+/// A reply belongs beside the message it answers, so it takes the
+/// reading column and leaves the index where it was. A new message has
+/// nothing to sit beside and opens over the panes — as does a reply
+/// when the column is too narrow to write in.
+///
+/// The choice lives inside the layout closure so a resize re-decides it
+/// without anything having to watch the terminal.
+fn compose_layout(sidebar_visible: bool, beside_a_message: bool, max_width: u16) -> LayoutFn {
+    let column = mail_layout(MailPane::Reading, sidebar_visible);
+    Arc::new(move |area| {
+        let pane = column(area);
+        if beside_a_message && pane.width >= crate::panes::MIN_PANE_WIDTH {
+            return pane;
+        }
+        layout::centered_capped(*area, max_width, 1)
+    })
+}
+
+/// Re-places the composer when the session or the sidebar changes under
+/// it; the terminal's own size is handled by the closure.
+pub(super) fn apply_placement(
+    compose: Res<ComposeState>,
+    config: Res<Config>,
+    sidebar: Res<crate::sidebar::SidebarState>,
+    mut commands: Commands,
+    widgets: Query<Entity, With<ComposeWidget>>,
+) {
+    if !(compose.is_changed() || config.is_changed() || sidebar.is_changed()) {
+        return;
+    }
+    let beside_a_message = compose
+        .session()
+        .is_some_and(|session| session.reply_source.is_some());
+    let layout = compose_layout(sidebar.visible, beside_a_message, config.ui.pager.max_width);
+    for entity in &widgets {
+        commands
+            .entity(entity)
+            .insert(WidgetLayout::from(layout.clone()));
+    }
 }
 
 pub(super) fn refresh_compose(
     theme: Res<Theme>,
     compose: Res<ComposeState>,
     editor: Res<InlineEditor>,
-    screen: Res<Screen>,
     keymaps: Res<Keymaps>,
     mut widgets: Query<&mut Widget, With<ComposeWidget>>,
 ) -> Result {
-    if !(theme.is_changed() || compose.is_changed() || editor.is_changed() || screen.is_changed()) {
+    if !(theme.is_changed() || compose.is_changed() || editor.is_changed()) {
         return Ok(());
     }
     let Ok(mut widget) = widgets.single_mut() else {
@@ -81,7 +128,12 @@ pub(super) fn refresh_compose(
     let scroll = previous.scroll;
     let editing = editor.is_active();
     let mut window = ComposeWindow {
-        active: *screen == Screen::Compose,
+        active: compose.is_active(),
+        title: compose
+            .session()
+            .and_then(|session| session.reply_source.as_ref())
+            .map_or(NEW_TITLE, |_| REPLY_TITLE)
+            .to_owned(),
         normal: theme.base.default.normal.style(),
         cheat: cheat_lines(
             &keymaps,
@@ -264,11 +316,22 @@ fn render_editor(frame: &mut ratatui::Frame, area: Rect, state: &mut ComposeWind
 }
 
 fn render_compose(frame: &mut ratatui::Frame, area: Rect, state: &mut ComposeWindow) -> Result {
-    state.last_height = area.height;
     if !state.active {
+        state.last_height = area.height;
         return Ok(());
     }
-    frame.render_widget(ratatui::widgets::Clear, area);
+    // The composer is raised over the panes, so it clears what is
+    // beneath and frames itself rather than bleeding into them.
+    let area = nitidus_ui_kit::surface::draw_frame(
+        frame.buffer_mut(),
+        area,
+        nitidus_ui_kit::surface::FrameChrome {
+            title: &state.title,
+            hint: None,
+            style: state.normal,
+        },
+    );
+    state.last_height = area.height;
     let body_rows = area.height.saturating_sub(CHEAT_ROWS);
     let body_area = Rect {
         height: body_rows,
@@ -305,6 +368,57 @@ mod tests {
     #![allow(clippy::unwrap_used, clippy::expect_used)]
 
     use super::*;
+
+    use ratatui::layout::Rect;
+
+    const WIDE: Rect = Rect {
+        x: 0,
+        y: 0,
+        width: 120,
+        height: 30,
+    };
+
+    /// A reply sits beside the message it answers, in the reading
+    /// column, so the index keeps its place on screen.
+    #[test]
+    fn a_reply_takes_the_reading_column() {
+        let reply = compose_layout(true, true, 100)(&WIDE);
+        let column = mail_layout(MailPane::Reading, true)(&WIDE);
+
+        assert_eq!(reply, column);
+    }
+
+    #[test]
+    fn a_new_message_opens_over_the_panes_instead() {
+        let fresh = compose_layout(true, false, 100)(&WIDE);
+        let column = mail_layout(MailPane::Reading, true)(&WIDE);
+
+        assert_ne!(fresh, column);
+        assert!(fresh.width > column.width, "it is wider than one column");
+    }
+
+    /// R3 A6.1: below the minimum a column is not a usable writing
+    /// width, so even a reply goes to the overlay.
+    #[test]
+    fn a_narrow_terminal_forces_a_reply_to_the_overlay() {
+        let narrow = Rect::new(0, 0, 40, 20);
+
+        let reply = compose_layout(true, true, 100)(&narrow);
+
+        assert_eq!(
+            mail_layout(MailPane::Reading, true)(&narrow),
+            Rect::ZERO,
+            "the reading column has collapsed at this width"
+        );
+        assert!(reply.width > 0, "the composer still gets somewhere to draw");
+    }
+
+    #[test]
+    fn the_overlay_honours_the_configured_maximum_width() {
+        let fresh = compose_layout(true, false, 60)(&WIDE);
+
+        assert_eq!(fresh.width, 60);
+    }
     use crate::config::RawKeymaps;
     use crate::keymap::{CONTEXT_EDITOR, Keymaps};
 

@@ -14,7 +14,7 @@ use super::active_account;
 use crate::config::account::{AccountConfig, Auth, Oauth2Flow};
 use crate::config::{keyring, presets};
 use crate::engine::EngineResource;
-use crate::status::StatusMessage;
+use crate::status::MessageLog;
 
 pub enum OauthEvent {
     BrowserPrompt(String),
@@ -67,10 +67,10 @@ pub fn authorize(world: &mut World) {
     let now = world.resource::<Time>().elapsed_secs_f64();
     match spec {
         None => world
-            .resource_mut::<StatusMessage>()
+            .resource_mut::<MessageLog>()
             .warn(format!("unknown account {account}"), now),
         Some(Err(error)) => world
-            .resource_mut::<StatusMessage>()
+            .resource_mut::<MessageLog>()
             .warn(format!("authorize: {error:#}"), now),
         Some(Ok(spec)) => {
             let sender = world.resource::<OauthChannel>().sender.clone();
@@ -83,7 +83,7 @@ pub fn authorize(world: &mut World) {
                 FlowSpec::Device(config) => spawn_device_flow(&handle, config, sender, account),
             }
             world
-                .resource_mut::<StatusMessage>()
+                .resource_mut::<MessageLog>()
                 .info("authorization started".to_owned(), now);
         }
     }
@@ -220,7 +220,7 @@ pub(crate) fn oauth_sender(world: &World) -> mpsc::Sender<OauthEvent> {
 
 fn apply_event(world: &mut World, event: OauthEvent) {
     let now = world.resource::<Time>().elapsed_secs_f64();
-    let mut status = world.resource_mut::<StatusMessage>();
+    let mut status = world.resource_mut::<MessageLog>();
     match event {
         OauthEvent::BrowserPrompt(url) => {
             status.info(format!("authorize in the browser — {url}"), now);
@@ -268,7 +268,7 @@ mod tests {
         use_mock_keyring();
         let mut app = App::new();
         app.add_plugins(MinimalPlugins);
-        app.init_resource::<StatusMessage>();
+        app.init_resource::<MessageLog>();
         app.add_plugins(super::super::AccountsPlugin);
         app.update();
         app
@@ -335,11 +335,14 @@ mod tests {
         false
     }
 
+    /// The log rather than the statusline: OAuth reports through every
+    /// severity, and warnings no longer land on the status row.
     fn status_text(world: &World) -> String {
         world
-            .resource::<StatusMessage>()
-            .current()
-            .map(|(text, _)| text.to_owned())
+            .resource::<MessageLog>()
+            .entries()
+            .last()
+            .map(|entry| entry.text.clone())
             .unwrap_or_default()
     }
 

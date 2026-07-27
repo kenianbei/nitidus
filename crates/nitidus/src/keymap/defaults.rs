@@ -8,6 +8,7 @@ pub(super) const DEFAULT_GLOBAL_BINDINGS: &[(&str, &str)] = &[
     ("1", ":tab 1"),
     ("2", ":tab 2"),
     ("?", ":help"),
+    ("<C-g>", ":messages"),
 ];
 
 pub(super) const DEFAULT_INDEX_BINDINGS: &[(&str, &str)] = &[
@@ -35,6 +36,7 @@ pub(super) const DEFAULT_INDEX_BINDINGS: &[(&str, &str)] = &[
     ("zR", ":unfold-all"),
     ("P", ":parent"),
     ("<Enter>", ":view"),
+    ("Z", ":zoom"),
     ("b", ":sidebar"),
     ("<Tab>", ":sidebar-focus"),
     ("m", ":compose"),
@@ -79,6 +81,7 @@ pub(super) const DEFAULT_PAGER_BINDINGS: &[(&str, &str)] = &[
     ("s", ":save-part"),
     ("o", ":open-part"),
     ("l", ":links"),
+    ("Z", ":zoom"),
     ("d", ":delete"),
     ("a", ":archive"),
     ("b", ":sidebar"),
@@ -161,8 +164,61 @@ pub(super) const DEFAULT_FORM_BINDINGS: &[(&str, &str)] = &[
     ("<Right>", ":form-right"),
     ("<Enter>", ":form-activate"),
     ("<Esc>", ":form-cancel"),
+    ("<C-n>", ":form-complete-next"),
+    ("<C-p>", ":form-complete-prev"),
     ("<PageDown>", ":form-next-page"),
     ("<PageUp>", ":form-prev-page"),
+];
+
+/// Single-key only, like the picker and the form. The file browser has
+/// no filter line, so an unbound key simply does nothing.
+pub(super) const DEFAULT_EXPLORER_BINDINGS: &[(&str, &str)] = &[
+    ("j", ":next"),
+    ("k", ":prev"),
+    ("<Down>", ":next"),
+    ("<Up>", ":prev"),
+    ("<PageDown>", ":next-page"),
+    ("<PageUp>", ":prev-page"),
+    ("<Home>", ":first"),
+    ("<End>", ":last"),
+    ("h", ":focus-left"),
+    ("l", ":focus-right"),
+    ("<Left>", ":focus-left"),
+    ("<Right>", ":focus-right"),
+    ("<Backspace>", ":focus-left"),
+    ("<Enter>", ":confirm"),
+    ("<Esc>", ":cancel"),
+    ("<C-h>", ":explorer-hidden"),
+];
+
+/// Focus starts on Cancel, so `<Enter>` declines unless the user moved
+/// to the affirmative button. `y`/`n` keep the reflex the bottom-row
+/// prompt taught.
+pub(super) const DEFAULT_CONFIRM_BINDINGS: &[(&str, &str)] = &[
+    ("<Tab>", ":confirm-focus-next"),
+    ("<BackTab>", ":confirm-focus-prev"),
+    ("<Left>", ":confirm-focus-prev"),
+    ("<Right>", ":confirm-focus-next"),
+    ("h", ":confirm-focus-prev"),
+    ("l", ":confirm-focus-next"),
+    ("<Enter>", ":confirm"),
+    ("<Esc>", ":cancel"),
+    ("y", ":confirm-accept"),
+    ("n", ":cancel"),
+];
+
+/// The log only scrolls; there is nothing in it to act on.
+pub(super) const DEFAULT_LOG_BINDINGS: &[(&str, &str)] = &[
+    ("j", ":next"),
+    ("k", ":prev"),
+    ("<Down>", ":next"),
+    ("<Up>", ":prev"),
+    ("<PageDown>", ":next-page"),
+    ("<PageUp>", ":prev-page"),
+    ("<Home>", ":first"),
+    ("<End>", ":last"),
+    ("<Esc>", ":cancel"),
+    ("q", ":cancel"),
 ];
 
 /// Review-screen bindings; the cheat-sheet footer is generated from

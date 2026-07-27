@@ -13,6 +13,8 @@ pub type PagesFn = Box<dyn Fn(&FormValues) -> Vec<PageSpec> + Send + Sync>;
 pub type CancelFn = Box<dyn FnOnce(&mut World) + Send + Sync>;
 /// Rejects a value with a message the form shows beside the field.
 pub type ValidateFn = Arc<dyn Fn(&str) -> Result<(), String> + Send + Sync>;
+/// Candidates for what has been typed into a field so far.
+pub type CompleteFn = Arc<dyn Fn(&str) -> Vec<String> + Send + Sync>;
 
 /// Creating walks the steps in order; editing reaches any of them at
 /// once. The two flows want opposite things from the same surface.
@@ -99,6 +101,7 @@ pub struct FieldSpec {
     pub kind: FieldKind,
     pub initial: String,
     pub validate: Option<ValidateFn>,
+    pub complete: Option<CompleteFn>,
 }
 
 impl FieldSpec {
@@ -109,6 +112,7 @@ impl FieldSpec {
             kind: FieldKind::Text { masked: false },
             initial: String::new(),
             validate: None,
+            complete: None,
         }
     }
 
@@ -131,6 +135,17 @@ impl FieldSpec {
         self
     }
 
+    /// Offers candidates for the segment being typed. Unlike a select,
+    /// the field still accepts anything — the candidates are a
+    /// shortcut, not the vocabulary.
+    pub fn completed(
+        mut self,
+        complete: impl Fn(&str) -> Vec<String> + Send + Sync + 'static,
+    ) -> Self {
+        self.complete = Some(Arc::new(complete));
+        self
+    }
+
     /// A field that cycles a fixed set of options instead of accepting
     /// text.
     pub fn select(id: &'static str, label: impl Into<String>, options: Vec<SelectOption>) -> Self {
@@ -140,6 +155,7 @@ impl FieldSpec {
             kind: FieldKind::Select { options },
             initial: String::new(),
             validate: None,
+            complete: None,
         }
     }
 

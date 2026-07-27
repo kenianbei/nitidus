@@ -20,6 +20,9 @@ pub struct ThemeIndexStyles {
     pub flagged: Style,
     pub deleted: Style,
     pub marked: Style,
+    /// The row whose message is in the reading pane, which is not
+    /// always the row under the cursor.
+    pub reading: Style,
 }
 
 /// `base` styles the app chrome; `paper` styles raised surfaces

@@ -11,12 +11,10 @@ use nitidus::index::{IndexView, SortKey};
 use nitidus::keymap::Keymaps;
 use nitidus::overlay::OverlayPlugin;
 use nitidus::pager::PagerState;
-use nitidus::prompt::{PromptPlugin, PromptState};
 use nitidus::router::{RouterPlugin, route_key};
-use nitidus::screen::{MailScreenMemory, Screen};
 use nitidus::shell::Tabs;
 use nitidus::sidebar::{RowKind, SidebarRow, SidebarState};
-use nitidus::status::StatusMessage;
+use nitidus::status::MessageLog;
 use nitidus::store::MailStore;
 use nitidus_mail::{AccountId, EnvelopeId, EnvelopeSummary, Flags, FolderId, JobId};
 use plurimus::{TachyonRegistry, UiEvent};
@@ -27,17 +25,15 @@ fn harness() -> App {
     app.insert_non_send_resource(TachyonRegistry::default());
     app.insert_resource(nitidus_ui_kit::theme::tailwind_dark());
     app.init_resource::<Tabs>();
-    app.init_resource::<Screen>();
-    app.init_resource::<MailScreenMemory>();
     app.init_resource::<SidebarState>();
     app.init_resource::<nitidus::sidebar::SidebarRows>();
     app.init_resource::<nitidus::store::SyncTracker>();
-    app.init_resource::<StatusMessage>();
+    app.init_resource::<MessageLog>();
     app.init_resource::<MailStore>();
     app.init_resource::<IndexView>();
     app.init_resource::<PagerState>();
     app.insert_resource(Keymaps::compile(&RawKeymaps::default()).unwrap());
-    app.add_plugins((RouterPlugin, PromptPlugin, OverlayPlugin));
+    app.add_plugins((RouterPlugin, OverlayPlugin));
     app.update();
     app
 }
@@ -84,11 +80,11 @@ fn brackets_and_numbers_switch_tabs() {
     let mut app = harness();
     press(&mut app, KeyCode::Char(']'));
     assert_eq!(app.world().resource::<Tabs>().active_label(), "contacts");
-    assert_eq!(*app.world().resource::<Screen>(), Screen::Contacts);
+    assert!(app.world().resource::<Tabs>().is_contacts());
 
     press(&mut app, KeyCode::Char('['));
     assert_eq!(app.world().resource::<Tabs>().active_label(), "mail");
-    assert_eq!(*app.world().resource::<Screen>(), Screen::Index);
+    assert!(!app.world().resource::<Tabs>().is_contacts());
 
     press(&mut app, KeyCode::Char('2'));
     assert_eq!(app.world().resource::<Tabs>().active_label(), "contacts");
@@ -133,9 +129,9 @@ fn arrows_move_focus_between_sidebar_index_and_contact_panes() {
 
     press(&mut app, KeyCode::Left);
     {
-        let sidebar = app.world().resource::<SidebarState>();
         assert!(
-            sidebar.visible && sidebar.focused,
+            app.world().resource::<SidebarState>().visible
+                && nitidus::focus::is_focused(app.world(), nitidus::focus::Pane::Folders),
             "left focuses the sidebar"
         );
     }
@@ -158,26 +154,22 @@ fn arrows_move_focus_between_sidebar_index_and_contact_panes() {
         "right on a folder row opens that folder"
     );
     assert!(
-        !app.world().resource::<SidebarState>().focused,
+        !nitidus::focus::is_focused(app.world(), nitidus::focus::Pane::Folders),
         "opening a folder hands focus back to the index"
     );
 
-    *app.world_mut().resource_mut::<Screen>() = Screen::Contacts;
+    app.world_mut().resource_mut::<Tabs>().active = 1;
     app.update();
     press(&mut app, KeyCode::Right);
-    assert_eq!(
-        app.world()
-            .resource::<nitidus::contacts::ContactsView>()
-            .focus,
-        nitidus::contacts::PaneFocus::Detail
-    );
+    assert!(nitidus::focus::is_focused(
+        app.world(),
+        nitidus::focus::Pane::ContactDetail
+    ));
     press(&mut app, KeyCode::Left);
-    assert_eq!(
-        app.world()
-            .resource::<nitidus::contacts::ContactsView>()
-            .focus,
-        nitidus::contacts::PaneFocus::Table
-    );
+    assert!(nitidus::focus::is_focused(
+        app.world(),
+        nitidus::focus::Pane::ContactList
+    ));
 }
 
 #[test]
@@ -185,8 +177,15 @@ fn capital_d_confirms_permanent_delete_outside_the_trash() {
     let mut app = harness();
     seed_selection(&mut app);
     press(&mut app, KeyCode::Char('D'));
-    assert_eq!(
-        app.world().resource::<PromptState>().label(),
-        Some("Delete permanently? (y/n): ")
+    let question = app
+        .world()
+        .resource::<nitidus::overlay::confirm::ActiveConfirm>()
+        .question()
+        .map(str::to_owned);
+    assert!(
+        question
+            .as_deref()
+            .is_some_and(|text| text.contains("permanently")),
+        "D must ask before a permanent delete, got {question:?}"
     );
 }

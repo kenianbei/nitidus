@@ -8,31 +8,35 @@ use nitidus_mail::{Flags, FolderId, MailCommand};
 use super::{ComposeSession, ComposeState, build, persist};
 use crate::engine::EngineResource;
 use crate::overlay::{PickerItem, PickerSpec, open_picker};
-use crate::prompt::{PromptRequest, open_prompt};
-use crate::screen::Screen;
-use crate::status::StatusMessage;
+use crate::status::MessageLog;
 
 const ATTACH_WORDS: &[&str] = &["attach", "attached", "attachment", "attachments"];
 
 /// Attaching writes a token into the body rather than a side list: the
 /// body is what declares an attachment, so the token is the thing the
 /// user can see, move, and delete.
+const ATTACH_FIELD: &str = "path";
+
 pub(super) fn attach_prompt(world: &mut World) {
-    let request = PromptRequest::new(
-        "Attach file: ",
-        Box::new(|world, value| {
-            let path = expand_path(&value);
-            let now = world.resource::<Time>().elapsed_secs_f64();
-            if !path.is_file() {
-                world
-                    .resource_mut::<StatusMessage>()
-                    .warn(format!("not a file: {}", path.display()), now);
-                return;
-            }
-            insert_token(world, &super::token::AttachToken::new(path).render());
-        }),
+    crate::overlay::form::open_form(
+        world,
+        crate::overlay::form::FormSpec::new(
+            "Attach",
+            "Attach",
+            vec![
+                crate::overlay::form::FieldSpec::text(ATTACH_FIELD, "File").validated(|value| {
+                    if expand_path(value).is_file() {
+                        return Ok(());
+                    }
+                    Err("no such file".to_owned())
+                }),
+            ],
+            Box::new(|world, values| {
+                let path = expand_path(values.get(ATTACH_FIELD));
+                insert_token(world, &super::token::AttachToken::new(path).render());
+            }),
+        ),
     );
-    open_prompt(world, request);
 }
 
 /// Into the editor at the cursor when one is open, otherwise onto the end
@@ -52,7 +56,7 @@ fn report_body_write(world: &mut World, outcome: std::io::Result<()>) {
     if let Err(error) = outcome {
         let now = world.resource::<Time>().elapsed_secs_f64();
         world
-            .resource_mut::<StatusMessage>()
+            .resource_mut::<MessageLog>()
             .warn(format!("could not save the body: {error}"), now);
     }
 }
@@ -64,7 +68,7 @@ pub(super) fn detach_picker(world: &mut World) {
     if attachments.is_empty() {
         let now = world.resource::<Time>().elapsed_secs_f64();
         world
-            .resource_mut::<StatusMessage>()
+            .resource_mut::<MessageLog>()
             .info("no attachments to remove".to_owned(), now);
         return;
     }
@@ -139,13 +143,18 @@ pub(super) fn send_with_checks(world: &mut World) {
         return;
     };
     if subject_empty {
-        confirm(world, "Send without a subject? (y/n): ", move |world| {
-            if needs_attachment {
-                confirm_attachment_then_send(world);
-            } else {
-                super::ops::queue_send(world);
-            }
-        });
+        confirm(
+            world,
+            "Send without a subject",
+            "This message has no subject. Send it anyway?",
+            move |world| {
+                if needs_attachment {
+                    confirm_attachment_then_send(world);
+                } else {
+                    super::ops::queue_send(world);
+                }
+            },
+        );
         return;
     }
     if needs_attachment {
@@ -156,21 +165,24 @@ pub(super) fn send_with_checks(world: &mut World) {
 }
 
 fn confirm_attachment_then_send(world: &mut World) {
-    confirm(world, "No attachment — send anyway? (y/n): ", |world| {
-        super::ops::queue_send(world);
-    });
+    confirm(
+        world,
+        "No attachment",
+        "The body mentions an attachment but nothing is attached. Send anyway?",
+        super::ops::queue_send,
+    );
 }
 
-fn confirm(world: &mut World, label: &str, then: impl FnOnce(&mut World) + Send + Sync + 'static) {
-    let request = PromptRequest::new(
-        label,
-        Box::new(move |world, answer| {
-            if matches!(answer.trim().to_ascii_lowercase().as_str(), "y" | "yes") {
-                then(world);
-            }
-        }),
+fn confirm(
+    world: &mut World,
+    title: &str,
+    question: &str,
+    then: impl FnOnce(&mut World) + Send + Sync + 'static,
+) {
+    crate::overlay::open_confirm(
+        world,
+        crate::overlay::ConfirmSpec::new(title, question, "Send", Box::new(then)),
     );
-    open_prompt(world, request);
 }
 
 /// Attach-words on unquoted body lines while nothing is attached.
@@ -216,7 +228,7 @@ fn postpone_unaddressed(world: &mut World, error: anyhow::Error, now: f64) {
         if !session.to.trim().is_empty() {
             // A present-but-unparseable To is a real error.
             world
-                .resource_mut::<StatusMessage>()
+                .resource_mut::<MessageLog>()
                 .warn(format!("postpone: {error:#}"), now);
             return;
         }
@@ -228,7 +240,7 @@ fn postpone_unaddressed(world: &mut World, error: anyhow::Error, now: f64) {
         Ok(built) => finish_postpone(world, built.bytes, now),
         Err(error) => {
             world
-                .resource_mut::<StatusMessage>()
+                .resource_mut::<MessageLog>()
                 .warn(format!("postpone: {error:#}"), now);
         }
     }
@@ -250,7 +262,7 @@ fn finish_postpone(world: &mut World, bytes: Vec<u8>, now: f64) {
     };
     if let Err(error) = engine.0.send(&session.account, append) {
         world
-            .resource_mut::<StatusMessage>()
+            .resource_mut::<MessageLog>()
             .warn(format!("postpone: {error}"), now);
         world.resource_mut::<ComposeState>().0 = Some(session);
         return;
@@ -268,9 +280,8 @@ fn finish_postpone(world: &mut World, bytes: Vec<u8>, now: f64) {
     if let Err(error) = std::fs::remove_file(&session.body_path) {
         tracing::warn!("postpone body cleanup: {error}");
     }
-    *world.resource_mut::<Screen>() = Screen::Index;
     world
-        .resource_mut::<StatusMessage>()
+        .resource_mut::<MessageLog>()
         .info(format!("draft saved to {drafts_folder}"), now);
 }
 

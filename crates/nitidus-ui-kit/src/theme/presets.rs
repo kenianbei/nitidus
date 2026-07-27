@@ -15,6 +15,9 @@ pub fn tailwind_dark() -> Theme {
             flagged: Style::new().fg(base.warning.normal.fg.into()),
             deleted: Style::new().add_modifier(Modifier::DIM),
             marked: base.info.normal.style(),
+            reading: Style::new()
+                .fg(base.success.normal.fg.into())
+                .add_modifier(Modifier::BOLD),
         },
     }
 }

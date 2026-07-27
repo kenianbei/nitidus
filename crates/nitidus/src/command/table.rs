@@ -4,7 +4,7 @@
 use nitidus_mail::Flags;
 
 use super::{CommandSpec, flag_action, named_arg, no_args, optional_arg};
-use crate::action::{Action, FlagOp, FoldOp, FormOp, Motion, PagerOp, SidebarOp};
+use crate::action::{Action, ConfirmOp, FlagOp, FoldOp, FormOp, Motion, PagerOp, SidebarOp};
 use crate::index::SortMode;
 
 pub(super) const COMMANDS: &[CommandSpec] = &[
@@ -340,13 +340,61 @@ pub(super) const COMMANDS: &[CommandSpec] = &[
     },
     CommandSpec {
         name: "confirm",
-        summary: "confirm the picker selection",
+        summary: "confirm the selection on the top overlay",
         aliases: &[],
         parse: |args| no_args("confirm", args, Action::OverlayConfirm),
     },
     CommandSpec {
+        name: "zoom",
+        summary: "draw the reading pane over its neighbours",
+        aliases: &[],
+        parse: |args| no_args("zoom", args, Action::Pager(PagerOp::Zoom)),
+    },
+    CommandSpec {
+        name: "messages",
+        summary: "show the message log",
+        aliases: &[],
+        parse: |args| no_args("messages", args, Action::Messages),
+    },
+    CommandSpec {
+        name: "confirm-accept",
+        summary: "accept the confirmation whatever is focused",
+        aliases: &[],
+        parse: |args| no_args("confirm-accept", args, Action::Confirm(ConfirmOp::Accept)),
+    },
+    CommandSpec {
+        name: "confirm-focus-next",
+        summary: "move to the next confirmation button",
+        aliases: &[],
+        parse: |args| {
+            no_args(
+                "confirm-focus-next",
+                args,
+                Action::Confirm(ConfirmOp::FocusNext),
+            )
+        },
+    },
+    CommandSpec {
+        name: "confirm-focus-prev",
+        summary: "move to the previous confirmation button",
+        aliases: &[],
+        parse: |args| {
+            no_args(
+                "confirm-focus-prev",
+                args,
+                Action::Confirm(ConfirmOp::FocusPrev),
+            )
+        },
+    },
+    CommandSpec {
+        name: "explorer-hidden",
+        summary: "toggle hidden files in the file browser",
+        aliases: &[],
+        parse: |args| no_args("explorer-hidden", args, Action::ExplorerToggleHidden),
+    },
+    CommandSpec {
         name: "cancel",
-        summary: "close the picker",
+        summary: "close the top overlay",
         aliases: &[],
         parse: |args| no_args("cancel", args, Action::OverlayCancel),
     },
@@ -385,6 +433,30 @@ pub(super) const COMMANDS: &[CommandSpec] = &[
         summary: "move the cursor right in the focused field",
         aliases: &[],
         parse: |args| no_args("form-right", args, Action::Form(FormOp::Right)),
+    },
+    CommandSpec {
+        name: "form-complete-next",
+        summary: "next completion candidate for the focused field",
+        aliases: &[],
+        parse: |args| {
+            no_args(
+                "form-complete-next",
+                args,
+                Action::Form(FormOp::CompleteNext),
+            )
+        },
+    },
+    CommandSpec {
+        name: "form-complete-prev",
+        summary: "previous completion candidate for the focused field",
+        aliases: &[],
+        parse: |args| {
+            no_args(
+                "form-complete-prev",
+                args,
+                Action::Form(FormOp::CompletePrev),
+            )
+        },
     },
     CommandSpec {
         name: "form-next-page",

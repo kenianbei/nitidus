@@ -22,8 +22,7 @@ pub use staged::{OpDelay, StagedOps};
 pub use view::{IndexView, SortKey, SortMode, apply_motion, scrolled_top};
 
 use bevy::prelude::*;
-use nitidus_mail::{AccountId, EnvelopeSummary};
-use nitidus_ui_kit::layout;
+use nitidus_mail::{AccountId, EnvelopeId, EnvelopeSummary};
 use nitidus_ui_kit::theme::Theme;
 use plurimus::{TachyonRegistry, Widget, WidgetLayout, add_fx, enable_fx};
 use ratatui::layout::Rect;
@@ -53,7 +52,8 @@ impl Plugin for IndexPlugin {
         app.init_resource::<IndexOrder>();
         app.init_resource::<IndexStatus>();
         app.init_resource::<ThreadSet>();
-        app.init_resource::<crate::screen::Screen>();
+        app.init_resource::<crate::shell::Tabs>();
+        app.init_resource::<crate::pager::PagerState>();
         app.add_systems(
             Startup,
             (
@@ -156,7 +156,10 @@ fn spawn_index(mut commands: Commands, mut registry: NonSendMut<TachyonRegistry>
         .spawn((
             IndexWidget,
             Widget::from_render_fn_with_state(render_index, IndexWindowState::default()),
-            WidgetLayout::from(layout::content_layout()),
+            WidgetLayout::from(crate::panes::mail_layout(
+                crate::panes::MailPane::Messages,
+                true,
+            )),
             plurimus::UiActions::new(vec![plurimus::UiInputBinding::mouse_passthrough(
                 mouse::handle,
             )]),
@@ -180,7 +183,8 @@ fn current_envelopes<'a>(store: &'a MailStore, index_view: &IndexView) -> &'a [E
 
 fn refresh_index(
     (theme, config): (Res<Theme>, Res<Config>),
-    (store, order, screen): (Res<MailStore>, Res<IndexOrder>, Res<crate::screen::Screen>),
+    (store, order, tabs): (Res<MailStore>, Res<IndexOrder>, Res<crate::shell::Tabs>),
+    pager: Res<crate::pager::PagerState>,
     mut index_view: ResMut<IndexView>,
     mut status: ResMut<IndexStatus>,
     mut widgets: Query<&mut Widget, With<IndexWidget>>,
@@ -190,7 +194,8 @@ fn refresh_index(
         || store.is_changed()
         || index_view.is_changed()
         || order.is_changed()
-        || screen.is_changed();
+        || tabs.is_changed()
+        || pager.is_changed();
     if !changed {
         return Ok(());
     }
@@ -216,11 +221,12 @@ fn refresh_index(
             entries: &order.entries,
             index_view: cached,
             viewport,
+            reading: pager.open_id().cloned(),
         },
     );
     window.last_height = last_height;
     window.hovered_row = hovered_row;
-    window.active = *screen == crate::screen::Screen::Index;
+    window.active = !tabs.is_contacts();
     widget.set_state(window)?;
     let limited = !cached.limits.is_empty();
     let position = IndexStatus {
@@ -284,6 +290,9 @@ struct WindowSource<'a> {
     entries: &'a [OrderEntry],
     index_view: &'a IndexView,
     viewport: usize,
+    /// Which message the reading pane holds, which is not always the
+    /// one under the cursor.
+    reading: Option<EnvelopeId>,
 }
 
 fn build_window_state(
@@ -337,6 +346,7 @@ fn build_window_rows(
                     selected: row == index_view.selected_row,
                     marked: index_view.marked.contains(&envelope.id)
                         || visual.is_some_and(|range| range.contains(&row)),
+                    reading: source.reading.as_ref() == Some(&envelope.id),
                 };
                 render::build_row(envelope, entry, &context)
             })

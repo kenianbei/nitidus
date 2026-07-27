@@ -8,13 +8,37 @@ use nitidus_contacts::{Contact, escape_component};
 use super::ContactStore;
 use super::edit::ADR_COMPONENTS;
 use super::mutate::{
-    ChainFinish, apply_mutation, component_chain_step, contacts_dir, info, persist_and_upsert,
+    ChainFinish, apply_mutation, contacts_dir, info, open_component_form, persist_and_upsert,
     selected_contact, warn,
 };
 use super::view::ContactsView;
 use crate::addresses::format_entry;
+use crate::overlay::form::{FieldSpec, FormSpec, open_form};
 use crate::overlay::{PickerItem, PickerSpec, open_picker};
-use crate::prompt::{PromptRequest, open_prompt};
+
+const VALUE_FIELD: &str = "value";
+const RAW_FIELD: &str = "line";
+const NAME_FIELD: &str = "name";
+const EMAIL_FIELD: &str = "email";
+
+fn non_empty(value: &str) -> Result<(), String> {
+    if value.trim().is_empty() {
+        return Err("this cannot be empty".to_owned());
+    }
+    Ok(())
+}
+
+/// Runs the vCard parser over the line so the form can refuse it in
+/// place, with the parser's own message.
+pub(super) fn valid_entry_line(line: &str) -> Result<(), String> {
+    if line.trim().is_empty() {
+        return Err("this cannot be empty".to_owned());
+    }
+    Contact::new("probe")
+        .add_entry_line(line)
+        .map(|_| ())
+        .map_err(|error| error.to_string())
+}
 
 /// Add-picker rows: label, property name (empty = raw line), offers a
 /// TYPE picker, compound (component-walking) value.
@@ -94,82 +118,85 @@ fn type_picker(world: &mut World, property: &'static str, compound: bool) {
 
 fn add_value_prompt(world: &mut World, prefix: String, compound: bool) {
     if compound {
-        return component_chain_step(
+        return open_component_form(
             world,
+            "Address",
             ADR_COMPONENTS,
-            Vec::new(),
             Vec::new(),
             ChainFinish::Add { prefix },
         );
     }
-    let label = format!("{}: ", prefix.trim_end_matches(':'));
-    let request = PromptRequest::new(
-        label,
-        Box::new(move |world: &mut World, input: String| {
-            if input.trim().is_empty() {
-                return;
-            }
-            let line = format!("{prefix}{}", escape_component(&input));
-            apply_mutation(world, move |contact| {
-                contact.add_entry_line(&line).map(|_| ())
-            });
-        }),
+    let label = prefix.trim_end_matches(':').to_owned();
+    open_form(
+        world,
+        FormSpec::new(
+            label.clone(),
+            "Add",
+            vec![FieldSpec::text(VALUE_FIELD, label).validated(non_empty)],
+            Box::new(move |world: &mut World, values| {
+                let line = format!(
+                    "{prefix}{}",
+                    escape_component(values.get(VALUE_FIELD).trim())
+                );
+                apply_mutation(world, move |contact| {
+                    contact.add_entry_line(&line).map(|_| ())
+                });
+            }),
+        ),
     );
-    open_prompt(world, request);
 }
 
+/// The escape hatch for anything the modelled editors do not cover: a
+/// vCard line, typed verbatim. Validation happens in the form, so a
+/// malformed line holds it open with the parser's complaint rather than
+/// closing and reopening.
 fn raw_add_prompt(world: &mut World, prefill: String) {
-    let request = PromptRequest::new(
-        "property: ",
-        Box::new(move |world: &mut World, input: String| {
-            if input.trim().is_empty() {
-                return;
-            }
-            let attempted = selected_contact(world).map(|contact| {
-                let mut contact = contact;
-                contact.add_entry_line(&input).map(|_| contact)
-            });
-            match attempted {
-                Some(Ok(contact)) => persist_and_upsert(world, contact),
-                Some(Err(error)) => {
-                    warn(world, error.to_string());
-                    raw_add_prompt(world, input);
+    open_form(
+        world,
+        FormSpec::new(
+            "Add property",
+            "Add",
+            vec![
+                FieldSpec::text(RAW_FIELD, "vCard line")
+                    .with_initial(prefill)
+                    .validated(valid_entry_line),
+            ],
+            Box::new(move |world: &mut World, values| {
+                let line = values.get(RAW_FIELD).to_owned();
+                let attempted = selected_contact(world)
+                    .map(|mut contact| contact.add_entry_line(&line).map(|_| contact));
+                match attempted {
+                    Some(Ok(contact)) => persist_and_upsert(world, contact),
+                    Some(Err(error)) => warn(world, error.to_string()),
+                    None => {}
                 }
-                None => {}
-            }
-        }),
-    )
-    .with_initial(prefill);
-    open_prompt(world, request);
+            }),
+        ),
+    );
 }
 
 pub fn new_contact(world: &mut World) {
-    let request = PromptRequest::new(
-        "Name: ",
-        Box::new(|world: &mut World, name: String| {
-            if name.trim().is_empty() {
-                return warn(world, "a contact needs a name".to_owned());
-            }
-            new_contact_email_prompt(world, name);
-        }),
+    open_form(
+        world,
+        FormSpec::new(
+            "New contact",
+            "Create",
+            vec![
+                FieldSpec::text(NAME_FIELD, "Name").validated(non_empty),
+                FieldSpec::text(EMAIL_FIELD, "Email"),
+            ],
+            Box::new(|world: &mut World, values| {
+                let mut contact = Contact::new(values.get(NAME_FIELD).trim());
+                let email = values.get(EMAIL_FIELD).trim();
+                if !email.is_empty()
+                    && let Err(error) = contact.add_entry_line(&format!("EMAIL:{email}"))
+                {
+                    return warn(world, error.to_string());
+                }
+                persist_and_upsert(world, contact);
+            }),
+        ),
     );
-    open_prompt(world, request);
-}
-
-fn new_contact_email_prompt(world: &mut World, name: String) {
-    let request = PromptRequest::new(
-        "Email (Enter skips): ",
-        Box::new(move |world: &mut World, email: String| {
-            let mut contact = Contact::new(name.trim());
-            if !email.trim().is_empty()
-                && let Err(error) = contact.add_entry_line(&format!("EMAIL:{}", email.trim()))
-            {
-                return warn(world, error.to_string());
-            }
-            persist_and_upsert(world, contact);
-        }),
-    );
-    open_prompt(world, request);
 }
 
 /// `A`/`:add-contact`: the selected message's sender into the book —
@@ -186,23 +213,27 @@ pub fn add_contact_from_sender(world: &mut World) {
     if already_known {
         return info(world, format!("{addr} is already in the contact book"));
     }
-    let request = PromptRequest::new(
-        "Name: ",
-        Box::new(move |world: &mut World, name: String| {
-            let name = if name.trim().is_empty() {
-                addr.clone()
-            } else {
-                name.trim().to_owned()
-            };
-            let mut contact = Contact::new(&name);
-            if let Err(error) = contact.add_entry_line(&format!("EMAIL:{addr}")) {
-                return warn(world, error.to_string());
-            }
-            persist_and_upsert(world, contact);
-        }),
-    )
-    .with_initial(display);
-    open_prompt(world, request);
+    open_form(
+        world,
+        FormSpec::new(
+            "Add sender",
+            "Add",
+            vec![
+                FieldSpec::text(NAME_FIELD, "Name").with_initial(display),
+                FieldSpec::text(EMAIL_FIELD, "Email").with_initial(addr.clone()),
+            ],
+            Box::new(move |world: &mut World, values| {
+                let typed = values.get(NAME_FIELD).trim().to_owned();
+                let name = if typed.is_empty() { addr } else { typed };
+                let mut contact = Contact::new(&name);
+                let email = values.get(EMAIL_FIELD).trim();
+                if let Err(error) = contact.add_entry_line(&format!("EMAIL:{email}")) {
+                    return warn(world, error.to_string());
+                }
+                persist_and_upsert(world, contact);
+            }),
+        ),
+    );
 }
 
 fn selected_sender(world: &World) -> Option<(String, String)> {
@@ -243,15 +274,17 @@ pub fn delete_selected_contact(world: &mut World) {
     let Some(contact) = selected_contact(world) else {
         return;
     };
-    let request = PromptRequest::new(
-        format!("Delete {}? (y/n): ", contact.display_name()),
-        Box::new(move |world: &mut World, answer: String| {
-            if matches!(answer.trim().to_ascii_lowercase().as_str(), "y" | "yes") {
-                perform_contact_deletion(world, &contact);
-            }
-        }),
+    let detail = contact.display_name().to_owned();
+    crate::overlay::open_confirm(
+        world,
+        crate::overlay::ConfirmSpec::new(
+            "Delete contact",
+            "Delete this contact?",
+            "Delete",
+            Box::new(move |world: &mut World| perform_contact_deletion(world, &contact)),
+        )
+        .with_detail(vec![detail]),
     );
-    open_prompt(world, request);
 }
 
 fn perform_contact_deletion(world: &mut World, contact: &Contact) {

@@ -7,12 +7,8 @@ use bevy::prelude::*;
 
 use crate::action::{apply_action, parse_command};
 use crate::command::describe;
-use crate::keymap::{
-    CONTEXT_COMPOSE, CONTEXT_CONTACTS, CONTEXT_GLOBAL, CONTEXT_INDEX, CONTEXT_PAGER,
-    CONTEXT_SIDEBAR, HelpRow, Keymaps,
-};
+use crate::keymap::{CONTEXT_GLOBAL, HelpRow, Keymaps};
 use crate::overlay::{ActiveOverlay, PickerItem, PickerSpec, open_picker};
-use crate::screen::Screen;
 
 const TITLE_PREFIX: &str = "keys — ";
 const ALL_TITLE: &str = "keys — all";
@@ -27,7 +23,7 @@ pub enum HelpScope {
 }
 
 pub fn open(world: &mut World, scope: HelpScope) {
-    let context = active_context(world);
+    let context = crate::focus::active_context(world);
     let rows = {
         let keymaps = world.resource::<Keymaps>();
         match scope {
@@ -68,7 +64,7 @@ pub fn toggle_scope(world: &mut World) {
     } else {
         return;
     };
-    crate::overlay::close(world);
+    crate::overlay::picker::close(world);
     open(world, next);
 }
 
@@ -90,19 +86,5 @@ fn picker_item(row: &HelpRow, scope: HelpScope) -> PickerItem {
     PickerItem {
         label,
         detail: (!detail.is_empty()).then_some(detail),
-    }
-}
-
-/// Mirrors the router's context choice: a focused sidebar wins, then
-/// the active screen.
-fn active_context(world: &World) -> &'static str {
-    if crate::sidebar::is_focused(world) {
-        return CONTEXT_SIDEBAR;
-    }
-    match world.get_resource::<Screen>().copied().unwrap_or_default() {
-        Screen::Pager => CONTEXT_PAGER,
-        Screen::Compose => CONTEXT_COMPOSE,
-        Screen::Index => CONTEXT_INDEX,
-        Screen::Contacts => CONTEXT_CONTACTS,
     }
 }

@@ -13,8 +13,7 @@ use nitidus_mail::{AccountId, JobId};
 use serde::{Deserialize, Serialize};
 
 use crate::compose::{ComposeSession, ComposeStage, ComposeState};
-use crate::screen::Screen;
-use crate::status::StatusMessage;
+use crate::status::MessageLog;
 
 mod delivery;
 
@@ -195,7 +194,7 @@ pub fn undo_send(world: &mut World) {
     let now = world.resource::<Time>().elapsed_secs_f64();
     let Some(entry) = entry else {
         world
-            .resource_mut::<StatusMessage>()
+            .resource_mut::<MessageLog>()
             .info("nothing to undo".to_owned(), now);
         return;
     };
@@ -232,9 +231,8 @@ pub fn undo_send(world: &mut World) {
     };
     session.reload_body();
     world.resource_mut::<ComposeState>().0 = Some(session);
-    *world.resource_mut::<Screen>() = Screen::Compose;
     world
-        .resource_mut::<StatusMessage>()
+        .resource_mut::<MessageLog>()
         .info("send undone — back to review".to_owned(), now);
 }
 

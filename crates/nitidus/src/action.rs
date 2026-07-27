@@ -5,7 +5,7 @@
 pub use crate::command::{complete_command, parse_command};
 use crate::index::{self, SortMode};
 use crate::keymap::{InputMode, Mode};
-use crate::status::StatusMessage;
+use crate::status::MessageLog;
 use bevy::app::AppExit;
 use bevy::prelude::*;
 use nitidus_mail::Flags;
@@ -57,6 +57,9 @@ pub enum Action {
     Fold(FoldOp),
     OverlayConfirm,
     OverlayCancel,
+    ExplorerToggleHidden,
+    Confirm(ConfirmOp),
+    Messages,
     Form(FormOp),
     View,
     Pager(PagerOp),
@@ -150,12 +153,26 @@ pub enum EditorMotion {
 pub enum FormOp {
     FocusNext,
     FocusPrev,
+    /// Step through the focused field's candidates. Tab belongs to
+    /// focus in a multi-field surface, so completion gets its own keys.
+    CompleteNext,
+    CompletePrev,
     Activate,
     Cancel,
     Left,
     Right,
     NextPage,
     PrevPage,
+}
+
+/// Operations on an open confirmation. `:confirm` and `:cancel` cover
+/// Enter and Esc; these are the rest.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ConfirmOp {
+    /// Accept regardless of which button is focused — the `y` reflex.
+    Accept,
+    FocusNext,
+    FocusPrev,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -176,6 +193,8 @@ pub enum PagerOp {
     SavePart,
     OpenPart,
     Links,
+    /// Draw the reading pane over its neighbours, and back again.
+    Zoom,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -252,26 +271,27 @@ pub fn apply_action(world: &mut World, action: &Action) {
         }
         Action::Echo(text) => {
             let now = world.resource::<Time>().elapsed_secs_f64();
-            world
-                .resource_mut::<StatusMessage>()
-                .info(text.clone(), now);
+            world.resource_mut::<MessageLog>().info(text.clone(), now);
         }
         Action::Cursor(motion) => dispatch_motion(world, *motion),
         Action::Sort(mode) => index::set_sort(world, *mode),
         Action::Flag { flag, op } => flag_and_advance(world, *flag, *op),
         Action::ToggleThreads => index::toggle_threads(world),
         Action::Fold(op) => {
-            if crate::sidebar::is_focused(world) {
+            if crate::focus::is_focused(world, crate::focus::Pane::Folders) {
                 crate::sidebar::fold(world, *op);
             } else {
                 index::fold(world, *op);
             }
         }
-        Action::OverlayConfirm => crate::overlay::confirm(world),
-        Action::OverlayCancel => crate::overlay::close(world),
+        Action::OverlayConfirm => crate::overlay::surface::confirm(world),
+        Action::OverlayCancel => crate::overlay::surface::cancel(world),
+        Action::ExplorerToggleHidden => crate::explorer::toggle_hidden(world),
+        Action::Confirm(op) => crate::overlay::confirm::dispatch(world, *op),
+        Action::Messages => crate::overlay::log::toggle(world),
         Action::Form(op) => crate::overlay::form::dispatch(world, *op),
         Action::View => {
-            if crate::sidebar::is_focused(world) {
+            if crate::focus::is_focused(world, crate::focus::Pane::Folders) {
                 crate::sidebar::select(world);
             } else {
                 crate::pager::open_selected(world);
@@ -309,10 +329,7 @@ pub fn apply_action(world: &mut World, action: &Action) {
 /// Single-target flag toggles advance the cursor (triage flow); batch
 /// flags and non-index screens keep the cursor still.
 fn flag_and_advance(world: &mut World, flag: Flags, op: FlagOp) {
-    let advance = world
-        .get_resource::<crate::screen::Screen>()
-        .is_some_and(|screen| *screen == crate::screen::Screen::Index)
-        && crate::index::batch_ids(world).is_empty();
+    let advance = !crate::shell::on_contacts(world) && crate::index::batch_ids(world).is_empty();
     index::flag_selected(world, flag, op);
     if advance {
         index::move_cursor(world, Motion::Next);
@@ -333,7 +350,7 @@ fn toggle_advance(world: &mut World) {
         "auto-advance off"
     };
     world
-        .resource_mut::<StatusMessage>()
+        .resource_mut::<MessageLog>()
         .info(text.to_owned(), now);
 }
 
@@ -346,19 +363,23 @@ enum FocusDirection {
 /// The yazi reflex: left goes out (sidebar, closing the pager), right
 /// goes in (back to the list, opening the selection, the detail pane).
 fn dispatch_focus(world: &mut World, direction: FocusDirection) {
-    let screen = world
-        .get_resource::<crate::screen::Screen>()
-        .copied()
-        .unwrap_or_default();
-    if screen == crate::screen::Screen::Contacts {
-        let mut view = world.resource_mut::<crate::contacts::ContactsView>();
-        view.focus = match direction {
-            FocusDirection::Left => crate::contacts::PaneFocus::Table,
-            FocusDirection::Right => crate::contacts::PaneFocus::Detail,
+    if crate::overlay::surface::top(world) == Some(crate::overlay::surface::Surface::Explorer) {
+        return match direction {
+            FocusDirection::Left => crate::explorer::to_parent(world),
+            FocusDirection::Right => crate::explorer::descend(world),
         };
+    }
+    if crate::shell::on_contacts(world) {
+        crate::focus::focus(
+            world,
+            match direction {
+                FocusDirection::Left => crate::focus::Pane::ContactList,
+                FocusDirection::Right => crate::focus::Pane::ContactDetail,
+            },
+        );
         return;
     }
-    if crate::sidebar::is_focused(world) {
+    if crate::focus::is_focused(world, crate::focus::Pane::Folders) {
         // Right = enter, exactly like Enter: opening a folder hands
         // focus back; expanding a group keeps you in the sidebar.
         if direction == FocusDirection::Right {
@@ -366,43 +387,43 @@ fn dispatch_focus(world: &mut World, direction: FocusDirection) {
         }
         return;
     }
-    match (screen, direction) {
-        (crate::screen::Screen::Index, FocusDirection::Left) => {
-            let mut sidebar = world.resource_mut::<crate::sidebar::SidebarState>();
-            sidebar.visible = true;
-            sidebar.focused = true;
+    // Left walks out of the columns, right walks in: reading → list →
+    // folders on the way out, and opening on the way in.
+    match (
+        crate::focus::is_focused(world, crate::focus::Pane::Reading),
+        direction,
+    ) {
+        (true, FocusDirection::Left) => crate::focus::focus(world, crate::focus::Pane::Messages),
+        (true, FocusDirection::Right) => {}
+        (false, FocusDirection::Left) => {
+            world.resource_mut::<crate::sidebar::SidebarState>().visible = true;
+            crate::focus::focus(world, crate::focus::Pane::Folders);
         }
-        (crate::screen::Screen::Index, FocusDirection::Right) => {
-            crate::pager::open_selected(world);
-        }
-        (crate::screen::Screen::Pager, FocusDirection::Left) => {
-            crate::pager::dispatch(world, PagerOp::Close);
-        }
-        _ => {}
+        (false, FocusDirection::Right) => crate::pager::open_selected(world),
     }
 }
 
-/// One motion vocabulary, four surfaces: the open overlay wins, then
-/// the focused sidebar, then the active screen.
+/// One motion vocabulary, many surfaces: the top overlay wins, then the
+/// focused pane.
 fn dispatch_motion(world: &mut World, motion: Motion) {
-    let overlay_open = world
-        .get_resource::<crate::overlay::ActiveOverlay>()
-        .is_some_and(crate::overlay::ActiveOverlay::is_open);
-    if overlay_open {
-        return crate::overlay::move_selection(world, motion);
+    match crate::overlay::surface::top(world) {
+        Some(crate::overlay::surface::Surface::Picker) => {
+            return crate::overlay::move_selection(world, motion);
+        }
+        Some(crate::overlay::surface::Surface::Explorer) => {
+            return crate::explorer::move_cursor(world, motion);
+        }
+        Some(crate::overlay::surface::Surface::MessageLog) => {
+            return crate::overlay::log::scroll(world, motion);
+        }
+        _ => {}
     }
-    if crate::sidebar::is_focused(world) {
-        return crate::sidebar::move_cursor(world, motion);
-    }
-    let screen = world
-        .get_resource::<crate::screen::Screen>()
-        .copied()
-        .unwrap_or_default();
-    match screen {
-        crate::screen::Screen::Pager => crate::pager::scroll(world, motion),
-        crate::screen::Screen::Compose => crate::compose::scroll(world, motion),
-        crate::screen::Screen::Index => index::move_cursor(world, motion),
-        crate::screen::Screen::Contacts => crate::contacts::move_cursor(world, motion),
+    match crate::focus::active_context(world) {
+        crate::keymap::CONTEXT_COMPOSE => crate::compose::scroll(world, motion),
+        crate::keymap::CONTEXT_CONTACTS => crate::contacts::move_cursor(world, motion),
+        crate::keymap::CONTEXT_SIDEBAR => crate::sidebar::move_cursor(world, motion),
+        crate::keymap::CONTEXT_PAGER => crate::pager::scroll(world, motion),
+        _ => index::move_cursor(world, motion),
     }
 }
 

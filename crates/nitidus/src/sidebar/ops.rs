@@ -12,33 +12,31 @@ use super::{SidebarRows, SidebarState, SidebarWidget};
 use crate::action::{FoldOp, Motion, PagerOp};
 use crate::bootstrap::request_sync;
 use crate::engine::EngineResource;
+use crate::focus::{self, Pane};
 use crate::index::IndexView;
-use crate::screen::Screen;
-use crate::status::StatusMessage;
+use crate::status::MessageLog;
 use crate::store::SyncTracker;
 
 const FALLBACK_PAGE_ROWS: usize = 10;
 
 pub fn toggle_visible(world: &mut World) {
-    let mut state = world.resource_mut::<SidebarState>();
-    state.visible = !state.visible;
-    if !state.visible {
-        state.focused = false;
+    let visible = {
+        let mut state = world.resource_mut::<SidebarState>();
+        state.visible = !state.visible;
+        state.visible
+    };
+    if !visible {
+        focus::focus(world, Pane::Messages);
     }
 }
 
 pub fn toggle_focus(world: &mut World) {
-    let mut state = world.resource_mut::<SidebarState>();
-    state.focused = !state.focused;
-    if state.focused {
-        state.visible = true;
+    if focus::is_focused(world, Pane::Folders) {
+        focus::focus(world, Pane::Messages);
+        return;
     }
-}
-
-pub fn is_focused(world: &World) -> bool {
-    world
-        .get_resource::<SidebarState>()
-        .is_some_and(|state| state.focused)
+    focus::focus(world, Pane::Folders);
+    world.resource_mut::<SidebarState>().visible = true;
 }
 
 pub fn move_cursor(world: &mut World, motion: Motion) {
@@ -204,8 +202,7 @@ fn open_folder(world: &mut World, account: AccountId, folder: FolderId) {
         index_view.collapsed.clear();
         index_view.fold_epoch += 1;
     }
-    *world.resource_mut::<Screen>() = Screen::Index;
-    world.resource_mut::<SidebarState>().focused = false;
+    focus::focus(world, Pane::Messages);
     sync_target(world, &account, &folder);
 }
 
@@ -291,7 +288,7 @@ fn target_folder(world: &mut World) -> Option<(AccountId, FolderId)> {
         _ => {
             let now = world.resource::<Time>().elapsed_secs_f64();
             world
-                .resource_mut::<StatusMessage>()
+                .resource_mut::<MessageLog>()
                 .warn("select a folder in the sidebar first".to_owned(), now);
             None
         }
@@ -305,7 +302,7 @@ fn send_folder_command(world: &mut World, account: &AccountId, command: MailComm
     if let Err(error) = engine.0.send(account, command) {
         let now = world.resource::<Time>().elapsed_secs_f64();
         world
-            .resource_mut::<StatusMessage>()
+            .resource_mut::<MessageLog>()
             .warn(format!("folder command failed: {error}"), now);
     }
 }

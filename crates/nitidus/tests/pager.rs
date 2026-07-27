@@ -8,15 +8,14 @@ use std::path::Path;
 use std::time::Duration;
 
 use bevy::prelude::*;
-use nitidus::action::{Action, PagerOp, apply_action};
+use nitidus::action::{Action, Motion, PagerOp, apply_action};
 use nitidus::config::Config;
 use nitidus::config::account::AccountConfig;
 use nitidus::engine::{EnginePlugin, EngineResource};
 use nitidus::index::{IndexPlugin, IndexStatus, IndexView};
 use nitidus::overlay::{ActiveOverlay, OverlayPlugin};
-use nitidus::pager::{PagerPlugin, PagerState, PagerStatus, SaveDir};
-use nitidus::screen::Screen;
-use nitidus::status::StatusMessage;
+use nitidus::pager::{PagerPlugin, PagerState, PagerStatus, ReadingZoom, SaveDir};
+use nitidus::status::{MessageLog, Severity};
 use nitidus::store::{MailStore, SyncTracker};
 use nitidus_mail::maildir::MaildirBackend;
 use nitidus_mail::{AccountId, Flags, FolderId, MailEngine};
@@ -103,7 +102,7 @@ fn pager_app(root: &Path) -> App {
     });
     app.insert_resource(config);
     app.init_resource::<MailStore>();
-    app.init_resource::<StatusMessage>();
+    app.init_resource::<MessageLog>();
     app.insert_resource(EngineResource(engine));
     app.add_plugins((IndexPlugin, PagerPlugin, OverlayPlugin, EnginePlugin));
     app.insert_resource(tracker);
@@ -129,9 +128,16 @@ fn wait_total(app: &mut App, total: usize) {
     );
 }
 
+fn reading_focused(world: &World) -> bool {
+    nitidus::focus::is_focused(world, nitidus::focus::Pane::Reading)
+}
+
 fn open_selected_and_wait(app: &mut App) {
     apply_action(app.world_mut(), &Action::View);
-    assert_eq!(*app.world().resource::<Screen>(), Screen::Pager);
+    assert!(
+        reading_focused(app.world()),
+        "opening focuses the reading pane"
+    );
     assert!(
         wait_for(app, |world| world.resource::<PagerState>().is_open()),
         "message never arrived in the pager"
@@ -158,7 +164,6 @@ fn view_opens_marks_read_and_close_returns() {
     );
 
     apply_action(app.world_mut(), &Action::Pager(PagerOp::Close));
-    assert_eq!(*app.world().resource::<Screen>(), Screen::Index);
     assert!(!app.world().resource::<PagerState>().is_open());
     assert!(app.world().resource::<IndexView>().selected.is_some());
 }
@@ -197,7 +202,7 @@ fn adjacent_message_navigation_stays_in_pager() {
         }),
         "J never opened the adjacent message"
     );
-    assert_eq!(*app.world().resource::<Screen>(), Screen::Pager);
+    assert!(reading_focused(app.world()));
 }
 
 #[test]
@@ -294,14 +299,223 @@ fn failed_fetch_falls_back_to_the_index_with_a_warning() {
 
     std::fs::remove_file(&path).unwrap();
     apply_action(app.world_mut(), &Action::View);
-    assert_eq!(*app.world().resource::<Screen>(), Screen::Pager);
+    assert!(reading_focused(app.world()));
     assert!(
-        wait_for(&mut app, |world| {
-            *world.resource::<Screen>() == Screen::Index
-        }),
-        "failed fetch never returned to the index"
+        wait_for(&mut app, |world| !reading_focused(world)),
+        "a failed fetch must hand focus back to the message list"
     );
     assert!(!app.world().resource::<PagerState>().is_loading());
-    let status = app.world().resource::<StatusMessage>();
-    assert!(status.current().is_some(), "failure must surface a warning");
+    assert!(
+        app.world()
+            .resource::<MessageLog>()
+            .entries()
+            .last()
+            .is_some_and(|entry| entry.severity == Severity::Warning),
+        "failure must surface a warning"
+    );
+}
+
+/// The reading pane holds its own message, so the cursor and the pane
+/// can disagree — which is what makes reading explicit rather than a
+/// fetch per keystroke.
+#[test]
+fn arrowing_the_index_neither_fetches_nor_disturbs_the_reading_pane() {
+    let tmp = tempfile::tempdir().unwrap();
+    make_maildir(tmp.path());
+    for index in 0..3 {
+        std::fs::write(
+            tmp.path().join(format!("cur/m{index}.host:2,S")),
+            simple_message(&format!("subject {index}")),
+        )
+        .unwrap();
+    }
+    let mut app = pager_app(tmp.path());
+    wait_total(&mut app, 3);
+
+    open_selected_and_wait(&mut app);
+    let loaded = app
+        .world()
+        .resource::<PagerState>()
+        .open_id()
+        .cloned()
+        .unwrap();
+
+    // Back out to the list, then browse it while the pane keeps its
+    // message.
+    apply_action(app.world_mut(), &Action::FocusLeft);
+    assert!(!reading_focused(app.world()));
+    apply_action(app.world_mut(), &Action::Cursor(Motion::Next));
+    apply_action(app.world_mut(), &Action::Cursor(Motion::Next));
+    app.update();
+
+    assert_eq!(
+        app.world().resource::<PagerState>().open_id(),
+        Some(&loaded),
+        "moving the cursor must not swap what is being read"
+    );
+    assert!(
+        !app.world().resource::<PagerState>().is_loading(),
+        "moving the cursor must not start a fetch"
+    );
+    assert_ne!(
+        app.world().resource::<IndexView>().selected.as_ref(),
+        Some(&loaded),
+        "the cursor has genuinely moved off the loaded message"
+    );
+}
+
+#[test]
+fn closing_the_reading_pane_returns_focus_to_the_message_list() {
+    let tmp = tempfile::tempdir().unwrap();
+    make_maildir(tmp.path());
+    std::fs::write(
+        tmp.path().join("cur/one.host:2,S"),
+        simple_message("only one"),
+    )
+    .unwrap();
+    let mut app = pager_app(tmp.path());
+    wait_total(&mut app, 1);
+    open_selected_and_wait(&mut app);
+
+    apply_action(app.world_mut(), &Action::Pager(PagerOp::Close));
+
+    assert!(!reading_focused(app.world()));
+    assert!(!app.world().resource::<PagerState>().is_open());
+}
+
+#[test]
+fn zooming_raises_the_reading_pane_and_closing_returns_to_the_list() {
+    let tmp = tempfile::tempdir().unwrap();
+    make_maildir(tmp.path());
+    for index in 0..2 {
+        std::fs::write(
+            tmp.path().join(format!("cur/m{index}.host:2,S")),
+            simple_message(&format!("subject {index}")),
+        )
+        .unwrap();
+    }
+    let mut app = pager_app(tmp.path());
+    wait_total(&mut app, 2);
+    open_selected_and_wait(&mut app);
+    let selected = app.world().resource::<IndexView>().selected.clone();
+
+    apply_action(app.world_mut(), &Action::Pager(PagerOp::Zoom));
+    app.update();
+    assert!(app.world().resource::<ReadingZoom>().is_zoomed());
+
+    apply_action(app.world_mut(), &Action::Pager(PagerOp::Close));
+    app.update();
+
+    assert!(
+        !app.world().resource::<ReadingZoom>().is_zoomed(),
+        "closing must leave the overlay as well as the message"
+    );
+    assert!(!reading_focused(app.world()));
+    assert_eq!(
+        app.world().resource::<IndexView>().selected,
+        selected,
+        "the list selection survives the overlay"
+    );
+}
+
+#[test]
+fn the_zoomed_pane_stays_below_a_picker_opened_from_it() {
+    let tmp = tempfile::tempdir().unwrap();
+    make_maildir(tmp.path());
+    std::fs::write(tmp.path().join("cur/rich.host:2,S"), rich_message()).unwrap();
+    let mut app = pager_app(tmp.path());
+    wait_total(&mut app, 1);
+    open_selected_and_wait(&mut app);
+
+    apply_action(app.world_mut(), &Action::Pager(PagerOp::Zoom));
+    apply_action(app.world_mut(), &Action::Pager(PagerOp::Links));
+    app.update();
+
+    assert!(
+        app.world().resource::<ActiveOverlay>().is_open(),
+        "a picker must still open over the zoomed pane"
+    );
+    let orders: Vec<i32> = app
+        .world_mut()
+        .query::<&plurimus::WidgetOrder>()
+        .iter(app.world())
+        .map(|order| order.0)
+        .collect();
+    assert!(
+        orders.contains(&nitidus_ui_kit::layer::ZOOM),
+        "the zoomed pane sits on its own rung, got {orders:?}"
+    );
+    assert!(
+        orders
+            .iter()
+            .any(|order| *order > nitidus_ui_kit::layer::ZOOM),
+        "and the picker draws above it, got {orders:?}"
+    );
+}
+
+/// `Z` on a row nobody has opened has nothing to enlarge unless it
+/// loads the message first.
+#[test]
+fn zooming_from_the_message_list_opens_the_selected_message() {
+    let tmp = tempfile::tempdir().unwrap();
+    make_maildir(tmp.path());
+    std::fs::write(
+        tmp.path().join("cur/unread.host:2,S"),
+        simple_message("never opened"),
+    )
+    .unwrap();
+    let mut app = pager_app(tmp.path());
+    wait_total(&mut app, 1);
+    assert!(
+        !app.world().resource::<PagerState>().is_open(),
+        "setup: nothing has been read yet"
+    );
+
+    apply_action(app.world_mut(), &Action::Pager(PagerOp::Zoom));
+
+    assert!(app.world().resource::<ReadingZoom>().is_zoomed());
+    assert!(
+        wait_for(&mut app, |world| world.resource::<PagerState>().is_open()),
+        "zooming must load the selected message"
+    );
+    assert!(reading_focused(app.world()));
+}
+
+#[test]
+fn zooming_an_empty_folder_does_nothing() {
+    let tmp = tempfile::tempdir().unwrap();
+    make_maildir(tmp.path());
+    let mut app = pager_app(tmp.path());
+    app.update();
+
+    apply_action(app.world_mut(), &Action::Pager(PagerOp::Zoom));
+
+    assert!(
+        !app.world().resource::<ReadingZoom>().is_zoomed(),
+        "there is no message to enlarge"
+    );
+}
+
+/// Re-opening what the pane already holds should not go back to the
+/// network for it.
+#[test]
+fn reopening_the_loaded_message_does_not_refetch() {
+    let tmp = tempfile::tempdir().unwrap();
+    make_maildir(tmp.path());
+    std::fs::write(tmp.path().join("cur/one.host:2,S"), simple_message("one")).unwrap();
+    let mut app = pager_app(tmp.path());
+    wait_total(&mut app, 1);
+    open_selected_and_wait(&mut app);
+
+    apply_action(app.world_mut(), &Action::FocusLeft);
+    apply_action(app.world_mut(), &Action::View);
+
+    assert!(
+        !app.world().resource::<PagerState>().is_loading(),
+        "the message is already in the pane; nothing should be in flight"
+    );
+    assert!(
+        reading_focused(app.world()),
+        "focus still moves to the pane"
+    );
 }

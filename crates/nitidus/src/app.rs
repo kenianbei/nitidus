@@ -21,7 +21,6 @@ use crate::keymap::Keymaps;
 use crate::outbox::OutboxPlugin;
 use crate::overlay::OverlayPlugin;
 use crate::pager::PagerPlugin;
-use crate::prompt::PromptPlugin;
 use crate::router::RouterPlugin;
 use crate::shell::ShellPlugin;
 use crate::sidebar::SidebarPlugin;
@@ -50,7 +49,9 @@ pub fn build_app(loaded: LoadedConfig, keymaps: Keymaps, setup: EngineSetup) -> 
     app.insert_resource(EngineResource(setup.engine));
     app.insert_resource(setup.store);
     app.insert_resource(setup.tracker);
-    app.insert_resource(StartupNotices(setup.notices));
+    let mut notices = loaded.notices.clone();
+    notices.extend(setup.notices);
+    app.insert_resource(StartupNotices(notices));
     app.insert_resource(crate::addresses::AddressIndex::from_loaded(setup.addresses));
     if let Some(cache) = setup.cache {
         app.insert_resource(CacheResource(cache));
@@ -65,13 +66,13 @@ pub fn build_app(loaded: LoadedConfig, keymaps: Keymaps, setup: EngineSetup) -> 
         ExplorerPlugin,
         RouterPlugin,
         CommandLinePlugin,
-        PromptPlugin,
         ComposePlugin,
         OutboxPlugin,
         ToastPlugin,
         EnginePlugin,
         crate::accounts::AccountsPlugin,
     ));
+    app.add_plugins(crate::panes::PaneRulesPlugin);
     app
 }
 

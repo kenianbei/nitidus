@@ -7,7 +7,7 @@ use nitidus_mail::{AccountId, EnvelopeId, FolderId, JobId};
 
 use super::reply::{ReplyKind, start_from_raw};
 
-use crate::status::StatusMessage;
+use crate::status::MessageLog;
 
 /// Fetch-then-reply from the index: the intent parks until the raw
 /// message arrives through the engine drain.
@@ -93,7 +93,7 @@ pub(crate) fn fetch_selected(world: &mut World, purpose: IntentPurpose) {
     if let Err(error) = engine.0.send(&account, command) {
         let now = world.resource::<Time>().elapsed_secs_f64();
         world
-            .resource_mut::<StatusMessage>()
+            .resource_mut::<MessageLog>()
             .warn(format!("fetch for reply failed: {error}"), now);
         return;
     }

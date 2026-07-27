@@ -7,10 +7,9 @@ use plurimus::{UiEvent, UiHovered, Widget};
 
 use super::{IndexWidget, IndexWindowState};
 use crate::mouse::{is_modal_open, local_event};
-use crate::screen::Screen;
 
 pub(super) fn handle(world: &mut World, entity: Entity, event: UiEvent) -> Result {
-    if *world.resource::<Screen>() != Screen::Index || is_modal_open(world) {
+    if crate::shell::on_contacts(world) || is_modal_open(world) {
         return Ok(());
     }
     let Some(local) = local_event(world, entity, event) else {

@@ -17,15 +17,46 @@ pub const KEYS_FILE_NAME: &str = "keys.toml";
 pub struct LoadedConfig {
     pub config: Config,
     pub keymaps: RawKeymaps,
+    /// Settings that still parse but no longer mean what they used to;
+    /// surfaced on startup rather than failing the launch.
+    pub notices: Vec<String>,
 }
 
 pub fn load() -> anyhow::Result<LoadedConfig> {
     let dir = dirs::config_dir()?;
-    let config: Config = parse_file(&dir.join(CONFIG_FILE_NAME))?.unwrap_or_default();
+    let config_path = dir.join(CONFIG_FILE_NAME);
+    let config: Config = parse_file(&config_path)?.unwrap_or_default();
     let keymaps: RawKeymaps = parse_file(&dir.join(KEYS_FILE_NAME))?.unwrap_or_default();
     validate(&config)?;
     keymaps.validate()?;
-    Ok(LoadedConfig { config, keymaps })
+    let notices = std::fs::read_to_string(&config_path)
+        .ok()
+        .map_or_else(Vec::new, |raw| retired_settings(&raw));
+    Ok(LoadedConfig {
+        config,
+        keymaps,
+        notices,
+    })
+}
+
+/// The mark-read delay is gone. A config still carrying one loads with
+/// `mark_read = "open"`, and says so rather than changing behaviour in
+/// silence.
+pub(crate) fn retired_settings(raw: &str) -> Vec<String> {
+    let Ok(value) = toml::from_str::<toml::Value>(raw) else {
+        return Vec::new();
+    };
+    let mark_read = value
+        .get("ui")
+        .and_then(|ui| ui.get("pager"))
+        .and_then(|pager| pager.get("mark_read"));
+    if mark_read.is_some_and(|value| value.is_integer() || value.is_float()) {
+        return vec![
+            "mark_read no longer takes a delay; reading is explicit now, so it was read as \"open\""
+                .to_owned(),
+        ];
+    }
+    Vec::new()
 }
 
 fn parse_file<T: serde::de::DeserializeOwned>(path: &Path) -> anyhow::Result<Option<T>> {
@@ -88,6 +119,21 @@ fn validate_signature(account: &super::account::AccountConfig) -> anyhow::Result
 #[cfg(test)]
 mod tests {
     #![allow(clippy::unwrap_used, clippy::expect_used)]
+
+    #[test]
+    fn a_retired_mark_read_delay_is_noticed_rather_than_applied_in_silence() {
+        let notices = retired_settings("[ui.pager]\nmark_read = 2\n");
+        assert_eq!(notices.len(), 1);
+        assert!(notices[0].contains("mark_read"), "{notices:?}");
+        assert!(notices[0].contains("open"), "{notices:?}");
+    }
+
+    #[test]
+    fn a_current_mark_read_value_notices_nothing() {
+        assert!(retired_settings("[ui.pager]\nmark_read = \"never\"\n").is_empty());
+        assert!(retired_settings("").is_empty());
+        assert!(retired_settings("not = = toml").is_empty());
+    }
 
     use super::*;
     use crate::config::account::AccountConfig;

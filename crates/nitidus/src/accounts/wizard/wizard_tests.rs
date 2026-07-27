@@ -22,10 +22,10 @@ fn harness() -> Harness {
     let mut app = App::new();
     app.add_plugins(MinimalPlugins);
     app.init_resource::<Mode>();
-    app.init_resource::<StatusMessage>();
+    app.init_resource::<MessageLog>();
     app.init_resource::<ActiveForm>();
+    app.init_resource::<crate::overlay::surface::OverlayStack>();
     app.init_resource::<IndexView>();
-    app.init_resource::<Screen>();
     app.init_resource::<Config>();
     app.insert_resource(Keymaps::compile(&RawKeymaps::default()).unwrap());
     app.insert_resource(super::super::ConfigFilePath(config_path.clone()));

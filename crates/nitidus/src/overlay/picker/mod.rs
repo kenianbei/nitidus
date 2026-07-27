@@ -32,6 +32,7 @@ pub struct PickerPlugin;
 impl Plugin for PickerPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<ActiveOverlay>();
+        app.init_resource::<crate::overlay::surface::OverlayStack>();
         // Idempotent with PlurimusUiPlugin's registration; keeps this
         // plugin usable in headless test apps.
         app.add_message::<UiFocusMessage>();
@@ -147,6 +148,7 @@ impl ActiveOverlay {
 
 pub fn open_picker(world: &mut World, spec: PickerSpec) {
     world.resource_mut::<ActiveOverlay>().0 = Some(PickerState::new(spec));
+    super::surface::raise(world, super::surface::Surface::Picker);
 }
 
 pub fn close(world: &mut World) {

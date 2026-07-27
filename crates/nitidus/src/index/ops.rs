@@ -10,7 +10,7 @@ use super::{
 };
 use crate::action::{FlagOp, FoldOp, Motion};
 use crate::engine::EngineResource;
-use crate::status::StatusMessage;
+use crate::status::MessageLog;
 use crate::store::{MailStore, ThreadSet};
 
 /// Page size when nothing has rendered yet (headless tests, first frame).
@@ -264,7 +264,7 @@ fn send_flag_write(
     {
         let now = world.resource::<Time>().elapsed_secs_f64();
         world
-            .resource_mut::<StatusMessage>()
+            .resource_mut::<MessageLog>()
             .warn(format!("flag write failed: {error}"), now);
     }
 }

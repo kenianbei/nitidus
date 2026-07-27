@@ -12,8 +12,7 @@ use nitidus_mail::{AccountId, ConnectionState, FolderId, MailEngine, MailEvent};
 use crate::bootstrap::request_sync;
 use crate::index::IndexView;
 use crate::pager::PagerState;
-use crate::screen::Screen;
-use crate::status::StatusMessage;
+use crate::status::MessageLog;
 use crate::store::{MailStore, SyncTracker, ThreadSet};
 
 const MAX_EVENTS_PER_FRAME: usize = 64;
@@ -30,9 +29,10 @@ impl Plugin for EnginePlugin {
         app.init_resource::<IndexView>();
         app.init_resource::<crate::outbox::OutboxState>();
         app.init_resource::<crate::compose::intent::ReplyIntent>();
-        app.init_resource::<Screen>();
+        app.init_resource::<crate::shell::Tabs>();
+        app.init_resource::<crate::focus::PaneFocus>();
         app.init_resource::<StartupNotices>();
-        app.init_resource::<StatusMessage>();
+        app.init_resource::<MessageLog>();
         app.add_systems(PreUpdate, drain_mail_events);
         app.add_systems(Update, surface_startup_notices);
     }
@@ -79,8 +79,8 @@ struct MailRouting<'w> {
     tracker: ResMut<'w, SyncTracker>,
     threads: ResMut<'w, ThreadSet>,
     pager: ResMut<'w, PagerState>,
-    screen: ResMut<'w, Screen>,
-    messages: ResMut<'w, StatusMessage>,
+    focus: ResMut<'w, crate::focus::PaneFocus>,
+    messages: ResMut<'w, MessageLog>,
     index_view: ResMut<'w, IndexView>,
     outbox: ResMut<'w, crate::outbox::OutboxState>,
     reply_intent: ResMut<'w, crate::compose::intent::ReplyIntent>,
@@ -148,7 +148,7 @@ fn route_event(routing: &mut MailRouting, event: MailEvent) {
             if let Some(job) = job {
                 routing.tracker.fail(job);
                 if routing.pager.fail_fetch(job) {
-                    *routing.screen = Screen::Index;
+                    routing.focus.set(crate::focus::Pane::Messages);
                 }
                 crate::outbox::fail_send(&mut routing.outbox, job);
                 routing.reply_intent.abandon(job);
@@ -222,7 +222,7 @@ fn resync_changed(routing: &mut MailRouting, account: AccountId, folder: FolderI
 
 fn surface_startup_notices(
     notices: Res<StartupNotices>,
-    mut status: ResMut<StatusMessage>,
+    mut status: ResMut<MessageLog>,
     time: Res<Time>,
     mut surfaced: Local<bool>,
 ) {
@@ -320,9 +320,9 @@ mod tests {
         let mut app = engine_app(engine, tracker);
         assert!(
             update_until(&mut app, |world| {
-                world.resource::<StatusMessage>().current().is_some()
+                world.resource::<MessageLog>().entries().len() > 0
             }),
-            "scan failure never reached the status message"
+            "scan failure never reached the message log"
         );
         let tracker = app.world().resource::<SyncTracker>();
         assert!(!tracker.is_tracked(&account, &FolderId::new("INBOX")));

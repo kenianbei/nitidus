@@ -1,6 +1,6 @@
 //! Shared mutation plumbing: save-before-upsert persistence, selection
-//! lookups, and the component-walking prompt chain used by both the
-//! editors and the add flow.
+//! lookups, and the component form used by both the editors and the add
+//! flow.
 
 use bevy::prelude::*;
 use nitidus_contacts::calcard::vcard::{VCardEntry, VCardValue};
@@ -8,38 +8,48 @@ use nitidus_contacts::{Contact, ContactError, escape_component};
 
 use super::view::ContactsView;
 use super::{ContactStore, ContactsDir, detail};
-use crate::prompt::{PromptRequest, open_prompt};
-use crate::status::StatusMessage;
+use crate::overlay::form::{FieldSpec, FormSpec, open_form};
+use crate::status::MessageLog;
 
 pub(super) enum ChainFinish {
     Edit { entry_index: usize },
     Add { prefix: String },
 }
 
-/// One prompt per component; Enter keeps the prefilled value. The last
-/// component finishes the chain into an edit or an add.
-pub(super) fn component_chain_step(
+/// One field per component of a structured property — a name's family
+/// and given parts, an address's street and city — on one surface. They
+/// used to be one prompt each, so you could not see what you had
+/// already entered or go back to fix it.
+pub(super) fn open_component_form(
     world: &mut World,
+    title: &str,
     labels: &'static [&'static str],
     current: Vec<String>,
-    collected: Vec<String>,
     finish: ChainFinish,
 ) {
-    let step = collected.len();
-    let Some(label) = labels.get(step) else {
-        return finish_chain(world, collected, finish);
-    };
-    let prefill = current.get(step).cloned().unwrap_or_default();
-    let request = PromptRequest::new(
-        format!("{label}: "),
-        Box::new(move |world: &mut World, input: String| {
-            let mut collected = collected;
-            collected.push(input);
-            component_chain_step(world, labels, current, collected, finish);
-        }),
-    )
-    .with_initial(prefill);
-    open_prompt(world, request);
+    let fields = labels
+        .iter()
+        .enumerate()
+        .map(|(index, label)| {
+            FieldSpec::text(label, *label)
+                .with_initial(current.get(index).cloned().unwrap_or_default())
+        })
+        .collect();
+    open_form(
+        world,
+        FormSpec::new(
+            title.to_owned(),
+            "Save",
+            fields,
+            Box::new(move |world: &mut World, values| {
+                let collected = labels
+                    .iter()
+                    .map(|label| values.get(label).to_owned())
+                    .collect();
+                finish_chain(world, collected, finish);
+            }),
+        ),
+    );
 }
 
 fn finish_chain(world: &mut World, collected: Vec<String>, finish: ChainFinish) {
@@ -141,10 +151,10 @@ pub(super) fn contacts_dir(world: &mut World) -> Option<std::path::PathBuf> {
 
 pub(super) fn warn(world: &mut World, text: String) {
     let now = world.resource::<Time>().elapsed_secs_f64();
-    world.resource_mut::<StatusMessage>().warn(text, now);
+    world.resource_mut::<MessageLog>().warn(text, now);
 }
 
 pub(super) fn info(world: &mut World, text: String) {
     let now = world.resource::<Time>().elapsed_secs_f64();
-    world.resource_mut::<StatusMessage>().info(text, now);
+    world.resource_mut::<MessageLog>().info(text, now);
 }

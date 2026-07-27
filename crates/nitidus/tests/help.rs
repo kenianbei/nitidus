@@ -124,12 +124,13 @@ fn enter_executes_the_selected_binding() {
 
     press_code(&mut app, KeyCode::Enter);
     assert!(!app.world().resource::<ActiveOverlay>().is_open());
-    let state = app.world().resource::<nitidus::sidebar::SidebarState>();
     assert!(
         if expects_focus {
-            state.focused
+            nitidus::focus::is_focused(app.world(), nitidus::focus::Pane::Folders)
         } else {
-            !state.visible
+            !app.world()
+                .resource::<nitidus::sidebar::SidebarState>()
+                .visible
         },
         "the selected sidebar command must have executed"
     );
