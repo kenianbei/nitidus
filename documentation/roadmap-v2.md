@@ -1,11 +1,10 @@
 # Nitidus — Roadmap v2
 
-Supersedes [roadmap.md](roadmap.md). That document's Phase 1 (items 1–30) is
-complete and shipped; its Phases 2–5 remain valid as a feature backlog and are
-carried forward here, re-sequenced. Item numbering continues from 30 so design
-doc names never collide across the two roadmaps.
-
-Retire `roadmap.md` once this document is accepted.
+Supersedes `roadmap.md`, retired in `d2d50ff` and readable in the history before
+it. That document's Phase 1 (items 1–30) is complete and shipped; its Phases 2–5
+remain valid as a feature backlog and are carried forward here, re-sequenced.
+Item numbering continues from 30 so design doc names never collide across the
+two roadmaps.
 
 ## Why v2
 
