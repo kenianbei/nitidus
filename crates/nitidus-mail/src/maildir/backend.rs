@@ -3,34 +3,49 @@
 
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
+
+use io_maildir::client::MaildirClient;
+use io_maildir::entry::MaildirEntry;
+use io_maildir::maildir::{Maildir, MaildirSubdir};
 
 use crate::backend::MailBackend;
 use crate::error::MailError;
 use crate::types::{EnvelopeId, EnvelopeSummary, Flags, FolderId, FolderMeta};
 
-use super::{folder_ops, folders, message};
+use super::{flags, folder_ops, folders, scan};
 
 const SCAN_BATCH_SIZE: usize = 500;
 
 pub struct MaildirBackend {
     root: PathBuf,
+    client: Arc<MaildirClient>,
 }
 
 impl MaildirBackend {
     pub fn new(root: PathBuf) -> Result<Self, MailError> {
         folders::validate_root(&root)?;
-        Ok(Self { root })
+        Ok(Self {
+            client: Arc::new(folders::build_client(&root)),
+            root,
+        })
     }
 
     pub fn root(&self) -> &Path {
         &self.root
     }
+
+    fn open(&self, folder: &FolderId) -> Result<Maildir, MailError> {
+        self.client
+            .load_maildir(folders::folder_path(folder))
+            .map_err(|error| MailError::Backend(format!("open folder {folder}: {error}")))
+    }
 }
 
 impl MailBackend for MaildirBackend {
     async fn list_folders(&mut self) -> Result<Vec<FolderMeta>, MailError> {
-        let root = self.root.clone();
-        run_blocking(move || folders::discover(&root)).await
+        let client = Arc::clone(&self.client);
+        run_blocking(move || folders::list_maildirs(&client)).await
     }
 
     async fn scan_envelopes(
@@ -38,14 +53,20 @@ impl MailBackend for MaildirBackend {
         folder: &FolderId,
         batches: flume::Sender<Vec<EnvelopeSummary>>,
     ) -> Result<(), MailError> {
-        let dir = folders::folder_dir(&self.root, folder);
-        let files = {
-            let dir = dir.clone();
-            run_blocking(move || list_message_files(&dir)).await?
+        let maildir = self.open(folder)?;
+        let entries = {
+            let client = Arc::clone(&self.client);
+            run_blocking(move || {
+                client
+                    .list_entries(maildir)
+                    .map(|entries| entries.into_iter().collect::<Vec<_>>())
+                    .map_err(|error| MailError::Backend(format!("list entries: {error}")))
+            })
+            .await?
         };
-        for chunk in files.chunks(SCAN_BATCH_SIZE) {
+        for chunk in entries.chunks(SCAN_BATCH_SIZE) {
             let chunk = chunk.to_vec();
-            let batch = run_blocking(move || parse_chunk(&chunk)).await?;
+            let batch = run_blocking(move || Ok(parse_chunk(&chunk))).await?;
             if batches.send_async(batch).await.is_err() {
                 return Err(MailError::Cancelled);
             }
@@ -58,49 +79,54 @@ impl MailBackend for MaildirBackend {
         folder: &FolderId,
         id: &EnvelopeId,
     ) -> Result<Vec<u8>, MailError> {
-        let dir = folders::folder_dir(&self.root, folder);
-        let id = id.clone();
+        let path = self.locate(folder, id).await?;
         run_blocking(move || {
-            let path = message::find_message(&dir, &id)?;
             fs::read(&path)
                 .map_err(|error| MailError::Backend(format!("read {}: {error}", path.display())))
         })
         .await
     }
 
+    /// Flags always land the message in `cur/`: a message that has been
+    /// acted on is no longer new. Upstream's `MaildirFlagsSet` is a
+    /// silent no-op for entries in `new/`, so the placement is ours and
+    /// only the suffix encoding is theirs (§3.3 finding 11).
     async fn set_flags(
         &mut self,
         folder: &FolderId,
         id: &EnvelopeId,
         flags: Flags,
     ) -> Result<(), MailError> {
-        let dir = folders::folder_dir(&self.root, folder);
+        let maildir = self.open(folder)?;
+        let current = self.locate(folder, id).await?;
         let id = id.clone();
         run_blocking(move || {
-            let current = message::find_message(&dir, &id)?;
-            message::rename_with_flags(&dir, &current, &id, flags)?;
-            Ok(())
+            let name = format!("{}:2,{}", id.as_str(), flags::to_maildir(flags));
+            let target = PathBuf::from(maildir.cur().as_str()).join(name);
+            fs::rename(&current, &target).map_err(|error| {
+                MailError::Backend(format!("set flags on {}: {error}", current.display()))
+            })
         })
         .await
     }
 
     async fn create_folder(&mut self, name: &str) -> Result<(), MailError> {
-        let root = self.root.clone();
+        let client = Arc::clone(&self.client);
         let name = name.to_owned();
-        run_blocking(move || folder_ops::create(&root, &name)).await
+        run_blocking(move || folder_ops::create(&client, &name)).await
     }
 
     async fn delete_folder(&mut self, folder: &FolderId) -> Result<(), MailError> {
-        let root = self.root.clone();
+        let client = Arc::clone(&self.client);
         let folder = folder.clone();
-        run_blocking(move || folder_ops::delete(&root, &folder)).await
+        run_blocking(move || folder_ops::delete(&client, &folder)).await
     }
 
     async fn rename_folder(&mut self, folder: &FolderId, new_name: &str) -> Result<(), MailError> {
-        let root = self.root.clone();
+        let client = Arc::clone(&self.client);
         let folder = folder.clone();
         let new_name = new_name.to_owned();
-        run_blocking(move || folder_ops::rename(&root, &folder, &new_name)).await
+        run_blocking(move || folder_ops::rename(&client, &folder, &new_name)).await
     }
 
     async fn delete_message(
@@ -108,10 +134,8 @@ impl MailBackend for MaildirBackend {
         folder: &FolderId,
         id: &EnvelopeId,
     ) -> Result<(), MailError> {
-        let dir = folders::folder_dir(&self.root, folder);
-        let id = id.clone();
+        let path = self.locate(folder, id).await?;
         run_blocking(move || {
-            let path = message::find_message(&dir, &id)?;
             fs::remove_file(&path)
                 .map_err(|error| MailError::Backend(format!("delete {}: {error}", path.display())))
         })
@@ -124,24 +148,14 @@ impl MailBackend for MaildirBackend {
         id: &EnvelopeId,
         target: &FolderId,
     ) -> Result<(), MailError> {
-        let source_dir = folders::folder_dir(&self.root, folder);
-        let target_dir = folders::folder_dir(&self.root, target);
+        let source = self.open(folder)?;
+        let destination = self.open(target)?;
+        let client = Arc::clone(&self.client);
         let id = id.clone();
         run_blocking(move || {
-            let path = message::find_message(&source_dir, &id)?;
-            let file_name = path
-                .file_name()
-                .ok_or_else(|| MailError::Backend("message path has no file name".to_owned()))?;
-            let destination = target_dir.join("cur").join(file_name);
-            if !target_dir.join("cur").is_dir() {
-                return Err(MailError::Backend(format!(
-                    "target folder missing: {}",
-                    target_dir.display()
-                )));
-            }
-            fs::rename(&path, &destination).map_err(|error| {
-                MailError::Backend(format!("move to {}: {error}", destination.display()))
-            })
+            client
+                .r#move(id.as_str(), source, destination, Some(MaildirSubdir::Cur))
+                .map_err(|error| MailError::Backend(format!("move {id}: {error}")))
         })
         .await
     }
@@ -152,8 +166,30 @@ impl MailBackend for MaildirBackend {
         bytes: Vec<u8>,
         flags: Flags,
     ) -> Result<(), MailError> {
-        let dir = folders::folder_dir(&self.root, folder);
-        run_blocking(move || message::deliver(&dir, &bytes, flags).map(|_id| ())).await
+        let maildir = self.open(folder)?;
+        let client = Arc::clone(&self.client);
+        run_blocking(move || {
+            client
+                .store(maildir, MaildirSubdir::Cur, flags::to_maildir(flags), bytes)
+                .map(|_delivered| ())
+                .map_err(|error| MailError::Backend(format!("append: {error}")))
+        })
+        .await
+    }
+}
+
+impl MaildirBackend {
+    async fn locate(&self, folder: &FolderId, id: &EnvelopeId) -> Result<PathBuf, MailError> {
+        let maildir = self.open(folder)?;
+        let client = Arc::clone(&self.client);
+        let id = id.clone();
+        run_blocking(move || {
+            client
+                .locate(maildir, id.as_str())
+                .map(|(path, _subdir, _flags)| PathBuf::from(path.as_str()))
+                .map_err(|error| MailError::Backend(format!("message not found: {id}: {error}")))
+        })
+        .await
     }
 }
 
@@ -167,29 +203,15 @@ where
         .map_err(|join_error| MailError::Backend(format!("blocking task failed: {join_error}")))?
 }
 
-fn list_message_files(folder_dir: &Path) -> Result<Vec<(PathBuf, bool)>, MailError> {
-    let mut files = Vec::new();
-    for (sub, in_new) in [("new", true), ("cur", false)] {
-        let dir = folder_dir.join(sub);
-        let entries = fs::read_dir(&dir)
-            .map_err(|error| MailError::Backend(format!("read {}: {error}", dir.display())))?;
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if path.is_file() {
-                files.push((path, in_new));
+fn parse_chunk(chunk: &[MaildirEntry]) -> Vec<EnvelopeSummary> {
+    chunk
+        .iter()
+        .filter_map(|entry| match scan::parse_envelope(entry) {
+            Ok(envelope) => Some(envelope),
+            Err(error) => {
+                tracing::warn!("skipping unreadable message {}: {error}", entry.path());
+                None
             }
-        }
-    }
-    Ok(files)
-}
-
-fn parse_chunk(chunk: &[(PathBuf, bool)]) -> Result<Vec<EnvelopeSummary>, MailError> {
-    let mut batch = Vec::with_capacity(chunk.len());
-    for (path, in_new) in chunk {
-        match message::parse_envelope(path, *in_new) {
-            Ok(envelope) => batch.push(envelope),
-            Err(error) => tracing::warn!("skipping unreadable message {}: {error}", path.display()),
-        }
-    }
-    Ok(batch)
+        })
+        .collect()
 }

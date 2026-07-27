@@ -2715,6 +2715,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "io-maildir"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c4357792ab62175e30ac9010d2347251eeddef6bf2cad7269fd00356620e1ba1"
+dependencies = [
+ "gethostname",
+ "log",
+ "thiserror 2.0.19",
+]
+
+[[package]]
 name = "io-oauth"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3316,6 +3327,7 @@ dependencies = [
  "flume",
  "io-http",
  "io-imap",
+ "io-maildir",
  "io-oauth",
  "io-smtp",
  "mail-parser",

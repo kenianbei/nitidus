@@ -164,9 +164,9 @@ for deleting 89 lines. §3.3 R2 Q1 re-asks the question on the corrected facts.
 Adopt now, with the maildir swap:
 
 - `io-maildir` — this refactor.
-- `pimalaya-stream` — Phase 5, per R2 A1. Blocking-only today, so adopting it
-  converts every remote transport; taken as an alignment decision rather than a
-  line-count one.
+- `pimalaya-stream` — per R2 A1, but the work moved out of this doc: it
+  converts every remote transport and touches nothing maildir. See
+  `refactor-transport-stream-v1`.
 
 Adopt when the feature that needs it arrives, mapped to the roadmap:
 
@@ -196,9 +196,10 @@ Keep out:
 - **`io-keyring`**, **`io-process`**, **`io-stream`** — the 0.0.x coroutine
   crates, quiet for ~10 months. We already have working equivalents
   (`keyring-core` + the zbus store, plain `std::process`, and `net.rs` until
-  Phase 5 replaces it), and 0.0.2 is not a version to bet a working feature on.
+  `refactor-transport-stream-v1` replaces it), and 0.0.2 is not a version to
+  bet a working feature on.
 (`pimalaya-stream` was listed here until R2 A1 moved it to "adopt now" — see
-§3.5 and Phase 5.)
+§3.5 and `refactor-transport-stream-v1`.)
 
 ### 2.4 The standing policy this implies
 
@@ -325,6 +326,26 @@ deliberate differences in scope:
     the plan sets `maildirpp = true` — which means a plain undotted child folder
     that we list today would stop appearing. R2 Q2.
 
+**Found while implementing Phase 3, and worse than any of the above:**
+
+11. **`MaildirFlagsSet` is a silent no-op for entries in `new/`.** Its `Locate`
+    state matches on the subdir and returns `Complete(Ok(()))` for
+    `New | Tmp`, yielding a rename only for `Cur` — and even then via
+    `with_file_name`, so the entry never leaves the subdir it is in. Ours always
+    renames into `cur/`, because a message that has been acted on is no longer
+    new.
+
+    Adopting theirs unchanged would mean marking a message read does nothing at
+    all for every *unread* message, since unread mail is exactly what lives in
+    `new/`. It returns `Ok`, so nothing would surface the failure. This is not a
+    scope difference like findings 6–9; it is the single most common operation
+    in a mail client silently failing.
+
+    Resolution: the placement stays ours — locate, then rename into `cur/` with
+    the flag suffix — and only the suffix encoding is theirs
+    (`MaildirFlags::to_string`), so finding 1's ordering divergence is still
+    inherited. Goes upstream with finding 1.
+
 ### 3.4 R2 Questions
 
 1. **`pimalaya-stream`, re-asked.** §2.2 corrects the premise your "adopt it"
@@ -346,8 +367,9 @@ deliberate differences in scope:
 
 1. **Convert.** Adopt `pimalaya-stream`. The reason is alignment, not the 89
    lines: nitidus should grow with the Pimalaya ecosystem and inherit what
-   upstream adds rather than maintaining a parallel transport. Phase 5 is in
-   scope.
+   upstream adds rather than maintaining a parallel transport. The conversion
+   itself is scoped in `refactor-transport-stream-v1`; it shares nothing with
+   the maildir swap below and was split out so this doc could close.
 
    Recorded against the decision: the async runtime is the capability that
    alignment would most buy us, and it is the one that does not exist yet — 0.1.0
@@ -366,9 +388,9 @@ deliberate differences in scope:
 
 ## 4. Plan
 
-Five phases. Each leaves the workspace compiling and the suite green. Phase 5 is
-in scope per R2 A1 and runs last, so the transport conversion lands against a
-maildir backend that is already settled.
+Four phases. Each leaves the workspace compiling and the suite green. The
+`pimalaya-stream` conversion R2 A1 accepted is a fifth body of work that shares
+no code with these, and lives in `refactor-transport-stream-v1`.
 
 ### Phase 1 — Version catch-up
 
@@ -422,39 +444,13 @@ validation does not, so it stays as a name check.
 Green criterion: folder create/delete/rename cases in `tests/maildir.rs` pass,
 including the refusal cases.
 
-### Phase 5 — `pimalaya-stream`
+### Not a phase here — `pimalaya-stream`
 
-Per R2 A1. Scoped here on the corrected facts; R2 Q1's framing of "the IMAP and
-SMTP transports" understated it.
-
-`RemoteStream` has seven consumers, not two: `imap/session.rs` (262),
-`imap/pump.rs` (62), `send/smtp.rs` (176), `send/pump.rs` (51), `oauth/mod.rs`
-(263) and `oauth/grant.rs` (234) name it directly, and `imap/watch.rs` (223)
-reaches it through `Connection.stream` (`session.rs:39`). OAuth is
-the one the earlier framing missed, and it decides the phase's shape: `net.rs`
-cannot be deleted while any consumer still wants an `AsyncRead + AsyncWrite`,
-so a conversion that stops at IMAP and SMTP keeps `net.rs` alive for OAuth and
-buys nothing. The 89 lines only go if all seven move.
-
-Two sub-steps, each leaving the suite green:
-
-- **5a — the sync path.** `imap/session.rs`, `imap/pump.rs`, `send/*` and
-  `oauth/*` move to `StreamStd` inside the `spawn_blocking` regions that already
-  wrap them. Every one of these is request/response, so the conversion is
-  mechanical: an async `read`/`write` pair becomes the blocking equivalent.
-- **5b — IDLE.** The genuinely risky one. `watch.rs:190` parks on
-  `tokio::time::timeout(IDLE_READ_TIMEOUT, stream.read(..))`, and `StreamStd`
-  offers no such combinator, so the refresh window has to be re-expressed as a
-  socket read timeout with the same backoff and the same `WatchEnd::Failed`
-  behavior on elapse. `ImapIdle`'s shutdown `Arc` must still interrupt a parked
-  read.
-
-Green criterion: full suite green, clippy clean, `net.rs` deleted, and a live
-IDLE smoke against `norman.kerr.dev` confirming both a real `FolderChanged` and
-a clean timeout-and-reconnect cycle.
-
-Sequenced last: it is the only phase that risks the working remote path, and it
-is independent of the maildir swap above it.
+R2 A1 accepted the conversion, and scoping it revealed it shares no code with
+the maildir swap: it rewrites all seven `RemoteStream` consumers and touches
+nothing under `maildir/`. It moved to `refactor-transport-stream-v1` so this
+doc could close at Phase 4 rather than park a finished, green swap behind the
+riskiest work in the repo.
 
 ## 5. Verification
 
@@ -470,14 +466,35 @@ Resolved `io-imap 0.2.0 → 0.3.1` and `io-smtp 0.2.0 → 0.2.3`, both still
 
 The IMAP tests (`tests/imap.rs`, 15 cases) run against an in-process scripted
 server, not a live one, so the inherited `COPYUID` and SORT fixes are not
-exercised here. A live smoke against `norman.kerr.dev` is deferred to Phase 5,
-which needs one anyway.
+exercised here. A live smoke against `norman.kerr.dev` is deferred to
+`refactor-transport-stream-v1`, which needs one anyway.
 
 No source file changed; the diff is two manifest lines plus `Cargo.lock`.
 
-### Phases 2–5
+### Phases 2–4
 
-_Pending implementation._
+Added `io-maildir 0.2.0` with `default-features = false, features = ["client"]`.
+
+- `cargo clippy --workspace --all-targets` — clean, no warnings.
+- `CARGO_INCREMENTAL=0 cargo test --workspace` — **661 passed, 0 failed, 0
+  ignored**, up from 657 on the pre-swap baseline.
+
+One assertion changed, and it is the accepted behavior change rather than a
+test bent to fit the code: `discovers_folders_across_layouts` asserted that the
+fixture's undotted `Drafts/` was listed. Under `maildirpp = true` it is not a
+folder — finding 10, accepted in R2 A2. It is now
+`discovers_dotted_folders_and_skips_undotted_siblings` and specifies the loss
+with a pointer to the finding.
+
+Everything else in the 279-line suite passes unmodified, including the
+flag-suffix and move assertions the plan expected to have to revise. Finding 1
+(flag ordering) never surfaced because no test writes more than one flag at
+once; it is covered instead by a new unit test in `flags.rs` asserting the
+upstream `RSD` ordering explicitly.
+
+Per-file line counts after the swap, all under the 300-line ceiling:
+`backend.rs` 217, `folder_ops.rs` 229, `folders.rs` 166, `scan.rs` 98,
+`flags.rs` 78, `mod.rs` 12.
 
 ## 6. Implementation Report
 
@@ -498,10 +515,83 @@ Two follow-ups fall out of it:
    explicit at `"0.2.3"` so the intent is visible, but the real lesson is the
    one §2.4 states: nothing was stopping us from drifting, and nothing noticed.
 
-### Phases 2–5
+### Phases 2–4
 
-_Pending implementation._
+The swap landed and the suite is the contract it was meant to be. Four things
+are worth recording against what the plan predicted.
+
+**Finding 11 is the real result of this phase.** The R2 analysis read
+`io-maildir` for what it covers and found nine scope differences and one loss.
+It did not catch that `MaildirFlagsSet` silently does nothing for entries in
+`new/`. Reading an API for coverage is not the same as reading it for
+correctness on our call paths, and the gap only showed up when the operation
+was actually wired. R1 A5 asked for analysis before adoption; the analysis was
+necessary and not sufficient.
+
+**"A ~60-line wrapper" was wrong.** Item 32's roadmap entry predicted the swap
+would shrink the maildir backend to roughly that, which is what made it worth
+sequencing before item 34. Non-test code went from **556 lines to 603** — it
+grew by 47. Nothing was mis-scoped; the prediction just did not account for the
+code that findings 6–9 and 11 already said would stay: the guard layer, the
+windowed scan, the folder counts, the `new/` SEEN stripping, the flag
+placement, plus a new `Flags` ↔ `MaildirFlags` translation that had no
+counterpart when flags were parsed inline from the filename.
+
+What the swap actually bought is not fewer lines: it is upstream's delivery-id
+generation with a process-wide counter, atomic `tmp` → `cur` delivery, the
+dovecot-keywords machinery item 34 will want, and maintenance moving to a crate
+the ecosystem shares. Item 34 should be re-planned against 603 lines of adapter
+rather than the ~60 it was promised.
+
+**`watch.rs` could not stay untouched.** Phase 3's plan said `envelope.rs` and
+`watch.rs` are untouched throughout. `watch.rs` called `folders::discover` to
+build its watched `new`/`cur` set, so deleting `discover` reached it. It now
+calls `folders::watched_dirs`, which keeps the Maildir++ decision in one module
+instead of two. `envelope.rs` genuinely was untouched.
+
+**`message.rs` did not simply die.** The plan had it deleted at the end of
+Phase 3. What was actually deleted is the part that duplicated upstream — the
+`:2,` protocol, delivery, and the find-by-id scan. The windowed header read
+survives as `scan.rs` because finding 7 said it must, and the flag mapping
+became `flags.rs`.
+
+Follow-ups:
+
+1. **Upstream issues** — file finding 1 (non-ASCII flag letter ordering) and
+   finding 11 (`MaildirFlagsSet` no-op on `new/`) against `io-maildir`. Finding
+   11 should be filed first; it is a correctness bug, not a cosmetic one.
+2. **`Passed` and keywords are dropped** on the way into our `Flags` — see
+   `flags.rs::from_maildir`. Item 34 removes this.
+3. **Re-plan item 34's scope** against the line counts above.
 
 ## 7. Testing and Cleanup
 
-_Pending implementation._
+Final state across all four phases: `cargo clippy --workspace --all-targets`
+clean, `CARGO_INCREMENTAL=0 cargo test --workspace` **661 passed, 0 failed, 0
+ignored** — up from 657 on the pre-swap baseline, with the maildir integration
+suite at 9 passing cases.
+
+Deleted: `maildir/message.rs` in full. Added: `maildir/scan.rs` and
+`maildir/flags.rs`. Every file in `maildir/` is under the 300-line ceiling and
+under the nesting and parameter limits, so principle 2 is satisfied without an
+exception.
+
+Carried out of this doc:
+
+1. Two upstream issues against `io-maildir` — finding 11 (`MaildirFlagsSet` is a
+   silent no-op on `new/`; a correctness bug, file first) and finding 1
+   (non-ASCII flag letter ordering; cosmetic).
+2. `Passed` and custom keywords are dropped in `flags.rs::from_maildir`; roadmap
+   item 34 removes that.
+3. Roadmap item 34 needs re-planning against 603 lines of adapter rather than
+   the ~60-line wrapper its sequencing assumed.
+4. Item 33 should treat finding 11 as input: "set flags" is two concerns —
+   suffix *encoding*, which is upstream's, and `new/` → `cur/` *placement*,
+   which is a semantic transition and stayed ours. A trait method spelled
+   `set_flags(folder, id, flags)` hides that split.
+5. An undotted maildir child now disappears from the sidebar with no signal.
+   The loss is accepted (R2 A2); the silence is not required by it, and a
+   warning in `folders::list_maildirs` would make it diagnosable.
+
+The `pimalaya-stream` conversion continues in
+`refactor-transport-stream-v1`.

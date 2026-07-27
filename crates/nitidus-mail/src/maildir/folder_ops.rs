@@ -1,18 +1,24 @@
-//! Folder create/delete/rename on a Maildir++ tree. Display paths
-//! (`Archive/2024`) encode to dot-names (`.Archive.2024`); the dot is
-//! the on-disk separator, so it cannot appear inside a path component.
-//! Deletion refuses non-empty folders and folders with children — no
-//! destructive path exists here by design.
+//! Validation and refusal in front of `io-maildir`'s folder coroutines,
+//! which are unguarded by design: `MaildirCreate` is idempotent,
+//! `MaildirDelete` is a recursive remove, and `MaildirRename` moves one
+//! directory without its Maildir++ children. No destructive path exists
+//! here by design.
 
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use io_maildir::client::MaildirClient;
+use io_maildir::path::MaildirPath;
+
 use crate::error::MailError;
 use crate::types::FolderId;
 
-use super::folders::{INBOX, folder_dir, is_maildir};
+use super::folders::{INBOX, folder_path, is_maildir};
 
-pub fn encode_dot_name(name: &str) -> Result<String, MailError> {
+/// `MaildirStore::resolve` does the dot-encoding; it does no
+/// validation, so the component rules stay here. The dot is the on-disk
+/// separator, so it cannot appear inside a component.
+pub fn validate_name(name: &str) -> Result<MaildirPath, MailError> {
     let components: Vec<&str> = name.split('/').collect();
     let is_valid = !components.is_empty()
         && components
@@ -23,63 +29,69 @@ pub fn encode_dot_name(name: &str) -> Result<String, MailError> {
             "invalid folder name {name:?}: components must be non-empty and free of '.'"
         )));
     }
-    Ok(format!(".{}", components.join(".")))
+    Ok(MaildirPath::from(name))
 }
 
-pub fn create(root: &Path, name: &str) -> Result<(), MailError> {
-    let dir = root.join(encode_dot_name(name)?);
-    if dir.exists() {
+pub fn create(client: &MaildirClient, name: &str) -> Result<(), MailError> {
+    let path = validate_name(name)?;
+    if Path::new(client.store.resolve(&path).as_str()).exists() {
         return Err(MailError::Backend(format!("folder already exists: {name}")));
     }
-    for sub in ["cur", "new", "tmp"] {
-        fs::create_dir_all(dir.join(sub)).map_err(|error| {
-            MailError::Backend(format!("create {}: {error}", dir.join(sub).display()))
-        })?;
-    }
-    Ok(())
+    client
+        .create_maildir(path)
+        .map_err(|error| MailError::Backend(format!("create {name}: {error}")))
 }
 
-pub fn delete(root: &Path, folder: &FolderId) -> Result<(), MailError> {
-    let dir = require_existing(root, folder, "delete")?;
+pub fn delete(client: &MaildirClient, folder: &FolderId) -> Result<(), MailError> {
+    let dir = require_existing(client, folder, "delete")?;
     if message_count(&dir)? > 0 {
         return Err(MailError::Backend(format!(
             "folder not empty, refusing to delete: {folder}"
         )));
     }
-    if !children_of(root, folder)?.is_empty() {
+    if !children_of(client, folder)?.is_empty() {
         return Err(MailError::Backend(format!(
             "folder has child folders, refusing to delete: {folder}"
         )));
     }
-    fs::remove_dir_all(&dir)
-        .map_err(|error| MailError::Backend(format!("delete {}: {error}", dir.display())))
+    client
+        .delete_maildir(folder_path(folder))
+        .map_err(|error| MailError::Backend(format!("delete {folder}: {error}")))
 }
 
-pub fn rename(root: &Path, folder: &FolderId, new_name: &str) -> Result<(), MailError> {
-    require_existing(root, folder, "rename")?;
-    let new_dot = encode_dot_name(new_name)?;
+/// Their rename moves one directory, so the Maildir++ children are
+/// renamed explicitly alongside the parent.
+pub fn rename(client: &MaildirClient, folder: &FolderId, new_name: &str) -> Result<(), MailError> {
+    require_existing(client, folder, "rename")?;
+    let new_dot = dot_name_of(&validate_name(new_name)?);
     let mut moves = vec![(folder.as_str().to_owned(), new_dot.clone())];
-    for child in children_of(root, folder)? {
+    for child in children_of(client, folder)? {
         let suffix = child[folder.as_str().len()..].to_owned();
         moves.push((child, format!("{new_dot}{suffix}")));
     }
+    let root = root_of(client);
     for (_, to) in &moves {
         if root.join(to).exists() {
             return Err(MailError::Backend(format!("folder already exists: {to}")));
         }
     }
     for (from, to) in &moves {
-        fs::rename(root.join(from), root.join(to))
+        client
+            .rename_maildir(logical_of(from), logical_of(to))
             .map_err(|error| MailError::Backend(format!("rename {from} -> {to}: {error}")))?;
     }
     Ok(())
 }
 
-fn require_existing(root: &Path, folder: &FolderId, op: &str) -> Result<PathBuf, MailError> {
+fn require_existing(
+    client: &MaildirClient,
+    folder: &FolderId,
+    op: &str,
+) -> Result<PathBuf, MailError> {
     if folder.as_str() == INBOX {
         return Err(MailError::Backend(format!("cannot {op} INBOX")));
     }
-    let dir = folder_dir(root, folder);
+    let dir = PathBuf::from(client.store.resolve(&folder_path(folder)).as_str());
     if !is_maildir(&dir) {
         return Err(MailError::Backend(format!("no such folder: {folder}")));
     }
@@ -87,7 +99,8 @@ fn require_existing(root: &Path, folder: &FolderId, op: &str) -> Result<PathBuf,
 }
 
 /// Direct and transitive Maildir++ children (`.A.x`, `.A.x.y` of `.A`).
-fn children_of(root: &Path, folder: &FolderId) -> Result<Vec<String>, MailError> {
+fn children_of(client: &MaildirClient, folder: &FolderId) -> Result<Vec<String>, MailError> {
+    let root = root_of(client);
     let prefix = format!("{}.", folder.as_str());
     let entries = fs::read_dir(root)
         .map_err(|error| MailError::Backend(format!("read {}: {error}", root.display())))?;
@@ -113,11 +126,24 @@ fn message_count(dir: &Path) -> Result<usize, MailError> {
     Ok(count)
 }
 
+fn root_of(client: &MaildirClient) -> &Path {
+    Path::new(client.store.root.as_str())
+}
+
+fn logical_of(dot_name: &str) -> MaildirPath {
+    folder_path(&FolderId::new(dot_name))
+}
+
+fn dot_name_of(path: &MaildirPath) -> String {
+    format!(".{}", path.as_str().replace('/', "."))
+}
+
 #[cfg(test)]
 mod tests {
     #![allow(clippy::unwrap_used, clippy::expect_used)]
 
     use super::*;
+    use crate::maildir::folders::build_client;
 
     fn make_maildir(dir: &Path) {
         for sub in ["cur", "new", "tmp"] {
@@ -125,61 +151,65 @@ mod tests {
         }
     }
 
-    fn root() -> tempfile::TempDir {
+    fn root() -> (tempfile::TempDir, MaildirClient) {
         let tmp = tempfile::tempdir().unwrap();
         make_maildir(tmp.path());
-        tmp
+        let client = build_client(tmp.path());
+        (tmp, client)
     }
 
     #[test]
     fn encodes_display_paths_to_dot_names() {
-        assert_eq!(encode_dot_name("Sent").unwrap(), ".Sent");
-        assert_eq!(encode_dot_name("Archive/2024").unwrap(), ".Archive.2024");
-        assert!(encode_dot_name("a.b").is_err(), "dots are the separator");
-        assert!(encode_dot_name("a//b").is_err(), "empty component");
-        assert!(encode_dot_name("").is_err());
+        assert_eq!(dot_name_of(&validate_name("Sent").unwrap()), ".Sent");
+        assert_eq!(
+            dot_name_of(&validate_name("Archive/2024").unwrap()),
+            ".Archive.2024"
+        );
+        assert!(validate_name("a.b").is_err(), "dots are the separator");
+        assert!(validate_name("a//b").is_err(), "empty component");
+        assert!(validate_name("").is_err());
     }
 
     #[test]
     fn create_makes_a_maildir_and_refuses_duplicates() {
-        let tmp = root();
-        create(tmp.path(), "Projects/nitidus").unwrap();
+        let (tmp, client) = root();
+        create(&client, "Projects/nitidus").unwrap();
         assert!(is_maildir(&tmp.path().join(".Projects.nitidus")));
-        let duplicate = create(tmp.path(), "Projects/nitidus");
+        let duplicate = create(&client, "Projects/nitidus");
         assert!(duplicate.is_err(), "{duplicate:?}");
     }
 
     #[test]
     fn delete_refuses_inbox_missing_nonempty_and_parents() {
-        let tmp = root();
-        assert!(delete(tmp.path(), &FolderId::new(INBOX)).is_err());
-        assert!(delete(tmp.path(), &FolderId::new(".Ghost")).is_err());
+        let (tmp, client) = root();
+        assert!(delete(&client, &FolderId::new(INBOX)).is_err());
+        assert!(delete(&client, &FolderId::new(".Ghost")).is_err());
 
-        create(tmp.path(), "Full").unwrap();
+        create(&client, "Full").unwrap();
         fs::write(tmp.path().join(".Full/cur/msg.host:2,S"), "x").unwrap();
-        assert!(delete(tmp.path(), &FolderId::new(".Full")).is_err());
+        assert!(delete(&client, &FolderId::new(".Full")).is_err());
 
-        create(tmp.path(), "Parent").unwrap();
-        create(tmp.path(), "Parent/Child").unwrap();
-        assert!(delete(tmp.path(), &FolderId::new(".Parent")).is_err());
+        create(&client, "Parent").unwrap();
+        create(&client, "Parent/Child").unwrap();
+        assert!(delete(&client, &FolderId::new(".Parent")).is_err());
     }
 
     #[test]
     fn delete_removes_an_empty_leaf() {
-        let tmp = root();
-        create(tmp.path(), "Scratch").unwrap();
-        delete(tmp.path(), &FolderId::new(".Scratch")).unwrap();
+        let (tmp, client) = root();
+        create(&client, "Scratch").unwrap();
+        delete(&client, &FolderId::new(".Scratch")).unwrap();
         assert!(!tmp.path().join(".Scratch").exists());
     }
 
     #[test]
     fn rename_moves_the_folder_and_its_children() {
-        let tmp = root();
-        create(tmp.path(), "Old").unwrap();
-        create(tmp.path(), "Old/Sub").unwrap();
+        let (tmp, client) = root();
+        create(&client, "Old").unwrap();
+        create(&client, "Old/Sub").unwrap();
         fs::write(tmp.path().join(".Old.Sub/cur/msg.host:2,S"), "x").unwrap();
 
-        rename(tmp.path(), &FolderId::new(".Old"), "New/Name").unwrap();
+        rename(&client, &FolderId::new(".Old"), "New/Name").unwrap();
         assert!(!tmp.path().join(".Old").exists());
         assert!(is_maildir(&tmp.path().join(".New.Name")));
         assert!(
@@ -190,10 +220,10 @@ mod tests {
 
     #[test]
     fn rename_refuses_inbox_and_existing_targets() {
-        let tmp = root();
-        create(tmp.path(), "A").unwrap();
-        create(tmp.path(), "B").unwrap();
-        assert!(rename(tmp.path(), &FolderId::new(INBOX), "C").is_err());
-        assert!(rename(tmp.path(), &FolderId::new(".A"), "B").is_err());
+        let (_tmp, client) = root();
+        create(&client, "A").unwrap();
+        create(&client, "B").unwrap();
+        assert!(rename(&client, &FolderId::new(INBOX), "C").is_err());
+        assert!(rename(&client, &FolderId::new(".A"), "B").is_err());
     }
 }

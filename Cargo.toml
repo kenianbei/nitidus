@@ -30,6 +30,7 @@ flume = "0.12"
 html2text = "0.17"
 image = { version = "0.25", default-features = false, features = ["jpeg", "png", "gif", "webp"] }
 io-imap = { version = "0.3", default-features = false }
+io-maildir = { version = "0.2", default-features = false, features = ["client"] }
 io-smtp = { version = "0.2.3", default-features = false }
 jiff = "0.2"
 mail-builder = "0.4"

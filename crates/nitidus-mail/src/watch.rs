@@ -100,13 +100,7 @@ fn folder_of_path(root: &Path, path: &Path) -> Option<FolderId> {
 }
 
 fn watchable_dirs(root: &Path) -> Result<Vec<PathBuf>, crate::error::MailError> {
-    let mut dirs = Vec::new();
-    for folder in folders::discover(root)? {
-        let dir = folders::folder_dir(root, &folder.id);
-        dirs.push(dir.join("new"));
-        dirs.push(dir.join("cur"));
-    }
-    Ok(dirs)
+    folders::watched_dirs(root)
 }
 
 #[cfg(test)]

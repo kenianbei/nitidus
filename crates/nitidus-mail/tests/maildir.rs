@@ -37,15 +37,23 @@ fn fixture_root() -> tempfile::TempDir {
     tmp
 }
 
+/// The store is Maildir++, so only dot-prefixed children are folders.
+/// An undotted sibling like `Drafts/` is not listed even when it is a
+/// well-formed maildir — the deliberate loss recorded in
+/// `refactor-himalaya-sync-v1` §3.3 finding 10 and accepted in R2 A2.
 #[tokio::test]
-async fn discovers_folders_across_layouts() {
+async fn discovers_dotted_folders_and_skips_undotted_siblings() {
     let tmp = fixture_root();
     write_message(tmp.path(), "new", "m1.host", "hello");
     write_message(tmp.path(), "cur", "m2.host:2,S", "seen");
     let mut backend = MaildirBackend::new(tmp.path().to_path_buf()).unwrap();
     let folders = backend.list_folders().await.unwrap();
     let names: Vec<&str> = folders.iter().map(|f| f.name.as_str()).collect();
-    assert_eq!(names, vec!["Archive/2024", "Drafts", "INBOX"]);
+    assert_eq!(
+        names,
+        vec!["Archive/2024", "INBOX"],
+        "the fixture's undotted Drafts/ is not a Maildir++ folder"
+    );
     let inbox = folders.iter().find(|f| f.name == "INBOX").unwrap();
     assert_eq!(inbox.unread, 1);
     assert_eq!(inbox.total, 2);
