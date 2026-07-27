@@ -123,19 +123,35 @@ stops resetting `\Recent` on every re-open. 0.3.0 also fixes `ImapMessageMove`
 losing `COPYUID` when the server reports it in an untagged `OK` (Fastmail does),
 and fixes the client-side SORT date ordering.
 
-**Correction, from implementing Phase 1.** The claim that the rename is "our one
-compile break" was wrong: we do not use `io_imap::watch` at all. `imap/watch.rs`
-drives `rfc2177::ImapIdle` directly and issues its own
-`rfc3501::select::ImapMailboxSelect` (`watch.rs:136`), so nothing we compile
-names `ImapMailboxWatchError`. The bump is a clean no-op at the source level.
+**Correction, from implementing Phase 1.** The rename is not a compile break for
+us, but the first explanation recorded here was wrong and is corrected in full.
 
-The consequence is that the EXAMINE improvement is **not** inherited. Their
-watcher stopped resetting `\Recent`; ours still issues SELECT and still resets
-it. `rfc3501::examine::ImapMailboxExamine` exists in 0.3.1 with the same
-`new(mailbox, opts)` shape as `ImapMailboxSelect`, so the switch is a small one —
-but it is a behavior change, and principle 5 keeps behavior changes out of a
-version bump. Deferred to roadmap item 36 (session hardening), which already
-owns the IDLE/session-hygiene surface.
+`imap/watch.rs` has two paths. `qresync_watch` uses
+`io_imap::watch::ImapMailboxWatch` (imported at `watch.rs:18`) on servers that
+advertise QRESYNC. `idle_watch` is the fallback and drives `rfc2177::ImapIdle`
+directly after its own `rfc3501::select::ImapMailboxSelect` (`watch.rs:136`).
+
+So we do use their watcher. The bump still did not break: 0.3.0 renamed the
+variants of `ImapMailboxWatchError`, and we never name a variant — the error is
+only ever `error.to_string()`'d at `watch.rs:101` and `:115`. Type used,
+variants not matched.
+
+The consequence for EXAMINE is therefore split, not uniform:
+
+- **`qresync_watch` inherits it.** The SELECT → EXAMINE switch is inside their
+  watcher, so that path stopped resetting `\Recent` with the version bump and
+  no code change.
+- **`idle_watch` does not.** Its `ImapMailboxSelect` at `watch.rs:136` is ours
+  and still issues SELECT.
+
+`rfc3501::examine::ImapMailboxExamine` exists in 0.3.1 with the same
+`new(mailbox, opts)` shape, so switching the fallback is small — but it is a
+behavior change, and principle 5 keeps those out of a version bump. Deferred to
+roadmap item 36, scoped to `idle_watch` alone.
+
+The original error came from grepping for `ImapMailboxWatchError|Select|Examine`,
+which cannot match the bare type name `ImapMailboxWatch`. A search that proves
+a negative has to be built to fail loudly, not quietly.
 
 **The `pimalaya-stream` premise in R1 Q3 was wrong, in two ways.** It is not a
 hard dependency of `io-imap` 0.3: it is optional, reached only through the
