@@ -10,6 +10,8 @@ mod remove;
 mod render;
 pub mod search;
 pub mod staged;
+#[cfg(test)]
+mod tests;
 mod thread_view;
 mod view;
 
@@ -120,6 +122,9 @@ struct IndexWindowState {
     /// Retained search query — lights up matches in the rows.
     search: Option<String>,
     last_height: u16,
+    /// Terminal lines one row occupies — the divisor every consumer of
+    /// `last_height` needs to talk in rows.
+    row_height: u16,
     /// Absolute row of `rows[0]`, anchoring mouse row arithmetic.
     window_top: usize,
     /// Mouse-hovered absolute row; survives refresh, cleared on leave.
@@ -151,14 +156,18 @@ fn first_view_sync(
     }
 }
 
-fn spawn_index(mut commands: Commands, mut registry: NonSendMut<TachyonRegistry>) {
+fn spawn_index(
+    config: Res<Config>,
+    mut commands: Commands,
+    mut registry: NonSendMut<TachyonRegistry>,
+) {
     let entity = commands
         .spawn((
             IndexWidget,
             Widget::from_render_fn_with_state(render_index, IndexWindowState::default()),
             WidgetLayout::from(crate::panes::mail_layout(
                 crate::panes::MailPane::Messages,
-                true,
+                crate::panes::PaneBudget::new(true, config.ui.index.list_width()),
             )),
             plurimus::UiActions::new(vec![plurimus::UiInputBinding::mouse_passthrough(
                 mouse::handle,
@@ -207,7 +216,8 @@ fn refresh_index(
         let previous = widget.get_state::<IndexWindowState>()?;
         (previous.last_height, previous.hovered_row)
     };
-    let viewport = usize::from(last_height).max(1);
+    let row_height = config.ui.index.layout.row_height();
+    let viewport = render::viewport_rows(last_height, row_height).max(1);
     let selected_row = view::resolve_selection(&index_view, envelopes, &order.entries);
     // Cache writes bypass change detection: they are derived state, and
     // a tracked write here would re-trigger this system every frame.
@@ -225,6 +235,7 @@ fn refresh_index(
         },
     );
     window.last_height = last_height;
+    window.row_height = row_height;
     window.hovered_row = hovered_row;
     window.active = !tabs.is_contacts();
     widget.set_state(window)?;
@@ -307,17 +318,19 @@ fn build_window_state(
     } else {
         None
     };
-    let (rows, window_top) = build_window_rows(&source, index_config.date);
+    let (rows, window_top) = build_window_rows(&source, index_config);
     IndexWindowState {
         active: false,
         rows,
         empty_message,
         context: render::RowContext {
             styles: RowStyles::from_theme(theme),
+            layout: index_config.layout,
             columns: index_config.columns.clone(),
         },
         search: source.index_view.search.clone(),
         last_height: 0,
+        row_height: index_config.layout.row_height(),
         window_top,
         hovered_row: None,
     }
@@ -325,10 +338,12 @@ fn build_window_state(
 
 fn build_window_rows(
     source: &WindowSource<'_>,
-    date: crate::config::DateFormat,
+    index_config: &crate::config::IndexUiConfig,
 ) -> (Vec<IndexRow>, usize) {
     let index_view = source.index_view;
     let now = jiff::Zoned::now();
+    let date = render::resolve_date(index_config.date, index_config.layout);
+    let banded = matches!(index_config.layout, crate::config::IndexLayout::Cards);
     // `entries` can be a frame staler than `envelopes` after a row
     // removal — clamp the window and resolve rows leniently.
     let window_top = index_view.top.min(source.entries.len());
@@ -347,6 +362,7 @@ fn build_window_rows(
                     marked: index_view.marked.contains(&envelope.id)
                         || visual.is_some_and(|range| range.contains(&row)),
                     reading: source.reading.as_ref() == Some(&envelope.id),
+                    striped: banded && row % 2 == 1,
                 };
                 render::build_row(envelope, entry, &context)
             })
@@ -386,19 +402,22 @@ fn render_index(frame: &mut ratatui::Frame, area: Rect, state: &mut IndexWindowS
         frame.render_widget(paragraph, area);
         return Ok(());
     }
+    let visible = render::viewport_rows(area.height, state.row_height);
     let lines: Vec<Line<'static>> = state
         .rows
         .iter()
-        .take(usize::from(area.height))
+        .take(visible)
         .enumerate()
-        .map(|(offset, row)| {
+        .flat_map(|(offset, row)| {
             let query = state.search.as_deref();
             if state.hovered_row == Some(state.window_top + offset) && !row.selected {
-                let mut hovered = row.clone();
-                hovered.hovered = true;
-                return render::row_line(&hovered, area.width, &state.context, query);
+                let hovered = IndexRow {
+                    hovered: true,
+                    ..row.clone()
+                };
+                return render::row_lines(&hovered, area.width, &state.context, query);
             }
-            render::row_line(row, area.width, &state.context, query)
+            render::row_lines(row, area.width, &state.context, query)
         })
         .collect();
     frame.render_widget(

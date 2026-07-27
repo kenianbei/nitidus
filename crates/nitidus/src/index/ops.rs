@@ -277,7 +277,7 @@ fn viewport_rows(world: &mut World) -> usize {
             widget
                 .get_state::<IndexWindowState>()
                 .ok()
-                .map(|state| usize::from(state.last_height))
+                .map(|state| super::render::viewport_rows(state.last_height, state.row_height))
         })
         .filter(|&height| height > 0)
         .unwrap_or(FALLBACK_PAGE_ROWS)

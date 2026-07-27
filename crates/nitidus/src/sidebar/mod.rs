@@ -21,7 +21,7 @@ use nitidus_mail::{AccountId, FolderMeta};
 use plurimus::{Widget, WidgetLayout};
 
 use crate::config::Config;
-use crate::panes::{MailPane, mail_layout};
+use crate::panes::{MailPane, PaneBudget, mail_layout};
 use crate::store::{MailStore, SyncTracker};
 
 pub(crate) const INBOX_NAME: &str = nitidus_mail::maildir::INBOX;
@@ -80,11 +80,14 @@ pub struct SidebarRows(pub Vec<SidebarRow>);
 #[derive(Component)]
 pub struct SidebarWidget;
 
-fn spawn_sidebar(mut commands: Commands) {
+fn spawn_sidebar(config: Res<Config>, mut commands: Commands) {
     commands.spawn((
         SidebarWidget,
         Widget::from_render_fn_with_state(render::render_sidebar, render::SidebarWindow::default()),
-        WidgetLayout::from(mail_layout(MailPane::Folders, true)),
+        WidgetLayout::from(mail_layout(
+            MailPane::Folders,
+            PaneBudget::new(true, config.ui.index.list_width()),
+        )),
         plurimus::UiActions::new(vec![plurimus::UiInputBinding::mouse_passthrough(
             mouse::handle,
         )]),
@@ -203,7 +206,7 @@ fn clamp_selection(state: &mut SidebarState, rows: &[SidebarRow]) {
 /// Re-columns the message and reading panes when the sidebar comes or
 /// goes; the sidebar widget draws nothing while hidden.
 fn apply_visibility(
-    state: Res<SidebarState>,
+    (state, config): (Res<SidebarState>, Res<Config>),
     mut last_visible: Local<Option<bool>>,
     mut commands: Commands,
     messages: Query<Entity, With<crate::index::IndexWidget>>,
@@ -213,6 +216,7 @@ fn apply_visibility(
         return;
     }
     *last_visible = Some(state.visible);
+    let budget = PaneBudget::new(state.visible, config.ui.index.list_width());
     for (entity, pane) in messages
         .iter()
         .map(|entity| (entity, MailPane::Messages))
@@ -220,6 +224,6 @@ fn apply_visibility(
     {
         commands
             .entity(entity)
-            .insert(WidgetLayout::from(mail_layout(pane, state.visible)));
+            .insert(WidgetLayout::from(mail_layout(pane, budget)));
     }
 }

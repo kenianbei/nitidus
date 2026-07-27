@@ -13,12 +13,19 @@
 theme = "tailwind-dark"
 
 [ui.index]
-# Message-index columns, rendered in order. Any subset of:
-# "flags", "date", "from", "subject". Widths are built in; the last
-# column stretches to fill the pane.
+# Row layout: "cards" gives each message three lines (sender, subject,
+# date) in a narrow list; "table" is one line of columns per message.
+layout = "cards"
+# List pane width under "cards". Values below the pane budget's minimum
+# are clamped; the reading pane takes whatever is left.
+width = 36
+# Table layout only: columns rendered in order. Any subset of "flags",
+# "date", "from", "subject". Widths are built in; the last column
+# stretches to fill the pane.
 columns = ["flags", "date", "from", "subject"]
-# Date display: "auto" (time today, "Jul 24" this year, ISO otherwise),
-# or force "time" | "short" | "iso".
+# Date display: "auto" (the full form in cards; time today, "Jul 24"
+# this year, ISO otherwise in the table), or force "time" | "short" |
+# "iso" | "full" ("Mon, 22 Jul 2026 15:04").
 date = "auto"
 
 [ui.pager]

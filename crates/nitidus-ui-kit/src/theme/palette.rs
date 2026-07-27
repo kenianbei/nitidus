@@ -23,6 +23,14 @@ pub struct ThemeIndexStyles {
     /// The row whose message is in the reading pane, which is not
     /// always the row under the cursor.
     pub reading: Style,
+    /// Banding for alternate rows; the base every other patch composes
+    /// over, so it must stay below every interaction state.
+    pub stripe: Style,
+    /// Typographic hierarchy inside one card: the sender line leads,
+    /// the date line recedes. Flag roles patch over both, so state
+    /// always outranks emphasis.
+    pub sender: Style,
+    pub date: Style,
 }
 
 /// `base` styles the app chrome; `paper` styles raised surfaces

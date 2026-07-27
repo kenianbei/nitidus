@@ -206,7 +206,10 @@ fn apply_zoom(
         )
     } else {
         (
-            crate::panes::mail_layout(crate::panes::MailPane::Reading, sidebar.visible),
+            crate::panes::mail_layout(
+                crate::panes::MailPane::Reading,
+                crate::panes::PaneBudget::new(sidebar.visible, config.ui.index.list_width()),
+            ),
             layer::BASE,
         )
     };
@@ -220,13 +223,13 @@ fn apply_zoom(
 #[derive(Component)]
 pub struct PagerWidget;
 
-fn spawn_pager(mut commands: Commands) {
+fn spawn_pager(config: Res<crate::config::Config>, mut commands: Commands) {
     commands.spawn((
         PagerWidget,
         Widget::from_render_fn_with_state(render::render_pager, PagerWindow::default()),
         WidgetLayout::from(crate::panes::mail_layout(
             crate::panes::MailPane::Reading,
-            true,
+            crate::panes::PaneBudget::new(true, config.ui.index.list_width()),
         )),
         plurimus::UiActions::new(vec![plurimus::UiInputBinding::mouse_passthrough(
             ops::handle_mouse,

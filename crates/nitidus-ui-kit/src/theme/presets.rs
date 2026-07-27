@@ -5,6 +5,15 @@ use super::color::ThemeColor;
 use super::palette::{Theme, ThemeIndexStyles, ThemePalette};
 use super::states::{ThemeColorStates, ThemeColors};
 
+/// Well below the focused state's lift: banding must read as texture,
+/// not as an interaction.
+const STRIPE_BG_LIGHTEN: f32 = 0.05;
+/// The seed foreground is already light, so a small lift is invisible:
+/// the sender needs most of the remaining headroom to read as brighter.
+/// The date takes the palette's existing dim rather than a third
+/// brightness of its own.
+const SENDER_FG_LIGHTEN: f32 = 0.6;
+
 pub fn tailwind_dark() -> Theme {
     let base = dark_palette(tailwind::SLATE.c900, tailwind::SLATE.c300);
     Theme {
@@ -18,6 +27,9 @@ pub fn tailwind_dark() -> Theme {
             reading: Style::new()
                 .fg(base.success.normal.fg.into())
                 .add_modifier(Modifier::BOLD),
+            stripe: Style::new().bg(base.default.normal.bg.lighten(STRIPE_BG_LIGHTEN).into()),
+            sender: Style::new().fg(base.default.normal.fg.lighten(SENDER_FG_LIGHTEN).into()),
+            date: Style::new().fg(base.default.disabled.fg.into()),
         },
     }
 }
@@ -91,6 +103,45 @@ mod tests {
             "flagged rows carry the warning tint"
         );
         assert_eq!(theme.index.flagged.bg, None, "a tint patches fg only");
+    }
+
+    #[test]
+    fn stripe_lifts_the_background_less_than_any_interaction_state() {
+        let theme = tailwind_dark();
+        let normal = theme.base.default.normal.bg;
+        let Some(ratatui::style::Color::Rgb(r, _, _)) = theme.index.stripe.bg else {
+            panic!("stripe should carry an rgb background");
+        };
+        assert!(r > normal.r, "banding must be visible against the pane");
+        assert!(
+            r < theme.base.default.focused.bg.r,
+            "banding must stay quieter than the focused state"
+        );
+        assert_eq!(theme.index.stripe.fg, None, "banding sets background only");
+    }
+
+    #[test]
+    fn card_line_emphasis_brackets_the_normal_foreground() {
+        let theme = tailwind_dark();
+        let normal = theme.base.default.normal.fg;
+        let channel = |style: Style| match style.fg {
+            Some(ratatui::style::Color::Rgb(r, _, _)) => r,
+            other => panic!("expected an rgb foreground, got {other:?}"),
+        };
+
+        assert!(
+            channel(theme.index.sender) > normal.r,
+            "the sender leads the card"
+        );
+        assert!(
+            channel(theme.index.date) < normal.r,
+            "the date recedes behind it"
+        );
+        assert_eq!(
+            channel(theme.index.date),
+            theme.base.default.disabled.fg.r,
+            "the date reuses the palette's dim rather than inventing one"
+        );
     }
 
     #[test]

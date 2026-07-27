@@ -36,6 +36,9 @@ experience.
 - Flags (read/flagged/replied), trash-first delete, archive as a safe single-key
   verb.
 - Undo (`z`) for archive/delete/move.
+- Two row layouts: three-line cards (sender, subject, date behind a state
+  gutter, alternate rows banded) in a narrow fixed-width list, or one line of
+  configurable columns per message.
 - Configurable index columns and theme-driven row styling.
 
 #### Reading pane

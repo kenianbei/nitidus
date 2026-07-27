@@ -37,7 +37,7 @@ fn absolute_row(world: &World, entity: Entity, local_row: u16) -> Option<usize> 
         .get::<Widget>(entity)?
         .get_state::<IndexWindowState>()
         .ok()?;
-    Some(state.window_top + usize::from(local_row))
+    Some(state.window_top + super::render::viewport_rows(local_row, state.row_height))
 }
 
 fn set_hover(world: &mut World, entity: Entity, row: Option<usize>) -> Result {

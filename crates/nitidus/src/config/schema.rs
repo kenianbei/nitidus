@@ -115,9 +115,18 @@ impl serde::de::Visitor<'_> for MarkReadVisitor {
     }
 }
 
+/// Room for a card's full date plus a readable slice of the sender and
+/// subject; the reading pane gets everything else.
+const DEFAULT_INDEX_WIDTH: u16 = 36;
+
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct IndexUiConfig {
+    pub layout: IndexLayout,
+    /// The list pane's width under the card layout; the pane budget
+    /// still clamps it to a readable minimum.
+    pub width: u16,
+    /// Table layout only — cards have a fixed line per field.
     pub columns: Vec<IndexColumn>,
     pub date: DateFormat,
 }
@@ -125,6 +134,8 @@ pub struct IndexUiConfig {
 impl Default for IndexUiConfig {
     fn default() -> Self {
         Self {
+            layout: IndexLayout::default(),
+            width: DEFAULT_INDEX_WIDTH,
             columns: vec![
                 IndexColumn::Flags,
                 IndexColumn::Date,
@@ -135,6 +146,37 @@ impl Default for IndexUiConfig {
         }
     }
 }
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum IndexLayout {
+    #[default]
+    Cards,
+    Table,
+}
+
+impl IndexLayout {
+    /// Terminal lines one message occupies.
+    pub fn row_height(self) -> u16 {
+        match self {
+            IndexLayout::Cards => CARD_ROW_HEIGHT,
+            IndexLayout::Table => 1,
+        }
+    }
+}
+
+impl IndexUiConfig {
+    /// The width the list asks the pane budget for, or `None` when it
+    /// shares the content region with the reading pane instead.
+    pub fn list_width(&self) -> Option<u16> {
+        match self.layout {
+            IndexLayout::Cards => Some(self.width),
+            IndexLayout::Table => None,
+        }
+    }
+}
+
+const CARD_ROW_HEIGHT: u16 = 3;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -153,6 +195,7 @@ pub enum DateFormat {
     Time,
     Short,
     Iso,
+    Full,
 }
 
 #[cfg(test)]
@@ -181,6 +224,28 @@ mod tests {
             partial.ui.index.columns,
             IndexUiConfig::default().columns,
             "unset columns keep the default order"
+        );
+    }
+
+    #[test]
+    fn index_layout_defaults_to_cards_and_parses_table() {
+        let default: Config = toml::from_str("").unwrap();
+        assert_eq!(default.ui.index.layout, IndexLayout::Cards);
+        assert_eq!(default.ui.index.layout.row_height(), 3);
+
+        let table: Config = toml::from_str("[ui.index]\nlayout = \"table\"\n").unwrap();
+        assert_eq!(table.ui.index.layout, IndexLayout::Table);
+        assert_eq!(table.ui.index.layout.row_height(), 1);
+    }
+
+    #[test]
+    fn index_width_overrides_the_default() {
+        let config: Config = toml::from_str("[ui.index]\nwidth = 40\n").unwrap();
+        assert_eq!(config.ui.index.width, 40);
+        assert_eq!(
+            IndexUiConfig::default().width,
+            DEFAULT_INDEX_WIDTH,
+            "cards default to a narrow list"
         );
     }
 

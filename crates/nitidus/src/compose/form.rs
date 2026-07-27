@@ -19,7 +19,7 @@ use crate::keymap::CONTEXT_COMPOSE;
 use crate::overlay::form::{
     ActiveForm, CancelOutcome, FieldSpec, FormPlacement, FormSpec, close, open_form,
 };
-use crate::panes::{MailPane, mail_layout};
+use crate::panes::{MailPane, PaneBudget, mail_layout};
 
 pub(super) const FROM_FIELD: &str = "from";
 pub(super) const TO_FIELD: &str = "to";
@@ -81,21 +81,24 @@ fn placement(world: &World) -> FormPlacement {
     let sidebar_visible = world
         .get_resource::<crate::sidebar::SidebarState>()
         .is_none_or(|sidebar| sidebar.visible);
-    let max_width = world
-        .get_resource::<Config>()
-        .map_or(DEFAULT_MAX_WIDTH, |config| config.ui.pager.max_width);
+    let config = world.get_resource::<Config>();
+    let max_width = config.map_or(DEFAULT_MAX_WIDTH, |config| config.ui.pager.max_width);
+    let budget = PaneBudget::new(
+        sidebar_visible,
+        config.and_then(|config| config.ui.index.list_width()),
+    );
     let beside_a_message = world
         .resource::<ComposeState>()
         .session()
         .is_some_and(|session| session.reply_source.is_some());
     FormPlacement::Host {
-        layout: compose_layout(sidebar_visible, beside_a_message, max_width),
+        layout: compose_layout(budget, beside_a_message, max_width),
         order: layer::ZOOM,
     }
 }
 
-fn compose_layout(sidebar_visible: bool, beside_a_message: bool, max_width: u16) -> LayoutFn {
-    let column = mail_layout(MailPane::Reading, sidebar_visible);
+fn compose_layout(budget: PaneBudget, beside_a_message: bool, max_width: u16) -> LayoutFn {
+    let column = mail_layout(MailPane::Reading, budget);
     Arc::new(move |area| {
         let pane = column(area);
         if beside_a_message && pane.width >= crate::panes::MIN_PANE_WIDTH {
