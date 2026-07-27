@@ -96,7 +96,7 @@ experience.
 
 ### Roadmap
 
-Post-MVP phases (2–5) are tracked in [roadmap.md](roadmap.md).
+Post-MVP work is tracked in [roadmap-v2.md](roadmap-v2.md).
 
 ## Dependencies
 
