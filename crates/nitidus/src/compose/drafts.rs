@@ -7,131 +7,78 @@ use nitidus_mail::{Flags, FolderId, MailCommand};
 
 use super::{ComposeSession, ComposeState, build, persist};
 use crate::engine::EngineResource;
-use crate::overlay::{PickerItem, PickerSpec, open_picker};
 use crate::status::MessageLog;
 
 const ATTACH_WORDS: &[&str] = &["attach", "attached", "attachment", "attachments"];
 
-/// Attaching writes a token into the body rather than a side list: the
-/// body is what declares an attachment, so the token is the thing the
-/// user can see, move, and delete.
-const ATTACH_FIELD: &str = "path";
-
+/// Attaching is a file browse, not a prompt: the composer is itself a
+/// form, and a second form would take the first one's place. What comes
+/// back joins the attachment row, which is what declares an attachment.
 pub(super) fn attach_prompt(world: &mut World) {
-    crate::overlay::form::open_form(
+    crate::explorer::open_explorer(
         world,
-        crate::overlay::form::FormSpec::new(
-            "Attach",
-            "Attach",
-            vec![
-                crate::overlay::form::FieldSpec::text(ATTACH_FIELD, "File").validated(|value| {
-                    if expand_path(value).is_file() {
-                        return Ok(());
-                    }
-                    Err("no such file".to_owned())
-                }),
-            ],
-            Box::new(|world, values| {
-                let path = expand_path(values.get(ATTACH_FIELD));
-                insert_token(world, &super::token::AttachToken::new(path).render());
-            }),
-        ),
-    );
-}
-
-/// Into the editor at the cursor when one is open, otherwise onto the end
-/// of the staged body.
-fn insert_token(world: &mut World, token: &str) {
-    if super::inline::insert_line(world, token) {
-        return;
-    }
-    if let Some(session) = world.resource_mut::<ComposeState>().0.as_mut() {
-        session.body.push(token.to_owned());
-        let outcome = session.write_body();
-        report_body_write(world, outcome);
-    }
-}
-
-fn report_body_write(world: &mut World, outcome: std::io::Result<()>) {
-    if let Err(error) = outcome {
-        let now = world.resource::<Time>().elapsed_secs_f64();
-        world
-            .resource_mut::<MessageLog>()
-            .warn(format!("could not save the body: {error}"), now);
-    }
-}
-
-pub(super) fn detach_picker(world: &mut World) {
-    let attachments = current_body(world)
-        .map(|body| super::token::paths(&body))
-        .unwrap_or_default();
-    if attachments.is_empty() {
-        let now = world.resource::<Time>().elapsed_secs_f64();
-        world
-            .resource_mut::<MessageLog>()
-            .info("no attachments to remove".to_owned(), now);
-        return;
-    }
-    let items = attachments
-        .iter()
-        .map(|path| PickerItem {
-            label: path
-                .file_name()
-                .and_then(|name| name.to_str())
-                .unwrap_or("attachment")
-                .to_owned(),
-            detail: Some(path.display().to_string()),
-        })
-        .collect();
-    open_picker(
-        world,
-        PickerSpec {
-            title: "remove attachment".to_owned(),
-            items,
-            on_select: Box::new(move |world, picked| {
-                let Some(path) = attachments.get(picked).cloned() else {
-                    return;
-                };
-                remove_token(world, &path);
+        crate::explorer::ExplorerRequest {
+            title: "Attach".to_owned(),
+            extensions: &[],
+            start_dir: None,
+            on_pick: Box::new(|world, path| {
+                let name = path.display().to_string();
+                if !crate::overlay::form::push_entry(world, super::form::ATTACH_FIELD, name) {
+                    notice(world, "already attached");
+                }
             }),
         },
     );
 }
 
-/// The body as it stands: the live buffer while editing, else the staged
-/// session body.
-fn current_body(world: &World) -> Option<Vec<String>> {
-    world.resource::<super::InlineEditor>().lines().or_else(|| {
-        world
-            .resource::<ComposeState>()
-            .session()
-            .map(|s| s.body.clone())
-    })
-}
-
-fn remove_token(world: &mut World, path: &std::path::Path) {
-    if super::inline::remove_token_line(world, path) {
-        return;
-    }
-    if let Some(session) = world.resource_mut::<ComposeState>().0.as_mut() {
-        session.body = super::token::remove(&session.body, path);
-        let outcome = session.write_body();
-        report_body_write(world, outcome);
+/// Enter on the attachment row: with nothing on it, the offer to add
+/// the first; otherwise a look at what is picked.
+pub(super) fn activate_attachment(world: &mut World) {
+    match selected_attachment(world) {
+        Some(path) => super::preview::open_path(world, &path),
+        None => attach_prompt(world),
     }
 }
 
-fn expand_path(input: &str) -> std::path::PathBuf {
-    let trimmed = input.trim();
-    if let Some(stripped) = trimmed.strip_prefix("~/")
-        && let Ok(home) = etcetera::home_dir()
-    {
-        return home.join(stripped);
-    }
-    std::path::PathBuf::from(trimmed)
+fn selected_attachment(world: &World) -> Option<std::path::PathBuf> {
+    crate::overlay::form::selected_entry(world, super::form::ATTACH_FIELD)
+        .map(std::path::PathBuf::from)
 }
 
-/// `y` entry: warning chain, then the actual queue.
+/// `:attach-insert`: puts the picked attachment where the caret is, so
+/// the body says where it belongs. The file is attached either way —
+/// the token is a placement, not the attachment itself.
+pub(super) fn insert_selected(world: &mut World) {
+    let Some(path) = selected_attachment(world) else {
+        return notice(world, "nothing attached to place");
+    };
+    let token = super::token::AttachToken::new(path).render();
+    if !super::editing::insert_line_into(world, super::form::BODY_FIELD, &token) {
+        notice(world, "no body to place it in");
+    }
+}
+
+/// `:detach`: the picked attachment leaves the row, and any token
+/// naming it leaves the body with it.
+pub(super) fn detach_selected(world: &mut World) {
+    let Some(removed) =
+        crate::overlay::form::remove_selected_entry(world, super::form::ATTACH_FIELD)
+    else {
+        return notice(world, "no attachments to remove");
+    };
+    let path = std::path::PathBuf::from(&removed);
+    super::editing::remove_token_line(world, &path);
+    notice(world, format!("detached {removed}"));
+}
+
+fn notice(world: &mut World, text: impl Into<String>) {
+    let now = world.resource::<Time>().elapsed_secs_f64();
+    world.resource_mut::<MessageLog>().info(text.into(), now);
+}
+
+/// The send entry point: warning chain, then the actual queue.
 pub(super) fn send_with_checks(world: &mut World) {
+    super::form::flush_body(world);
     let Some((subject_empty, needs_attachment)) =
         world.resource::<ComposeState>().session().map(|session| {
             (
@@ -198,6 +145,7 @@ pub(super) fn mentions_attachment(body: &[String]) -> bool {
 /// `P`: draft form to the drafts folder, replace any recalled
 /// original, clear the local session.
 pub(super) fn postpone(world: &mut World) {
+    super::form::flush_body(world);
     let built = {
         let compose = world.resource::<ComposeState>();
         let Some(session) = compose.session() else {
@@ -280,6 +228,7 @@ fn finish_postpone(world: &mut World, bytes: Vec<u8>, now: f64) {
     if let Err(error) = std::fs::remove_file(&session.body_path) {
         tracing::warn!("postpone body cleanup: {error}");
     }
+    super::form::dismiss(world);
     world
         .resource_mut::<MessageLog>()
         .info(format!("draft saved to {drafts_folder}"), now);
@@ -295,7 +244,6 @@ fn clone_session(session: &ComposeSession) -> ComposeSession {
         subject: session.subject.clone(),
         body_path: session.body_path.clone(),
         body: session.body.clone(),
-        stage: session.stage,
         in_reply_to: session.in_reply_to.clone(),
         references: session.references.clone(),
         reply_source: session.reply_source.clone(),

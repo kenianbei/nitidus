@@ -54,7 +54,8 @@ dependencies; Phase 5 integrates external ecosystems.
 ### 1c. Send mail (closes the loop)
 
 14. **Composer** — compose session state machine, `$EDITOR` suspend/resume,
-    review screen with keybinding cheat-sheet, header prompts.
+    review screen with keybinding cheat-sheet, header prompts. (Rebuilt as one
+    form by item 30.)
 15. **Send pipeline** — mail-builder construction, outbox queue (crash-safe
     files), io-smtp submission + sendmail pipe, async progress in statusline,
     undo-send delay.
@@ -100,6 +101,10 @@ dependencies; Phase 5 integrates external ecosystems.
     confirmations and the file browser as overlay surfaces on one stack,
     feedback routed by severity into toasts and a message log, and the
     bottom-row prompt retired in favour of forms.
+30. **Compose as a form** — the composer rebuilt as one form: headers, an
+    attachment row and the body as tab stops, hosted in the reading column or
+    over the panes. Supersedes the review screen, the editor mode and the
+    header prompts of item 14.
 
 ## Phase 2 — Power triage & search
 

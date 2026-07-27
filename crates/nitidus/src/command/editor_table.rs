@@ -1,6 +1,6 @@
-//! Inline body editor commands. Every editor operation that is not plain
-//! typing goes through this table, so it is rebindable and shows up in
-//! the help overlay like everything else.
+//! Body editing commands. Every operation on a body field that is not
+//! plain typing goes through this table, so it is rebindable and shows
+//! up in the help overlay like everything else.
 
 use super::{CommandSpec, no_args};
 use crate::action::{Action, EditorMotion, EditorOp};
@@ -13,10 +13,10 @@ pub(super) const EDITOR_COMMANDS: &[CommandSpec] = &[
         parse: |args| no_args("editor-preview", args, Action::Editor(EditorOp::Preview)),
     },
     CommandSpec {
-        name: "editor-done",
-        summary: "finish editing the body",
+        name: "editor-newline",
+        summary: "break the line",
         aliases: &[],
-        parse: |args| no_args("editor-done", args, Action::Editor(EditorOp::Done)),
+        parse: |args| no_args("editor-newline", args, Action::Editor(EditorOp::Newline)),
     },
     CommandSpec {
         name: "editor-left",

@@ -56,6 +56,13 @@ impl PaneFocus {
     }
 }
 
+/// The layers a key resolves against, most specific first. The router
+/// walks these in order; `active_context` names the first of them, which
+/// is what the help overlay titles itself with.
+pub fn active_layers(world: &World) -> Vec<&'static str> {
+    vec![active_context(world), crate::keymap::CONTEXT_GLOBAL]
+}
+
 /// Which bindings are live: an open composition owns the keyboard
 /// wherever it is drawn, then the active tab, then the focused pane.
 /// The router and the help overlay both read this, so they cannot

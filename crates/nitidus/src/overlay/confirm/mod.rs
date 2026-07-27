@@ -17,7 +17,8 @@ use bevy_ratatui::crossterm::event::KeyEvent;
 use crokey::KeyCombination;
 
 use crate::action::ConfirmOp;
-use crate::keymap::{CONTEXT_CONFIRM, KeymapMatch, Keymaps};
+use crate::keymap::{KeymapMatch, Keymaps};
+use crate::overlay::surface::Surface;
 
 pub type ConfirmFn = Box<dyn FnOnce(&mut World) + Send + Sync>;
 
@@ -123,8 +124,9 @@ pub fn open_confirm(world: &mut World, spec: ConfirmSpec) {
 /// global fallback, matching every other modal.
 pub fn handle_key(world: &mut World, key: KeyEvent) -> Result {
     let outcome = {
+        let layers = Surface::Confirm.key_layers(world);
         let keymaps = world.resource::<Keymaps>();
-        keymaps.lookup(CONTEXT_CONFIRM, &[KeyCombination::from(key)])
+        keymaps.resolve_layered(&layers, &[KeyCombination::from(key)])
     };
     if let KeymapMatch::Exact(action) = outcome {
         crate::action::apply_action(world, &action);

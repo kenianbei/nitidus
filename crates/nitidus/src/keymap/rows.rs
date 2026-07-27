@@ -4,7 +4,7 @@
 
 use crokey::KeyCombination;
 
-use super::{CONTEXT_GLOBAL, KNOWN_CONTEXTS, Keymaps, TrieNode};
+use super::{KNOWN_CONTEXTS, Keymaps, TrieNode};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct BindingRow {
@@ -55,22 +55,20 @@ impl Keymaps {
         rows
     }
 
-    /// The rows that resolve right now in `context`: its own bindings
-    /// plus globals whose sequences the context does not shadow.
-    pub fn help_rows(&self, context: &str) -> Vec<HelpRow> {
-        let scoped = self.bindings(context);
-        let shadowed: std::collections::HashSet<String> =
-            scoped.iter().map(|row| row.keys.clone()).collect();
-        let mut rows: Vec<HelpRow> = scoped
-            .into_iter()
-            .map(|row| HelpRow::new(context, row))
-            .collect();
-        rows.extend(
-            self.bindings(CONTEXT_GLOBAL)
-                .into_iter()
-                .filter(|row| !shadowed.contains(&row.keys))
-                .map(|row| HelpRow::new(CONTEXT_GLOBAL, row)),
-        );
+    /// The rows that resolve right now, given the layer stack the router
+    /// walks — most specific first. A sequence an earlier layer answers
+    /// shadows every later spelling of it, exactly as `resolve_layered`
+    /// decides which one fires.
+    pub fn help_rows(&self, layers: &[&str]) -> Vec<HelpRow> {
+        let mut shadowed = std::collections::HashSet::new();
+        let mut rows = Vec::new();
+        for layer in layers {
+            for row in self.bindings(layer) {
+                if shadowed.insert(row.keys.clone()) {
+                    rows.push(HelpRow::new(layer, row));
+                }
+            }
+        }
         rows
     }
 

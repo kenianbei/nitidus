@@ -1,29 +1,27 @@
-//! The composer: a single compose session flowing headers form →
-//! `$EDITOR` → review screen. The session's body lives in a
-//! crash-surviving file under the state dir; send/postpone are staged
-//! stubs until the 1c.15/1c.17 items land.
+//! The composer: one form per compose session, drawn beside the message
+//! it answers or over the panes. The session's body lives in a
+//! crash-surviving file under the state dir.
 
 pub mod build;
 pub(crate) mod drafts;
+pub mod editing;
 mod editor;
-pub mod inline;
+pub(crate) mod form;
 pub(crate) mod intent;
 mod ops;
 pub mod persist;
 pub mod preview;
 pub(crate) mod recall;
-mod render;
 pub mod reply;
 pub(crate) mod style;
 pub mod token;
 
 pub use editor::EditorCommand;
-pub use inline::InlineEditor;
-pub use ops::{dispatch, scroll, start_compose, start_compose_to};
+pub(crate) use form::reopen_restored;
+pub use ops::{dispatch, start_compose, start_compose_to};
 pub use persist::recover;
 pub use preview::{AttachPreview, PreviewPlugin};
 pub use recall::recall_selected;
-pub use render::ComposeWidget;
 pub use reply::{ReplyKind, start_reply};
 
 use std::path::PathBuf;
@@ -47,29 +45,21 @@ pub struct ComposePlugin;
 impl Plugin for ComposePlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<ComposeState>();
-        app.init_resource::<InlineEditor>();
+        app.init_resource::<form::BodyFile>();
         app.add_plugins(preview::PreviewPlugin);
         app.init_resource::<intent::ReplyIntent>();
-        app.add_systems(Startup, (render::spawn_compose, persist::notice_orphans));
+        app.add_systems(Startup, persist::notice_orphans);
         app.add_systems(
             Update,
             (
                 intent::consume_reply_intent,
-                sync_attachments,
-                render::apply_placement,
-                render::refresh_compose,
+                form::sync_session,
+                form::write_due_body,
                 persist::persist_session,
             )
                 .chain(),
         );
     }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum ComposeStage {
-    Prompting,
-    Editing,
-    Review,
 }
 
 pub struct ComposeSession {
@@ -81,7 +71,6 @@ pub struct ComposeSession {
     pub subject: String,
     pub body_path: PathBuf,
     pub body: Vec<String>,
-    pub stage: ComposeStage,
     /// Threading headers when this is a reply.
     pub in_reply_to: Option<String>,
     pub references: Vec<String>,
@@ -139,7 +128,6 @@ impl ComposeSession {
             subject: String::new(),
             body_path,
             body: body.lines().map(str::to_owned).collect(),
-            stage: ComposeStage::Prompting,
             in_reply_to: None,
             references: Vec::new(),
             reply_source: None,
@@ -156,34 +144,10 @@ impl ComposeSession {
             .collect();
     }
 
-    /// `body_path` is what the send and postpone paths read, so any edit
-    /// to `body` outside the editor has to reach the file too.
+    /// `body_path` is what the send and postpone paths read, so an edit
+    /// to `body` has to reach the file before either of them runs.
     pub(crate) fn write_body(&self) -> std::io::Result<()> {
         std::fs::write(&self.body_path, format!("{}\n", self.body.join("\n")))
-    }
-}
-
-/// The body names the attachments; `session.attachments` is a cache of
-/// what its tokens say. Keeping it derived means `build`, `persist`, and
-/// the outbox go on reading one field and never learn about tokens.
-///
-/// Reads go through `Deref` so only a real change ticks the resource,
-/// which would otherwise redraw the composer every frame.
-fn sync_attachments(mut compose: ResMut<ComposeState>) {
-    if !compose.is_changed() {
-        return;
-    }
-    let Some(derived) = compose.session().map(|session| token::paths(&session.body)) else {
-        return;
-    };
-    if compose
-        .session()
-        .is_some_and(|session| session.attachments == derived)
-    {
-        return;
-    }
-    if let Some(session) = compose.0.as_mut() {
-        session.attachments = derived;
     }
 }
 

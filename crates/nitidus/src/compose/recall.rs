@@ -6,7 +6,7 @@ use bevy::prelude::*;
 use mail_parser::{MessageParser, MimeHeaders};
 use nitidus_mail::{AccountId, EnvelopeId, FolderId};
 
-use super::{ComposeSession, ComposeStage, ComposeState};
+use super::{ComposeSession, ComposeState};
 use crate::status::MessageLog;
 
 /// `e` / `:recall` — only in the account's drafts folder.
@@ -55,10 +55,11 @@ pub(crate) fn recall_from_raw(
         Err(error) => return warn(world, format!("recall: {error:#}")),
     };
     world.resource_mut::<ComposeState>().0 = Some(session);
+    super::form::reopen_restored(world);
     let now = world.resource::<Time>().elapsed_secs_f64();
     world
         .resource_mut::<MessageLog>()
-        .info("draft recalled — back to review".to_owned(), now);
+        .info("draft recalled".to_owned(), now);
 }
 
 fn materialize(
@@ -90,14 +91,9 @@ fn materialize(
         attachments.push(path);
     }
 
-    // Sending lifted the tokens out into MIME parts; put them back so the
-    // recalled body declares its attachments again.
-    let mut body: Vec<String> = body.lines().map(str::to_owned).collect();
-    body.extend(
-        attachments
-            .iter()
-            .map(|path| super::token::AttachToken::new(path.clone()).render()),
-    );
+    // The recalled parts land on the attachment row; the body keeps
+    // whatever placement tokens it was written with.
+    let body: Vec<String> = body.lines().map(str::to_owned).collect();
     std::fs::write(&body_path, format!("{}\n", body.join("\n")))?;
 
     let line = |header: Option<&mail_parser::Address<'_>>| {
@@ -112,7 +108,6 @@ fn materialize(
         subject: message.subject().unwrap_or_default().to_owned(),
         body_path,
         body,
-        stage: ComposeStage::Review,
         in_reply_to: message
             .in_reply_to()
             .as_text_list()

@@ -9,15 +9,15 @@ use std::path::Path;
 use std::time::Duration;
 
 use bevy::prelude::*;
-use bevy_ratatui::crossterm::event::{KeyCode, KeyEvent};
+use bevy_ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use nitidus::action::{Action, apply_action};
 use nitidus::cmdline::CommandLineState;
-use nitidus::compose::{ComposeDir, ComposePlugin, ComposeState, EditorCommand, InlineEditor};
+use nitidus::compose::{ComposeDir, ComposePlugin, ComposeState, EditorCommand};
 use nitidus::config::account::{AccountConfig, Outgoing, SendmailOutgoing};
 use nitidus::config::{Config, RawKeymaps};
 use nitidus::engine::{EnginePlugin, EngineResource};
 use nitidus::index::{IndexPlugin, IndexStatus};
-use nitidus::keymap::{InputMode, Keymaps, Mode};
+use nitidus::keymap::Keymaps;
 use nitidus::outbox::{OutboxDir, OutboxPlugin, OutboxState, SendDelay};
 use nitidus::overlay::OverlayPlugin;
 use nitidus::overlay::form::ActiveForm;
@@ -176,8 +176,8 @@ fn reply_from_pager_prefills_threads_and_skips_prompts() {
         session.body
     );
     assert!(
-        !app.world().resource::<ActiveForm>().is_open(),
-        "replies skip the headers form"
+        app.world().resource::<ActiveForm>().is_open(),
+        "the reply is written in the composer"
     );
 }
 
@@ -237,10 +237,14 @@ fn send_reply_and_wait(app: &mut App) {
     assert!(wait_for(app, |world| {
         world.resource::<ComposeState>().is_active()
     }));
-    // A reply opens the editor, where `y` is a letter; leave it first so
-    // the review screen takes the send.
-    press(app, KeyCode::Esc);
-    press(app, KeyCode::Char('y'));
+    // Alt-Enter sends from wherever the caret is, body included.
+    route_key(
+        app.world_mut(),
+        Entity::PLACEHOLDER,
+        UiEvent::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::ALT)),
+    )
+    .unwrap();
+    app.update();
     assert!(
         wait_for(app, |world| {
             world.resource::<OutboxState>().pending_count() == 0
@@ -299,11 +303,10 @@ fn save_sent_false_skips_the_copy() {
     assert_eq!(sent_count, 0, "save_sent = false must skip the Sent copy");
 }
 
-/// Every route into a body — new, reply, reply-all, forward — has to
-/// honour `ui.compose.editor`. Replies once called the external editor
-/// directly and ignored it.
+/// A reply arrives with everything already answered, so it lands in the
+/// body rather than in To — the first keystroke belongs to the quote.
 #[test]
-fn replying_opens_the_inline_editor() {
+fn a_reply_lands_in_the_body_with_the_quote_in_it() {
     let harness = harness();
     let mut app = reply_app(&harness, true);
     wait_loaded(&mut app);
@@ -311,25 +314,28 @@ fn replying_opens_the_inline_editor() {
 
     press(&mut app, KeyCode::Char('r'));
 
-    assert_eq!(
-        app.world().resource::<Mode>().0,
-        InputMode::Editor,
-        "a reply must land in the inline editor like a new message does"
-    );
-    assert!(app.world().resource::<InlineEditor>().is_active());
+    let form = app.world().resource::<ActiveForm>();
     assert!(
-        app.world()
-            .resource::<InlineEditor>()
-            .lines()
+        form.value("body")
+            .is_some_and(|body| body.contains("> original body line")),
+        "the quoted reply must be in the body field"
+    );
+    press(&mut app, KeyCode::Char('!'));
+    let state = app.world().resource::<ComposeState>();
+    assert!(
+        state
+            .session()
             .unwrap()
+            .body
             .iter()
-            .any(|line| line == "> original body line"),
-        "the quoted reply must be in the buffer"
+            .any(|line| line.starts_with('!')),
+        "typing goes to the body: {:?}",
+        state.session().unwrap().body
     );
 }
 
 #[test]
-fn forwarding_opens_the_inline_editor_after_the_to_prompt() {
+fn forwarding_reaches_the_composer_once_the_to_prompt_is_answered() {
     let harness = harness();
     let mut app = reply_app(&harness, true);
     wait_loaded(&mut app);
@@ -342,9 +348,14 @@ fn forwarding_opens_the_inline_editor_after_the_to_prompt() {
     }
     press(&mut app, KeyCode::Enter);
 
+    let form = app.world().resource::<ActiveForm>();
     assert_eq!(
-        app.world().resource::<Mode>().0,
-        InputMode::Editor,
-        "forward must reach the editor once the To prompt is answered"
+        form.value("to").as_deref(),
+        Some("bob@x.com"),
+        "the answered recipient carries into the composer"
+    );
+    assert!(
+        form.value("body")
+            .is_some_and(|body| body.contains("Forwarded message"))
     );
 }

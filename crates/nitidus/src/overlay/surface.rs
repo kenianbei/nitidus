@@ -15,6 +15,8 @@
 use bevy::prelude::*;
 use bevy_ratatui::crossterm::event::KeyEvent;
 
+use crate::keymap::{CONTEXT_CONFIRM, CONTEXT_EXPLORER, CONTEXT_LOG, CONTEXT_PICKER};
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Surface {
     Picker,
@@ -55,6 +57,21 @@ impl Surface {
             Surface::MessageLog => world
                 .get_resource::<super::log::LogPanel>()
                 .is_some_and(super::log::LogPanel::is_open),
+        }
+    }
+
+    /// The keymap layers this surface resolves against, most specific
+    /// first. Its own key handler and the help overlay both read these,
+    /// so what help lists is what will fire. The attach preview closes on
+    /// any key and so binds nothing.
+    pub(crate) fn key_layers(self, world: &World) -> Vec<&'static str> {
+        match self {
+            Surface::Picker => vec![CONTEXT_PICKER],
+            Surface::Form => super::form::key_layers(world),
+            Surface::Explorer => vec![CONTEXT_EXPLORER],
+            Surface::AttachPreview => Vec::new(),
+            Surface::Confirm => vec![CONTEXT_CONFIRM],
+            Surface::MessageLog => vec![CONTEXT_LOG],
         }
     }
 
@@ -103,6 +120,16 @@ pub fn is_any_open(world: &World) -> bool {
 pub fn route_key(world: &mut World, key: KeyEvent) -> Option<Result> {
     let surface = top(world)?;
     Some(surface.handle_key(world, key))
+}
+
+/// The layers the keyboard is resolving against right now: the top
+/// surface's, or the focused pane's when nothing is above it. The help
+/// overlay reads this so it can only ever list live bindings.
+pub fn key_layers(world: &mut World) -> Vec<&'static str> {
+    match top(world) {
+        Some(surface) => surface.key_layers(world),
+        None => crate::focus::active_layers(world),
+    }
 }
 
 /// `:confirm` from a surface's own keymap context. Forms are absent by

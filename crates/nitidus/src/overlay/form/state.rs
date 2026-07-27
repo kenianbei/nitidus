@@ -8,9 +8,10 @@
 use bevy_ratatui::crossterm::event::KeyEvent;
 
 use super::field::FieldRuntime;
-use super::spec::{CancelFn, FormMode, FormSpec, FormValues, PageSpec, PagesFn, SubmitFn};
+use super::spec::{
+    CancelFn, FormMode, FormPlacement, FormSpec, FormValues, PageSpec, PagesFn, SubmitFn,
+};
 
-const CANCEL_LABEL: &str = "Cancel";
 const BACK_LABEL: &str = "Back";
 const NEXT_LABEL: &str = "Next";
 /// Seeding a page's defaults can reveal another page, which has its own
@@ -48,6 +49,10 @@ pub(super) struct FormState {
     pub(super) title: String,
     mode: FormMode,
     primary_label: String,
+    cancel_label: String,
+    placement: FormPlacement,
+    context: Option<&'static str>,
+    enter_activates: bool,
     pages_fn: PagesFn,
     pages: Vec<PageSpec>,
     page: usize,
@@ -62,7 +67,7 @@ pub(super) struct FormState {
     /// knows to respawn rather than diffing components itself.
     generation: u64,
     on_submit: Option<SubmitFn>,
-    on_cancel: Option<CancelFn>,
+    on_cancel: CancelFn,
 }
 
 impl FormState {
@@ -73,6 +78,10 @@ impl FormState {
             title: spec.title,
             mode: spec.mode,
             primary_label: spec.primary_label,
+            cancel_label: spec.cancel_label,
+            placement: spec.placement,
+            context: spec.context,
+            enter_activates: spec.enter_activates,
             pages_fn: spec.pages,
             pages,
             page: 0,
@@ -84,11 +93,18 @@ impl FormState {
             error_field: None,
             generation: 0,
             on_submit: Some(spec.on_submit),
-            on_cancel: Some(spec.on_cancel),
+            on_cancel: spec.on_cancel,
         };
         state.converge_pages();
         state.rebuild_fields();
+        if let Some(landing) = spec.initial_focus.and_then(|id| state.field_index(id)) {
+            state.set_focus(Focus::Field(landing));
+        }
         state
+    }
+
+    fn field_index(&self, id: &str) -> Option<usize> {
+        self.fields.iter().position(|field| field.spec.id == id)
     }
 
     /// A spec's `initial` value is part of the form's answer even if the
@@ -107,6 +123,80 @@ impl FormState {
         for (id, value) in seeds {
             self.values.set(id, value);
         }
+    }
+
+    fn focused_field(&self) -> Option<&FieldRuntime> {
+        let Focus::Field(index) = self.focus else {
+            return None;
+        };
+        self.fields.get(index)
+    }
+
+    pub(super) fn focused_body(&self) -> Option<super::body::SharedArea> {
+        self.focused_field()?.area()
+    }
+
+    /// The body field named `id`, whether or not it has focus — an
+    /// attachment is placed into the body from the row above it.
+    pub(super) fn body_by_id(&self, id: &str) -> Option<super::body::SharedArea> {
+        self.fields.iter().find(|field| field.spec.id == id)?.area()
+    }
+
+    pub(super) fn selected_entry(&self, id: &str) -> Option<String> {
+        self.fields
+            .iter()
+            .find(|field| field.spec.id == id)?
+            .selected_entry()
+            .cloned()
+    }
+
+    /// Adds an entry to the named row and picks it. Reports whether the
+    /// row took it — a duplicate is refused.
+    pub(super) fn push_entry(&mut self, id: &str, entry: String) -> bool {
+        let Some(field) = self.fields.iter_mut().find(|field| field.spec.id == id) else {
+            return false;
+        };
+        let pushed = field.push_entry(entry);
+        if pushed {
+            self.commit();
+        }
+        pushed
+    }
+
+    pub(super) fn remove_selected_entry(&mut self, id: &str) -> Option<String> {
+        let field = self.fields.iter_mut().find(|field| field.spec.id == id)?;
+        let removed = field.remove_selected_entry();
+        if removed.is_some() {
+            self.commit();
+        }
+        removed
+    }
+
+    /// What Enter should do on the focused field, if it says so itself.
+    pub(super) fn focused_activation(&self) -> Option<super::spec::ActivateFn> {
+        self.focused_field()?.spec.activate.clone()
+    }
+
+    pub(super) fn is_body_focused(&self) -> bool {
+        self.focused_field()
+            .is_some_and(|field| field.area().is_some())
+    }
+
+    pub(super) fn enter_activates(&self) -> bool {
+        self.enter_activates
+    }
+
+    pub(super) fn context(&self) -> Option<&'static str> {
+        self.context
+    }
+
+    /// The cancel action, cloned out so it can run with the world.
+    pub(super) fn cancel_action(&self) -> CancelFn {
+        self.on_cancel.clone()
+    }
+
+    pub(super) fn placement(&self) -> &FormPlacement {
+        &self.placement
     }
 
     pub(super) fn generation(&self) -> u64 {
@@ -168,7 +258,7 @@ impl FormState {
     }
 
     pub(super) fn buttons(&self) -> Vec<(ButtonRole, String)> {
-        let mut buttons = vec![(ButtonRole::Cancel, CANCEL_LABEL.to_owned())];
+        let mut buttons = vec![(ButtonRole::Cancel, self.cancel_label.clone())];
         if self.page > 0 {
             buttons.push((ButtonRole::Back, BACK_LABEL.to_owned()));
         }
@@ -453,10 +543,6 @@ impl FormState {
 
     pub(super) fn take_submit(&mut self) -> Option<SubmitFn> {
         self.on_submit.take()
-    }
-
-    pub(super) fn take_cancel(&mut self) -> Option<CancelFn> {
-        self.on_cancel.take()
     }
 }
 

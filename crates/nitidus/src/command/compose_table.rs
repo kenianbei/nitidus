@@ -13,18 +13,6 @@ pub(super) const COMPOSE_COMMANDS: &[CommandSpec] = &[
         parse: |args| no_args("compose", args, Action::Compose),
     },
     CommandSpec {
-        name: "compose-edit",
-        summary: "edit the body",
-        aliases: &[],
-        parse: |args| {
-            no_args(
-                "compose-edit",
-                args,
-                Action::ComposeAction(ComposeOp::EditBody),
-            )
-        },
-    },
-    CommandSpec {
         name: "compose-edit-external",
         summary: "edit the body in $EDITOR",
         aliases: &[],
@@ -33,36 +21,6 @@ pub(super) const COMPOSE_COMMANDS: &[CommandSpec] = &[
                 "compose-edit-external",
                 args,
                 Action::ComposeAction(ComposeOp::EditBodyExternal),
-            )
-        },
-    },
-    CommandSpec {
-        name: "compose-to",
-        summary: "edit the To header",
-        aliases: &[],
-        parse: |args| no_args("compose-to", args, Action::ComposeAction(ComposeOp::To)),
-    },
-    CommandSpec {
-        name: "compose-cc",
-        summary: "edit the Cc header",
-        aliases: &[],
-        parse: |args| no_args("compose-cc", args, Action::ComposeAction(ComposeOp::Cc)),
-    },
-    CommandSpec {
-        name: "compose-bcc",
-        summary: "edit the Bcc header",
-        aliases: &[],
-        parse: |args| no_args("compose-bcc", args, Action::ComposeAction(ComposeOp::Bcc)),
-    },
-    CommandSpec {
-        name: "compose-subject",
-        summary: "edit the Subject header",
-        aliases: &[],
-        parse: |args| {
-            no_args(
-                "compose-subject",
-                args,
-                Action::ComposeAction(ComposeOp::Subject),
             )
         },
     },
@@ -79,8 +37,20 @@ pub(super) const COMPOSE_COMMANDS: &[CommandSpec] = &[
         parse: |args| no_args("attach", args, Action::ComposeAction(ComposeOp::Attach)),
     },
     CommandSpec {
+        name: "attach-insert",
+        summary: "place the attachment at the cursor",
+        aliases: &[],
+        parse: |args| {
+            no_args(
+                "attach-insert",
+                args,
+                Action::ComposeAction(ComposeOp::AttachInsert),
+            )
+        },
+    },
+    CommandSpec {
         name: "detach",
-        summary: "remove an attachment",
+        summary: "remove the picked attachment",
         aliases: &[],
         parse: |args| no_args("detach", args, Action::ComposeAction(ComposeOp::Detach)),
     },

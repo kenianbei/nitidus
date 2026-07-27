@@ -19,7 +19,8 @@ use plurimus::{UiFocusMessage, UiFocusable, Widget, WidgetLayout, WidgetOrder};
 
 use self::render::{PickerRow, PickerWindow};
 use crate::action::{Motion, apply_action};
-use crate::keymap::{CONTEXT_PICKER, KeymapMatch, Keymaps};
+use crate::keymap::{KeymapMatch, Keymaps};
+use crate::overlay::surface::Surface;
 
 const PANEL_WIDTH_PCT: u16 = 50;
 /// Rows kept clear above and below the picker; the panel otherwise
@@ -181,8 +182,9 @@ pub fn move_selection(world: &mut World, motion: Motion) {
 /// filter text. No chord waits and no global fallback, by design.
 pub fn handle_key(world: &mut World, key: KeyEvent) -> Result {
     let outcome = {
+        let layers = Surface::Picker.key_layers(world);
         let keymaps = world.resource::<Keymaps>();
-        keymaps.lookup(CONTEXT_PICKER, &[KeyCombination::from(key)])
+        keymaps.resolve_layered(&layers, &[KeyCombination::from(key)])
     };
     if let KeymapMatch::Exact(action) = outcome {
         apply_action(world, &action);

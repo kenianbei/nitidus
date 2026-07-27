@@ -12,7 +12,7 @@ use nitidus_mail::send::SendEnvelope;
 use nitidus_mail::{AccountId, JobId};
 use serde::{Deserialize, Serialize};
 
-use crate::compose::{ComposeSession, ComposeStage, ComposeState};
+use crate::compose::{ComposeSession, ComposeState};
 use crate::status::MessageLog;
 
 mod delivery;
@@ -209,7 +209,6 @@ pub fn undo_send(world: &mut World) {
         subject: entry.meta.subject.clone(),
         body_path: entry.meta.body_path.clone(),
         body: Vec::new(),
-        stage: ComposeStage::Review,
         in_reply_to: entry.meta.in_reply_to.clone(),
         references: entry.meta.references.clone(),
         reply_source: entry
@@ -231,9 +230,10 @@ pub fn undo_send(world: &mut World) {
     };
     session.reload_body();
     world.resource_mut::<ComposeState>().0 = Some(session);
+    crate::compose::reopen_restored(world);
     world
         .resource_mut::<MessageLog>()
-        .info("send undone — back to review".to_owned(), now);
+        .info("send undone — back to the composer".to_owned(), now);
 }
 
 /// Removes and returns the entry for a completed job; the caller runs

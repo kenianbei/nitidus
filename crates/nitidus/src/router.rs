@@ -26,7 +26,6 @@ impl Plugin for RouterPlugin {
         app.init_resource::<crate::explorer::ExplorerState>();
         app.init_resource::<crate::overlay::surface::OverlayStack>();
         app.init_resource::<crate::addresses::AddressIndex>();
-        app.init_resource::<crate::compose::InlineEditor>();
         app.init_resource::<crate::compose::AttachPreview>();
         app.init_resource::<crate::sidebar::SidebarState>();
         app.init_resource::<crate::focus::PaneFocus>();
@@ -86,9 +85,6 @@ pub fn route_key(world: &mut World, _entity: Entity, event: UiEvent) -> Result {
     if let Some(handled) = crate::overlay::surface::route_key(world, key) {
         return handled;
     }
-    if world.resource::<Mode>().0 == InputMode::Editor {
-        return crate::compose::inline::handle_key(world, key);
-    }
     let now = world.resource::<Time>().elapsed_secs_f64();
     let mut pending = world.resource_mut::<PendingKeys>();
     pending.keys.push(KeyCombination::from(key));
@@ -101,10 +97,10 @@ pub fn route_key(world: &mut World, _entity: Entity, event: UiEvent) -> Result {
 /// deeper than the last resolution — whole-buffer lookup is incremental.
 fn resolve_now(world: &mut World, now: f64) {
     let outcome = {
-        let context = crate::focus::active_context(world);
+        let context = crate::focus::active_layers(world);
         let keymaps = world.resource::<Keymaps>();
         let pending = world.resource::<PendingKeys>();
-        keymaps.resolve_layered(context, &pending.keys)
+        keymaps.resolve_layered(&context, &pending.keys)
     };
     match outcome {
         KeymapMatch::Exact(action) => {

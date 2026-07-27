@@ -2,6 +2,11 @@
 //! right now (or, toggled, every context), each row carrying its key
 //! sequence, command, and summary. Enter executes the selected row, so
 //! help doubles as a command palette.
+//!
+//! "Right now" means the whole layer stack the keyboard is resolving
+//! against, not one context: over the composer that is the body's
+//! editor keys, the form's, and the composer's own — and none of the
+//! globals, which a form does not fall through to.
 
 use bevy::prelude::*;
 
@@ -12,6 +17,7 @@ use crate::overlay::{ActiveOverlay, PickerItem, PickerSpec, open_picker};
 
 const TITLE_PREFIX: &str = "keys — ";
 const ALL_TITLE: &str = "keys — all";
+const LAYER_SEPARATOR: &str = " · ";
 const KEY_COLUMN_WIDTH: usize = 12;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -23,20 +29,24 @@ pub enum HelpScope {
 }
 
 pub fn open(world: &mut World, scope: HelpScope) {
-    let context = crate::focus::active_context(world);
+    let layers = crate::overlay::surface::key_layers(world);
     let rows = {
         let keymaps = world.resource::<Keymaps>();
         match scope {
-            HelpScope::Current => keymaps.help_rows(context),
+            HelpScope::Current => keymaps.help_rows(&layers),
             HelpScope::All => keymaps.all_help_rows(),
         }
     };
     let title = match scope {
-        HelpScope::Current => format!("{TITLE_PREFIX}{context}"),
+        HelpScope::Current => current_title(&layers),
         HelpScope::All => ALL_TITLE.to_owned(),
     };
+    let primary = layers.first().copied().unwrap_or(CONTEXT_GLOBAL);
     let commands: Vec<String> = rows.iter().map(|row| row.command.clone()).collect();
-    let items = rows.iter().map(|row| picker_item(row, scope)).collect();
+    let items = rows
+        .iter()
+        .map(|row| picker_item(row, scope, primary))
+        .collect();
     open_picker(
         world,
         PickerSpec {
@@ -68,7 +78,21 @@ pub fn toggle_scope(world: &mut World) {
     open(world, next);
 }
 
-fn picker_item(row: &HelpRow, scope: HelpScope) -> PickerItem {
+/// Globals answer everywhere, so naming them tells the user nothing;
+/// what places them is the stack above.
+fn current_title(layers: &[&str]) -> String {
+    let named: Vec<&str> = layers
+        .iter()
+        .copied()
+        .filter(|layer| *layer != CONTEXT_GLOBAL)
+        .collect();
+    if named.is_empty() {
+        return format!("{TITLE_PREFIX}{CONTEXT_GLOBAL}");
+    }
+    format!("{TITLE_PREFIX}{}", named.join(LAYER_SEPARATOR))
+}
+
+fn picker_item(row: &HelpRow, scope: HelpScope, primary: &str) -> PickerItem {
     let command = row.command.trim_start_matches(':');
     let label = match scope {
         HelpScope::Current => format!("{:<KEY_COLUMN_WIDTH$} {command}", row.keys),
@@ -78,10 +102,13 @@ fn picker_item(row: &HelpRow, scope: HelpScope) -> PickerItem {
         ),
     };
     let summary = describe(&row.command).unwrap_or_default();
-    let detail = if scope == HelpScope::Current && row.context == CONTEXT_GLOBAL {
-        format!("{summary} (global)")
-    } else {
-        summary.to_owned()
+    let layer =
+        (scope == HelpScope::Current && row.context != primary).then_some(row.context.as_str());
+    let detail = match (summary, layer) {
+        ("", None) => String::new(),
+        ("", Some(layer)) => format!("({layer})"),
+        (summary, None) => summary.to_owned(),
+        (summary, Some(layer)) => format!("{summary} ({layer})"),
     };
     PickerItem {
         label,

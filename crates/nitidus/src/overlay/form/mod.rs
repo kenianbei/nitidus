@@ -1,5 +1,6 @@
-//! Modal forms: a set of tab-focusable fields with Cancel and a primary
-//! button, drawn at `layer::OVERLAY` above whatever screen is beneath.
+//! Forms: a set of tab-focusable fields with a negative and a primary
+//! button, drawn either as a modal over whatever is beneath or inside a
+//! rect its host hands over.
 //!
 //! Keyboard input stays on the router, resolved against the rebindable
 //! `form` context, with unbound printables typing into the focused
@@ -13,6 +14,7 @@
 //! moves focus synchronously and `entity::mirror_focus` pushes the
 //! result outward for styling and hit-testing.
 
+pub mod body;
 mod entity;
 mod field;
 mod geometry;
@@ -28,10 +30,13 @@ use bevy_ratatui::crossterm::event::KeyEvent;
 use crokey::KeyCombination;
 use plurimus::UiFocusMessage;
 
-pub use spec::{FieldSpec, FormMode, FormSpec, FormValues, PageSpec, PagesFn, SelectOption};
+pub use spec::{
+    CancelOutcome, FieldHeight, FieldSpec, FormMode, FormPlacement, FormSpec, FormValues, PageSpec,
+    PagesFn, SelectOption,
+};
 
 use crate::action::FormOp;
-use crate::keymap::{CONTEXT_FORM, KeymapMatch, Keymaps};
+use crate::keymap::{CONTEXT_EDITOR, CONTEXT_FORM, KeymapMatch, Keymaps};
 use state::{ButtonRole, Cursor, Focus, FormState};
 
 pub struct FormPlugin;
@@ -90,6 +95,12 @@ impl ActiveForm {
         })
     }
 
+    /// The keymap layer this form was opened under, which is also how
+    /// its owner recognizes it among other forms.
+    pub fn context(&self) -> Option<&'static str> {
+        self.0.as_ref().and_then(FormState::context)
+    }
+
     pub fn message(&self) -> Option<&str> {
         self.0.as_ref().and_then(FormState::message)
     }
@@ -108,14 +119,25 @@ pub fn open_form(world: &mut World, spec: FormSpec) {
     super::surface::raise(world, super::surface::Surface::Form);
 }
 
-/// Runs `on_cancel` and closes. Safe to call when nothing is open.
+/// Runs `on_cancel`, and closes unless it asked to stay — a form that
+/// puts a confirm in the way closes from inside the answer instead.
+/// Safe to call when nothing is open.
 fn cancel(world: &mut World) {
-    let Some(mut state) = world.resource_mut::<ActiveForm>().0.take() else {
+    let Some(on_cancel) = world
+        .get_resource::<ActiveForm>()
+        .and_then(ActiveForm::state)
+        .map(FormState::cancel_action)
+    else {
         return;
     };
-    if let Some(on_cancel) = state.take_cancel() {
-        on_cancel(world);
+    if on_cancel(world) == CancelOutcome::Close {
+        close(world);
     }
+}
+
+/// Closes whatever form is open without running its callbacks.
+pub fn close(world: &mut World) {
+    world.resource_mut::<ActiveForm>().0 = None;
 }
 
 /// Validates, then submits. A failing validator keeps the form open with
@@ -139,18 +161,22 @@ fn submit(world: &mut World) {
     }
 }
 
-/// Enter: the focused button if one has focus, otherwise the page's
-/// primary action — so Enter always does what the highlighted button
-/// says. During creation that is Next until the last page.
+/// Enter does what the focused button says. On a field it fires the
+/// primary action too — unless the form asked for stepping, as the
+/// composer does, where a stray Enter in a header would send.
 fn activate(world: &mut World) {
     let role = {
         let form = world.resource::<ActiveForm>();
         let Some(state) = form.state() else {
             return;
         };
+        if let Some(activate) = state.focused_activation() {
+            return activate(world);
+        }
         match state.focus() {
             Focus::Button(index) => state.role_at(index),
-            Focus::Field(_) => Some(ButtonRole::Primary),
+            Focus::Field(_) if state.enter_activates() => Some(ButtonRole::Primary),
+            Focus::Field(_) => return move_focus(world, true),
         }
     };
     match role {
@@ -224,13 +250,77 @@ fn move_cursor(world: &mut World, cursor: Cursor) {
     }
 }
 
-/// Exact single-key `form` bindings win; everything else printable
-/// edits the focused field. No chord waits and no global fallback, by
-/// design — the picker precedent.
+/// The buffer of the focused body field, for the editing commands that
+/// reach past typing — motions, undo, the clipboard.
+pub fn focused_body(world: &World) -> Option<body::SharedArea> {
+    world.get_resource::<ActiveForm>()?.state()?.focused_body()
+}
+
+/// The named body field, focused or not.
+pub fn body_field(world: &World, id: &str) -> Option<body::SharedArea> {
+    world.get_resource::<ActiveForm>()?.state()?.body_by_id(id)
+}
+
+/// The picked entry of the named row.
+pub fn selected_entry(world: &World, id: &str) -> Option<String> {
+    world
+        .get_resource::<ActiveForm>()?
+        .state()?
+        .selected_entry(id)
+}
+
+/// Adds an entry to the named row, reporting whether it was taken — a
+/// duplicate is not.
+pub fn push_entry(world: &mut World, id: &str, entry: String) -> bool {
+    world
+        .resource_mut::<ActiveForm>()
+        .state_mut()
+        .is_some_and(|state| state.push_entry(id, entry))
+}
+
+pub fn remove_selected_entry(world: &mut World, id: &str) -> Option<String> {
+    world
+        .resource_mut::<ActiveForm>()
+        .state_mut()?
+        .remove_selected_entry(id)
+}
+
+/// Editing a body through its shared handle bypasses the resource, so
+/// say out loud that the form changed and the renderer should look
+/// again.
+pub fn touch(world: &mut World) {
+    if let Some(mut form) = world.get_resource_mut::<ActiveForm>() {
+        form.set_changed();
+    }
+}
+
+/// A focused body brings its own bindings, above the form's: its arrows
+/// and chords beat focus movement, while Tab — which it does not bind —
+/// still falls through and leaves the field.
+pub(super) fn key_layers(world: &World) -> Vec<&'static str> {
+    let Some(state) = world
+        .get_resource::<ActiveForm>()
+        .and_then(ActiveForm::state)
+    else {
+        return vec![CONTEXT_FORM];
+    };
+    let mut layers = Vec::new();
+    if state.is_body_focused() {
+        layers.push(CONTEXT_EDITOR);
+    }
+    layers.push(CONTEXT_FORM);
+    layers.extend(state.context());
+    layers
+}
+
+/// Exact single-key bindings win; everything else printable edits the
+/// focused field. No chord waits and no global fallback, by design —
+/// the picker precedent.
 pub fn handle_key(world: &mut World, key: KeyEvent) -> Result {
     let outcome = {
+        let layers = crate::overlay::surface::Surface::Form.key_layers(world);
         let keymaps = world.resource::<Keymaps>();
-        keymaps.lookup(CONTEXT_FORM, &[KeyCombination::from(key)])
+        keymaps.resolve_layered(&layers, &[KeyCombination::from(key)])
     };
     if let KeymapMatch::Exact(action) = outcome {
         crate::action::apply_action(world, &action);

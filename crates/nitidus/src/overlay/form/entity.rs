@@ -4,7 +4,6 @@
 //! click-to-focus require, not a stylistic choice.
 
 use bevy::prelude::*;
-use nitidus_ui_kit::layer;
 use nitidus_ui_kit::theme::Theme;
 use plurimus::{
     UiFocusMessage, UiFocusable, UiHoverable, UiPressable, Widget, WidgetLayout, WidgetOrder,
@@ -12,18 +11,13 @@ use plurimus::{
 
 use std::sync::Arc;
 
-use super::geometry::{FormMetrics, button_width, form_geometry, step_rects, step_widths};
+use super::geometry::{FormLayout, Slot, step_rects, step_widths};
 use super::render::{
     ButtonView, FieldView, FieldViewKind, FrameView, MessageView, StepView, render_button,
     render_field, render_frame, render_message, render_step,
 };
 use super::state::{Focus, FormState};
 use super::{ActiveForm, mouse};
-
-/// Controls sit one rung above the frame so hit-testing never has to
-/// break a tie between a control and the panel behind it.
-const FRAME_ORDER: i32 = layer::OVERLAY;
-const CONTROL_ORDER: i32 = layer::OVERLAY + 1;
 
 /// Carries the control-set generation it was spawned for, so a change
 /// of shape respawns rather than being diffed component by component.
@@ -70,29 +64,18 @@ pub(super) fn sync_form_entities(
 
 fn spawn_form(commands: &mut Commands, state: &FormState, theme: &Theme) {
     let labels = state.button_labels();
-    let metrics = FormMetrics {
-        field_count: state.fields.len(),
-        button_count: labels.len(),
-        button_width: button_width(&labels),
-        has_strip: state.has_strip(),
-    };
-    spawn_frame(commands, state, theme, metrics);
-    spawn_steps(commands, state, theme, metrics);
+    let layout = FormLayout::of(state);
+    spawn_frame(commands, state, theme, &layout);
+    spawn_steps(commands, state, theme, &layout);
     for (index, field) in state.fields.iter().enumerate() {
-        let kind = if field.spec.is_select() {
-            FieldViewKind::Select
-        } else {
-            FieldViewKind::Text {
-                masked: field.spec.is_masked(),
-            }
-        };
-        let view = FieldView::new(field.spec.label.clone(), kind, theme);
+        let view = FieldView::new(field.spec.label.clone(), field_view_kind(field), theme);
+        let slots = layout.clone();
         commands.spawn((
             FormEntity(state.generation()),
             FormFieldControl(index),
             Widget::from_render_fn_with_state(render_field, view),
-            WidgetLayout::new(move |area| slot(*area, metrics, Slot::Field(index))),
-            WidgetOrder(CONTROL_ORDER),
+            WidgetLayout::new(move |area| slots.slot(*area, Slot::Field(index))),
+            WidgetOrder(layout.control_order()),
             UiFocusable::new(index as i32),
             UiHoverable,
             plurimus::UiActions::new(vec![plurimus::UiInputBinding::mouse_passthrough(
@@ -101,13 +84,44 @@ fn spawn_form(commands: &mut Commands, state: &FormState, theme: &Theme) {
         ));
     }
     for (index, label) in labels.into_iter().enumerate() {
-        spawn_button(commands, theme, metrics, index, label, state);
+        spawn_button(
+            commands,
+            theme,
+            &layout,
+            ButtonSlot {
+                index,
+                label,
+                generation: state.generation(),
+            },
+        );
+    }
+}
+
+fn field_view_kind(field: &super::field::FieldRuntime) -> FieldViewKind {
+    if let Some(text) = field.area() {
+        return FieldViewKind::Body {
+            text,
+            styles: Vec::new(),
+        };
+    }
+    if field.spec.is_select() {
+        return FieldViewKind::Select;
+    }
+    if field.spec.is_entries() {
+        return FieldViewKind::Entries {
+            entries: Vec::new(),
+            selected: 0,
+            empty_label: field.spec.empty_label().to_owned(),
+        };
+    }
+    FieldViewKind::Text {
+        masked: field.spec.is_masked(),
     }
 }
 
 /// Steps are entities like any other control, so an unreached one takes
 /// `UiDisabled` and plurimus refuses it both focus and the pointer.
-fn spawn_steps(commands: &mut Commands, state: &FormState, theme: &Theme, metrics: FormMetrics) {
+fn spawn_steps(commands: &mut Commands, state: &FormState, theme: &Theme, layout: &FormLayout) {
     if !state.has_strip() {
         return;
     }
@@ -120,18 +134,19 @@ fn spawn_steps(commands: &mut Commands, state: &FormState, theme: &Theme, metric
     ));
     for (index, (title, step)) in steps.into_iter().enumerate() {
         let widths = Arc::clone(&widths);
+        let slots = layout.clone();
         let mut entity = commands.spawn((
             FormEntity(state.generation()),
             FormStepControl(index),
             Widget::from_render_fn_with_state(render_step, StepView::new(title, step, theme)),
             WidgetLayout::new(move |area| {
-                let strip = form_geometry(*area, metrics).strip;
+                let strip = slots.geometry(*area).strip;
                 step_rects(&strip, &widths)
                     .get(index)
                     .copied()
                     .unwrap_or(ratatui::layout::Rect::ZERO)
             }),
-            WidgetOrder(CONTROL_ORDER),
+            WidgetOrder(layout.control_order()),
             UiHoverable,
             plurimus::UiActions::new(vec![plurimus::UiInputBinding::mouse_passthrough(
                 mouse::handle_step,
@@ -143,64 +158,52 @@ fn spawn_steps(commands: &mut Commands, state: &FormState, theme: &Theme, metric
     }
 }
 
-fn spawn_frame(commands: &mut Commands, state: &FormState, theme: &Theme, metrics: FormMetrics) {
+fn spawn_frame(commands: &mut Commands, state: &FormState, theme: &Theme, layout: &FormLayout) {
+    let frame_slots = layout.clone();
     commands.spawn((
         FormEntity(state.generation()),
         Widget::from_render_fn_with_state(render_frame, FrameView::new(state.title.clone(), theme)),
-        WidgetLayout::new(move |area| slot(*area, metrics, Slot::Frame)),
-        WidgetOrder(FRAME_ORDER),
+        WidgetLayout::new(move |area| frame_slots.slot(*area, Slot::Frame)),
+        WidgetOrder(layout.frame_order()),
         UiHoverable,
     ));
+    let message_slots = layout.clone();
     commands.spawn((
         FormEntity(state.generation()),
         FormMessageRow,
         Widget::from_render_fn_with_state(render_message, MessageView::new(None, theme)),
-        WidgetLayout::new(move |area| slot(*area, metrics, Slot::Message)),
-        WidgetOrder(CONTROL_ORDER),
+        WidgetLayout::new(move |area| message_slots.slot(*area, Slot::Message)),
+        WidgetOrder(layout.control_order()),
     ));
 }
 
-fn spawn_button(
-    commands: &mut Commands,
-    theme: &Theme,
-    metrics: FormMetrics,
+struct ButtonSlot {
     index: usize,
     label: String,
-    state: &FormState,
-) {
-    let field_count = state.fields.len();
+    generation: u64,
+}
+
+fn spawn_button(commands: &mut Commands, theme: &Theme, layout: &FormLayout, button: ButtonSlot) {
+    let ButtonSlot {
+        index,
+        label,
+        generation,
+    } = button;
+    let tab_index = layout.metrics.fields.len() + index;
+    let slots = layout.clone();
     commands.spawn((
-        FormEntity(state.generation()),
+        FormEntity(generation),
         FormButtonControl(index),
         Widget::from_render_fn_with_state(render_button, ButtonView::new(label, theme)),
-        WidgetLayout::new(move |area| slot(*area, metrics, Slot::Button(index))),
-        WidgetOrder(CONTROL_ORDER),
-        UiFocusable::new((field_count + index) as i32),
+        WidgetLayout::new(move |area| slots.slot(*area, Slot::Button(index))),
+        WidgetOrder(layout.control_order()),
+        UiFocusable::new(tab_index as i32),
         UiHoverable,
         UiPressable,
         plurimus::UiActions::new(vec![plurimus::UiInputBinding::mouse_passthrough(
             mouse::handle_button,
         )]),
     ));
-}
-
-#[derive(Clone, Copy)]
-enum Slot {
-    Frame,
-    Message,
-    Field(usize),
-    Button(usize),
-}
-
-fn slot(area: ratatui::layout::Rect, metrics: FormMetrics, slot: Slot) -> ratatui::layout::Rect {
-    let geometry = form_geometry(area, metrics);
-    let picked = match slot {
-        Slot::Frame => Some(geometry.frame),
-        Slot::Message => Some(geometry.message),
-        Slot::Field(index) => geometry.fields.get(index).copied(),
-        Slot::Button(index) => geometry.buttons.get(index).copied(),
-    };
-    picked.unwrap_or(ratatui::layout::Rect::ZERO)
 }
 
 /// Pushes the form's own focus outward so plurimus styles and hit-tests
@@ -252,7 +255,7 @@ pub(super) fn refresh_form(
     };
     for (mut widget, field, button, step, is_message) in &mut controls {
         if let Some(FormFieldControl(index)) = field {
-            refresh_field(&mut widget, state, *index)?;
+            refresh_field(&mut widget, state, *index, &theme)?;
         } else if let Some(FormButtonControl(index)) = button {
             refresh_button(&mut widget, state, *index)?;
         } else if let Some(FormStepControl(index)) = step {
@@ -274,10 +277,11 @@ fn refresh_step(widget: &mut Widget, state: &FormState, index: usize) -> Result 
     Ok(())
 }
 
-fn refresh_field(widget: &mut Widget, state: &FormState, index: usize) -> Result {
+fn refresh_field(widget: &mut Widget, state: &FormState, index: usize, theme: &Theme) -> Result {
     let Some(field) = state.fields.get(index) else {
         return Ok(());
     };
+    let focused = state.focus() == Focus::Field(index);
     let view = widget.get_state_mut::<FieldView>()?;
     match field.selected() {
         Some(option) => {
@@ -289,7 +293,22 @@ fn refresh_field(widget: &mut Widget, state: &FormState, index: usize) -> Result
             view.cursor = field.cursor();
         }
     }
-    view.focused = state.focus() == Focus::Field(index);
+    if let FieldViewKind::Body { styles, .. } = &mut view.kind {
+        *styles = field.line_styles(theme);
+    }
+    if let (
+        FieldViewKind::Entries {
+            entries, selected, ..
+        },
+        Some((live, picked)),
+    ) = (&mut view.kind, field.entries())
+    {
+        *entries = live.to_vec();
+        *selected = picked;
+    }
+    field.apply_theme(theme, focused);
+    view.focused = focused;
+    view.read_only = field.spec.read_only;
     view.is_error = state.error_field() == Some(index);
     Ok(())
 }

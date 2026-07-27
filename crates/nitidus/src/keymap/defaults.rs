@@ -8,6 +8,8 @@ pub(super) const DEFAULT_GLOBAL_BINDINGS: &[(&str, &str)] = &[
     ("1", ":tab 1"),
     ("2", ":tab 2"),
     ("?", ":help"),
+    ("~", ":help"),
+    ("<F1>", ":help"),
     ("<C-g>", ":messages"),
 ];
 
@@ -168,6 +170,9 @@ pub(super) const DEFAULT_FORM_BINDINGS: &[(&str, &str)] = &[
     ("<C-p>", ":form-complete-prev"),
     ("<PageDown>", ":form-next-page"),
     ("<PageUp>", ":form-prev-page"),
+    // `F1`, not the `~` or `?` that also open help elsewhere: both are
+    // printable and a form has to be able to type them.
+    ("<F1>", ":help"),
 ];
 
 /// Single-key only, like the picker and the form. The file browser has
@@ -221,36 +226,28 @@ pub(super) const DEFAULT_LOG_BINDINGS: &[(&str, &str)] = &[
     ("q", ":cancel"),
 ];
 
-/// Review-screen bindings; the cheat-sheet footer is generated from
-/// this context, so summaries double as its captions.
+/// The composer's own commands, layered beneath the form's bindings so
+/// they answer from every field.
+///
+/// Alt, not Ctrl: the editor already owns nine Ctrl chords and the form
+/// owns two more, and these have to answer from every field including
+/// the body.
 pub(super) const DEFAULT_COMPOSE_BINDINGS: &[(&str, &str)] = &[
-    ("j", ":next"),
-    ("k", ":prev"),
-    ("<Down>", ":next"),
-    ("<Up>", ":prev"),
-    ("<PageDown>", ":next-page"),
-    ("<PageUp>", ":prev-page"),
-    ("gg", ":first"),
-    ("G", ":last"),
-    ("e", ":compose-edit"),
-    ("E", ":compose-edit-external"),
-    ("t", ":compose-to"),
-    ("c", ":compose-cc"),
-    ("b", ":compose-bcc"),
-    ("s", ":compose-subject"),
-    ("y", ":send"),
-    ("P", ":postpone"),
-    ("a", ":attach"),
-    ("x", ":detach"),
-    ("<Esc>", ":discard"),
-    ("<Tab>", ":sidebar-focus"),
+    ("<A-Enter>", ":send"),
+    ("<A-p>", ":postpone"),
+    ("<A-a>", ":attach"),
+    ("<A-i>", ":attach-insert"),
+    ("<A-d>", ":detach"),
+    ("<A-e>", ":compose-edit-external"),
+    ("<A-x>", ":discard"),
 ];
 
-/// Inline body editor bindings. Printable keys are not bound — they type
-/// into the buffer — so only motions, edits, and mode exits appear here.
-/// Ctrl-c is the global quit and is deliberately not taken for copy.
+/// Body field bindings, layered over the form's own while a body has
+/// focus. Printable keys are not bound — they type into the buffer — so
+/// only motions and edits appear here. Ctrl-c is the global quit and is
+/// deliberately not taken for copy.
 pub(super) const DEFAULT_EDITOR_BINDINGS: &[(&str, &str)] = &[
-    ("<Esc>", ":editor-done"),
+    ("<Enter>", ":editor-newline"),
     ("<Left>", ":editor-left"),
     ("<Right>", ":editor-right"),
     ("<Up>", ":editor-up"),

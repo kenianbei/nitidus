@@ -200,8 +200,8 @@ fn reference_ids(message: &ParsedMessage) -> Vec<String> {
         .collect()
 }
 
-/// Builds and installs the session from raw message bytes; replies go
-/// straight to the editor, forward asks for To first.
+/// Builds and installs the session from raw message bytes; replies open
+/// the composer straight away, forward asks for To first.
 pub fn start_from_raw(
     world: &mut World,
     kind: ReplyKind,
@@ -266,12 +266,12 @@ pub fn start_from_raw(
                     if let Some(session) = world.resource_mut::<ComposeState>().0.as_mut() {
                         session.to = values.get(FORWARD_FIELD).to_owned();
                     }
-                    ops::edit_body(world);
+                    super::form::open(world);
                 }),
             ),
         );
     } else {
-        ops::edit_body(world);
+        super::form::open(world);
     }
 }
 

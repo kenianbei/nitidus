@@ -23,7 +23,8 @@ use ratatui::widgets::Paragraph;
 use ratatui_explorer::{FileExplorer, Input};
 
 use crate::action::Motion;
-use crate::keymap::{CONTEXT_EXPLORER, KeymapMatch, Keymaps};
+use crate::keymap::{KeymapMatch, Keymaps};
+use crate::overlay::surface::Surface;
 use crate::status::MessageLog;
 
 const PANEL_WIDTH_PCT: u16 = 70;
@@ -113,8 +114,9 @@ fn matches_extension(path: &std::path::Path, extensions: &[&str]) -> bool {
 /// No chord waits and no global fallback, matching the picker.
 pub fn handle_key(world: &mut World, key: KeyEvent) -> Result {
     let outcome = {
+        let layers = Surface::Explorer.key_layers(world);
         let keymaps = world.resource::<Keymaps>();
-        keymaps.lookup(CONTEXT_EXPLORER, &[KeyCombination::from(key)])
+        keymaps.resolve_layered(&layers, &[KeyCombination::from(key)])
     };
     if let KeymapMatch::Exact(action) = outcome {
         crate::action::apply_action(world, &action);

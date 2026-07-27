@@ -53,12 +53,14 @@ experience.
 
 #### Compose
 
-- External `$EDITOR` composing (TUI suspends; sync continues).
+- One form per message: From, To, Cc, Bcc, Subject, attachments and the body
+  are all tab stops on the same surface.
 - A reply writes in the reading column beside the message it answers; a new
   message opens over the panes.
-- Review before send with keybinding cheat-sheet.
+- `$EDITOR` as an escape hatch from the body (TUI suspends; sync continues).
 - Reply/reply-all/forward with proper quoting and threading headers.
-- Attachments, forgotten-attachment warning, empty-subject warning.
+- Attachments as a row of their own, placed into the body where you want them;
+  forgotten-attachment warning, empty-subject warning.
 - Postpone/recall drafts (server-synced); crash recovery of in-progress
   compositions.
 - Outbox queue: async send with progress, failed sends never lost, undo-send

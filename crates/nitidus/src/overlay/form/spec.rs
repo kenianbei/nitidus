@@ -10,11 +10,29 @@ pub type SubmitFn = Box<dyn FnOnce(&mut World, FormValues) + Send + Sync>;
 /// Derives the page list from what has been filled in so far, so a
 /// branching flow is data rather than control flow.
 pub type PagesFn = Box<dyn Fn(&FormValues) -> Vec<PageSpec> + Send + Sync>;
-pub type CancelFn = Box<dyn FnOnce(&mut World) + Send + Sync>;
+pub type CancelFn = Arc<dyn Fn(&mut World) -> CancelOutcome + Send + Sync>;
+
+/// What cancelling did. A form that wants to ask first — the composer,
+/// which puts a discard confirm in the way — keeps itself open and
+/// closes from inside the answer instead.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CancelOutcome {
+    Close,
+    Keep,
+}
 /// Rejects a value with a message the form shows beside the field.
 pub type ValidateFn = Arc<dyn Fn(&str) -> Result<(), String> + Send + Sync>;
+/// What Enter on a field does, when stepping forward is not it.
+pub type ActivateFn = Arc<dyn Fn(&mut World) + Send + Sync>;
 /// Candidates for what has been typed into a field so far.
 pub type CompleteFn = Arc<dyn Fn(&str) -> Vec<String> + Send + Sync>;
+/// The style each line of a body field is drawn in, or `None` to leave
+/// it at the base style.
+pub type BodyStyleFn = Arc<
+    dyn Fn(&[String], &nitidus_ui_kit::theme::Theme) -> Vec<Option<ratatui::style::Style>>
+        + Send
+        + Sync,
+>;
 
 /// Creating walks the steps in order; editing reaches any of them at
 /// once. The two flows want opposite things from the same surface.
@@ -23,6 +41,29 @@ pub enum FormMode {
     #[default]
     Create,
     Edit,
+}
+
+/// Where a form draws. A modal sizes itself and takes the middle of the
+/// screen; a hosted form is handed a rect by its host — the composer's
+/// reading column — and fills it, chrome pinned to the bottom.
+#[derive(Clone, Default)]
+pub enum FormPlacement {
+    #[default]
+    Overlay,
+    Host {
+        layout: plurimus::LayoutFn,
+        order: i32,
+    },
+}
+
+impl FormPlacement {
+    /// The rung the frame draws on; controls take the one above it.
+    pub(super) fn order(&self) -> i32 {
+        match self {
+            Self::Overlay => nitidus_ui_kit::layer::OVERLAY,
+            Self::Host { order, .. } => *order,
+        }
+    }
 }
 
 pub struct PageSpec {
@@ -46,6 +87,20 @@ pub struct FormSpec {
     pub mode: FormMode,
     /// The affirmative button's label — "Create", "Save", "Set".
     pub primary_label: String,
+    /// The negative button's label. "Cancel" for a form you can walk
+    /// away from, "Discard" for one that is throwing something away.
+    pub cancel_label: String,
+    pub placement: FormPlacement,
+    /// A keymap layer beneath the form's own, for a form that belongs to
+    /// a larger mode — the composer's commands answer from every field.
+    pub context: Option<&'static str>,
+    /// Which field takes focus when the form opens. Defaults to the
+    /// first, which is wrong for a form whose first field is a label.
+    pub initial_focus: Option<&'static str>,
+    /// Whether Enter on a *field* fires the primary action. True is the
+    /// quick path through a wizard; the composer turns it off, where a
+    /// stray Enter in a header would send the message.
+    pub enter_activates: bool,
     pub pages: PagesFn,
     pub on_submit: SubmitFn,
     pub on_cancel: CancelFn,
@@ -74,9 +129,14 @@ impl FormSpec {
             title: title.into(),
             mode: FormMode::Create,
             primary_label: primary_label.into(),
+            cancel_label: DEFAULT_CANCEL_LABEL.to_owned(),
+            placement: FormPlacement::default(),
+            context: None,
+            initial_focus: None,
+            enter_activates: true,
             pages,
             on_submit,
-            on_cancel: Box::new(|_| {}),
+            on_cancel: Arc::new(|_| CancelOutcome::Close),
         }
     }
 
@@ -85,13 +145,56 @@ impl FormSpec {
         self
     }
 
-    pub fn with_cancel(mut self, on_cancel: CancelFn) -> Self {
-        self.on_cancel = on_cancel;
+    pub fn placed(mut self, placement: FormPlacement) -> Self {
+        self.placement = placement;
+        self
+    }
+
+    /// Runs on Esc and on the negative button. Returning `Keep` leaves
+    /// the form open — for a confirm that has to answer first.
+    pub fn with_cancel(
+        mut self,
+        on_cancel: impl Fn(&mut World) -> CancelOutcome + Send + Sync + 'static,
+    ) -> Self {
+        self.on_cancel = Arc::new(on_cancel);
+        self
+    }
+
+    pub fn cancel_label(mut self, label: impl Into<String>) -> Self {
+        self.cancel_label = label.into();
+        self
+    }
+
+    pub fn in_context(mut self, context: &'static str) -> Self {
+        self.context = Some(context);
+        self
+    }
+
+    pub fn focusing(mut self, id: &'static str) -> Self {
+        self.initial_focus = Some(id);
+        self
+    }
+
+    /// Enter walks the fields instead of firing the primary action.
+    pub fn stepping_enter(mut self) -> Self {
+        self.enter_activates = false;
         self
     }
 }
 
+const DEFAULT_CANCEL_LABEL: &str = "Cancel";
+
 const SINGLE_PAGE_ID: &str = "";
+
+/// How tall a field draws. `Fill` takes whatever the frame has left
+/// after the fixed rows and the chrome — a body needs the room, and only
+/// the frame knows how much there is.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum FieldHeight {
+    #[default]
+    Row,
+    Fill,
+}
 
 #[derive(Clone)]
 pub struct FieldSpec {
@@ -99,9 +202,14 @@ pub struct FieldSpec {
     pub id: &'static str,
     pub label: String,
     pub kind: FieldKind,
+    pub height: FieldHeight,
+    /// A field you can reach and read but not change — the composer's
+    /// From, which is the account's identity rather than an answer.
+    pub read_only: bool,
     pub initial: String,
     pub validate: Option<ValidateFn>,
     pub complete: Option<CompleteFn>,
+    pub activate: Option<ActivateFn>,
 }
 
 impl FieldSpec {
@@ -110,15 +218,31 @@ impl FieldSpec {
             id,
             label: label.into(),
             kind: FieldKind::Text { masked: false },
+            height: FieldHeight::Row,
+            read_only: false,
             initial: String::new(),
             validate: None,
             complete: None,
+            activate: None,
         }
+    }
+
+    /// Reachable by Tab and by the pointer, but it refuses every edit.
+    pub fn read_only(mut self) -> Self {
+        self.read_only = true;
+        self
     }
 
     /// Renders the value as `*` per character (secrets).
     pub fn masked(mut self) -> Self {
         self.kind = FieldKind::Text { masked: true };
+        self
+    }
+
+    /// Takes the rows the frame has left over. At most one field per
+    /// page can, and a second one splits the remainder with the first.
+    pub fn filling(mut self) -> Self {
+        self.height = FieldHeight::Fill;
         self
     }
 
@@ -146,6 +270,66 @@ impl FieldSpec {
         self
     }
 
+    /// A row of entries — attachments, say — stepped through with Left
+    /// and Right, and removed with Delete. `empty_label` is what it
+    /// offers when there is nothing in it yet.
+    pub fn entries(
+        id: &'static str,
+        label: impl Into<String>,
+        empty_label: impl Into<String>,
+    ) -> Self {
+        Self {
+            id,
+            label: label.into(),
+            kind: FieldKind::Entries {
+                empty_label: empty_label.into(),
+            },
+            height: FieldHeight::Row,
+            read_only: false,
+            initial: String::new(),
+            validate: None,
+            complete: None,
+            activate: None,
+        }
+    }
+
+    /// What Enter does on this field instead of stepping forward.
+    pub fn activated(mut self, activate: impl Fn(&mut World) + Send + Sync + 'static) -> Self {
+        self.activate = Some(Arc::new(activate));
+        self
+    }
+
+    /// A field holding many lines rather than one. It fills the frame
+    /// by default — a body is the reason a form needs the room.
+    pub fn body(id: &'static str, label: impl Into<String>) -> Self {
+        Self {
+            id,
+            label: label.into(),
+            kind: FieldKind::Body { style: None },
+            height: FieldHeight::Fill,
+            read_only: false,
+            initial: String::new(),
+            validate: None,
+            complete: None,
+            activate: None,
+        }
+    }
+
+    /// Colours the body's lines — quoted text and signatures dimmed,
+    /// say. Ignored by every other kind of field.
+    pub fn line_styled(
+        mut self,
+        style: impl Fn(&[String], &nitidus_ui_kit::theme::Theme) -> Vec<Option<ratatui::style::Style>>
+        + Send
+        + Sync
+        + 'static,
+    ) -> Self {
+        self.kind = FieldKind::Body {
+            style: Some(Arc::new(style)),
+        };
+        self
+    }
+
     /// A field that cycles a fixed set of options instead of accepting
     /// text.
     pub fn select(id: &'static str, label: impl Into<String>, options: Vec<SelectOption>) -> Self {
@@ -153,9 +337,12 @@ impl FieldSpec {
             id,
             label: label.into(),
             kind: FieldKind::Select { options },
+            height: FieldHeight::Row,
+            read_only: false,
             initial: String::new(),
             validate: None,
             complete: None,
+            activate: None,
         }
     }
 
@@ -165,13 +352,35 @@ impl FieldSpec {
 
     pub fn options(&self) -> &[SelectOption] {
         match &self.kind {
-            FieldKind::Text { .. } => &[],
             FieldKind::Select { options } => options,
+            _ => &[],
         }
     }
 
     pub fn is_select(&self) -> bool {
         matches!(self.kind, FieldKind::Select { .. })
+    }
+
+    pub fn is_body(&self) -> bool {
+        matches!(self.kind, FieldKind::Body { .. })
+    }
+
+    pub fn is_entries(&self) -> bool {
+        matches!(self.kind, FieldKind::Entries { .. })
+    }
+
+    pub(super) fn empty_label(&self) -> &str {
+        match &self.kind {
+            FieldKind::Entries { empty_label } => empty_label,
+            _ => "",
+        }
+    }
+
+    pub(super) fn body_style(&self) -> Option<&BodyStyleFn> {
+        match &self.kind {
+            FieldKind::Body { style } => style.as_ref(),
+            _ => None,
+        }
     }
 
     /// What this field holds before anyone touches it. A select always
@@ -193,8 +402,20 @@ impl FieldSpec {
 
 #[derive(Clone)]
 pub enum FieldKind {
-    Text { masked: bool },
-    Select { options: Vec<SelectOption> },
+    Text {
+        masked: bool,
+    },
+    Select {
+        options: Vec<SelectOption>,
+    },
+    Body {
+        style: Option<BodyStyleFn>,
+    },
+    /// A row of entries you step through rather than type into. Its
+    /// value is the entries, one per line.
+    Entries {
+        empty_label: String,
+    },
 }
 
 /// One choice in a select field. `value` is what lands in `FormValues`;

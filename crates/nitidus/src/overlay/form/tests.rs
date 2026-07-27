@@ -8,6 +8,7 @@ use plurimus::{UiEvent, WidgetRect};
 use ratatui::layout::Rect;
 
 use super::entity::{FormButtonControl, FormFieldControl, FormStepControl};
+use super::panel;
 use super::render::{ButtonView, FieldView, FieldViewKind};
 use super::*;
 use crate::config::RawKeymaps;
@@ -44,7 +45,10 @@ fn spec(fields: Vec<FieldSpec>) -> FormSpec {
         fields,
         Box::new(|world, values| world.resource_mut::<Submitted>().0 = Some(values)),
     )
-    .with_cancel(Box::new(|world| world.resource_mut::<Cancelled>().0 = true))
+    .with_cancel(|world: &mut World| {
+        world.resource_mut::<Cancelled>().0 = true;
+        CancelOutcome::Close
+    })
 }
 
 fn two_field_spec() -> FormSpec {
@@ -489,7 +493,7 @@ fn a_select_renders_its_label_and_detail_not_its_stored_value() {
 
     let entity = field_entity(&mut app, 0);
     let mut view = field_view(&app, entity);
-    assert_eq!(view.kind, FieldViewKind::Select);
+    assert!(matches!(view.kind, FieldViewKind::Select));
     let output = rendered(70, |frame| {
         render::render_field(frame, frame.area(), &mut view).unwrap();
     });
@@ -765,4 +769,126 @@ fn a_field_without_candidates_ignores_the_completion_keys() {
         "zz",
         "nothing matched, so nothing is inserted"
     );
+}
+
+fn body_spec() -> FormSpec {
+    spec(vec![
+        FieldSpec::text("subject", "Subject"),
+        FieldSpec::body("body", "Body").with_initial("first\nsecond"),
+    ])
+}
+
+#[test]
+fn a_body_field_opens_holding_its_initial_lines() {
+    let mut app = form_app();
+    open_form(app.world_mut(), body_spec());
+
+    assert_eq!(
+        app.world().resource::<ActiveForm>().value("body").unwrap(),
+        "first\nsecond"
+    );
+}
+
+#[test]
+fn typing_into_a_focused_body_edits_it_rather_than_the_headers() {
+    let mut app = form_app();
+    open_form(app.world_mut(), body_spec());
+    press(&mut app, KeyCode::Tab);
+
+    type_str(&mut app, "!");
+
+    let form = app.world().resource::<ActiveForm>();
+    assert_eq!(
+        form.value("body").unwrap(),
+        "!first\nsecond",
+        "a body opens with the caret at the top, where a reply's quote begins"
+    );
+    assert_eq!(form.value("subject").unwrap(), "");
+}
+
+/// The whole point of the layering: Enter breaks the line instead of
+/// firing the primary button, and Tab still leaves.
+#[test]
+fn enter_breaks_the_line_and_tab_still_leaves_the_body() {
+    let mut app = form_app();
+    open_form(app.world_mut(), body_spec());
+    press(&mut app, KeyCode::Tab);
+
+    press(&mut app, KeyCode::Enter);
+
+    assert_eq!(
+        app.world().resource::<ActiveForm>().value("body").unwrap(),
+        "\nfirst\nsecond"
+    );
+    assert!(
+        app.world().resource::<Submitted>().0.is_none(),
+        "Enter in a body must never submit the form"
+    );
+
+    press(&mut app, KeyCode::Tab);
+    type_str(&mut app, "x");
+
+    assert_eq!(
+        app.world().resource::<ActiveForm>().value("body").unwrap(),
+        "\nfirst\nsecond",
+        "Tab left the body, so the keystroke went elsewhere"
+    );
+}
+
+/// Down moves the caret inside a body, where on any other field it
+/// would move focus.
+#[test]
+fn the_body_keeps_the_arrows_the_form_would_otherwise_take() {
+    let mut app = form_app();
+    open_form(app.world_mut(), body_spec());
+    press(&mut app, KeyCode::Tab);
+
+    press(&mut app, KeyCode::Down);
+    type_str(&mut app, "!");
+
+    assert_eq!(
+        app.world().resource::<ActiveForm>().value("body").unwrap(),
+        "first\n!second",
+        "Down moved the caret, not the focus"
+    );
+}
+
+#[test]
+fn a_body_field_fills_the_frame_and_the_others_do_not() {
+    let spec = body_spec();
+    let pages = (spec.pages)(&FormValues::default());
+    let fields = &pages[0].fields;
+
+    assert_eq!(fields[0].height, FieldHeight::Row);
+    assert_eq!(fields[1].height, FieldHeight::Fill);
+}
+
+/// Completion belongs under the field that asked for it, not at the
+/// bottom of the screen — and a field near the bottom clamps back
+/// inside rather than hanging off the end.
+#[test]
+fn the_completion_panel_sits_under_its_field_and_stays_on_screen() {
+    let mut app = form_app();
+    open_form(app.world_mut(), completing_spec());
+    type_str(&mut app, "a");
+    app.update();
+    apply_layouts(&mut app);
+
+    let panel = app
+        .world_mut()
+        .query_filtered::<&WidgetRect, With<panel::FormPanel>>()
+        .iter(app.world())
+        .next()
+        .copied()
+        .expect("a panel spawns while there are candidates");
+    let entity = field_entity(&mut app, 0);
+    let field = *app.world().get::<WidgetRect>(entity).unwrap();
+
+    assert_eq!(
+        panel.0.y,
+        field.0.bottom(),
+        "the panel hangs directly under the field"
+    );
+    assert!(panel.0.bottom() <= TERMINAL.height, "{:?}", panel.0);
+    assert!(panel.0.right() <= TERMINAL.width, "{:?}", panel.0);
 }

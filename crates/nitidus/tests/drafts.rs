@@ -9,7 +9,7 @@ use std::path::Path;
 use std::time::Duration;
 
 use bevy::prelude::*;
-use bevy_ratatui::crossterm::event::{KeyCode, KeyEvent};
+use bevy_ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use nitidus::cmdline::CommandLineState;
 use nitidus::compose::{ComposeDir, ComposePlugin, ComposeState, EditorCommand};
 use nitidus::config::account::{AccountConfig, Outgoing, SendmailOutgoing};
@@ -78,9 +78,8 @@ fn drafts_app(harness: &Harness) -> App {
     app.init_resource::<CommandLineState>();
     app.init_resource::<MailStore>();
     let mut config = Config::default();
-    // These drive the review screen through `EditorCommand`, so they pin
+    // These drive the composer through `EditorCommand`, so they pin
     // the `$EDITOR` path rather than the inline default.
-    config.ui.compose.editor = nitidus::config::EditorKind::External;
     let mut account_config = AccountConfig {
         name: "local".to_owned(),
         email: "norman@example.com".to_owned(),
@@ -114,12 +113,15 @@ fn drafts_app(harness: &Harness) -> App {
 }
 
 fn press(app: &mut App, code: KeyCode) {
-    route_key(
-        app.world_mut(),
-        Entity::PLACEHOLDER,
-        UiEvent::Key(KeyEvent::from(code)),
-    )
-    .unwrap();
+    send(app, KeyEvent::from(code));
+}
+
+fn press_alt(app: &mut App, code: KeyCode) {
+    send(app, KeyEvent::new(code, KeyModifiers::ALT));
+}
+
+fn send(app: &mut App, key: KeyEvent) {
+    route_key(app.world_mut(), Entity::PLACEHOLDER, UiEvent::Key(key)).unwrap();
     app.update();
 }
 
@@ -140,22 +142,27 @@ fn wait_for(app: &mut App, mut is_done: impl FnMut(&World) -> bool) -> bool {
     false
 }
 
+/// To, Bcc, Subject and an attachment, walked in tab order. Attaching
+/// itself goes through the file browser in the app; here the path joins
+/// the attachment row directly.
 fn stage_with_attachment(app: &mut App, harness: &Harness) {
     press(app, KeyCode::Char('m'));
-    type_text(app, "bob@example.com");
-    press(app, KeyCode::Tab);
-    type_text(app, "draft test");
-    press(app, KeyCode::Enter);
-    press(app, KeyCode::Char('b'));
     assert!(
         app.world().resource::<ActiveForm>().is_open(),
-        "b must open the Bcc form"
+        "m must open the composer"
     );
+    type_text(app, "bob@example.com");
+    press(app, KeyCode::Tab);
+    press(app, KeyCode::Tab);
     type_text(app, "secret@example.com");
-    press(app, KeyCode::Enter);
-    press(app, KeyCode::Char('a'));
-    type_text(app, &harness.attachment.display().to_string());
-    press(app, KeyCode::Enter);
+    press(app, KeyCode::Tab);
+    type_text(app, "draft test");
+    assert!(nitidus::overlay::form::push_entry(
+        app.world_mut(),
+        "attachments",
+        harness.attachment.display().to_string(),
+    ));
+    app.update();
     let state = app.world().resource::<ComposeState>();
     assert_eq!(state.session().unwrap().attachments.len(), 1);
 }
@@ -196,7 +203,7 @@ fn postpone_recall_round_trip_preserves_everything() {
     let mut app = drafts_app(&harness);
     stage_with_attachment(&mut app, &harness);
 
-    press(&mut app, KeyCode::Char('P'));
+    press_alt(&mut app, KeyCode::Char('p'));
     assert!(!app.world().resource::<ComposeState>().is_active());
     assert!(
         wait_for(&mut app, |_| drafts_dir_count(&harness) == 1),
@@ -223,7 +230,7 @@ fn postpone_recall_round_trip_preserves_everything() {
     assert!(session.draft_source.is_some());
 
     // Re-postpone replaces rather than accumulates.
-    press(&mut app, KeyCode::Char('P'));
+    press_alt(&mut app, KeyCode::Char('p'));
     std::thread::sleep(Duration::from_millis(100));
     app.update();
     assert!(
@@ -260,10 +267,9 @@ fn empty_subject_warning_gates_send_and_decline_keeps_review() {
     let harness = harness();
     let mut app = drafts_app(&harness);
     press(&mut app, KeyCode::Char('m'));
-    type_text(&mut app, "bob@example.com");
-    press(&mut app, KeyCode::Enter); // subject left empty
+    type_text(&mut app, "bob@example.com"); // subject left empty
 
-    press(&mut app, KeyCode::Char('y'));
+    press_alt(&mut app, KeyCode::Enter);
     let question = app
         .world()
         .resource::<nitidus::overlay::confirm::ActiveConfirm>()
@@ -298,11 +304,13 @@ fn forgotten_attachment_warning_fires_on_unquoted_mentions() {
     app.insert_resource(EditorCommand(script.display().to_string()));
     press(&mut app, KeyCode::Char('m'));
     type_text(&mut app, "bob@example.com");
-    press(&mut app, KeyCode::Tab);
+    for _ in 0..3 {
+        press(&mut app, KeyCode::Tab);
+    }
     type_text(&mut app, "has subject");
-    press(&mut app, KeyCode::Enter);
+    press_alt(&mut app, KeyCode::Char('e'));
 
-    press(&mut app, KeyCode::Char('y'));
+    press_alt(&mut app, KeyCode::Enter);
     let question = app
         .world()
         .resource::<nitidus::overlay::confirm::ActiveConfirm>()

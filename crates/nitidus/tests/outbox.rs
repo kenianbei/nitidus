@@ -9,7 +9,7 @@ use std::path::Path;
 use std::time::Duration;
 
 use bevy::prelude::*;
-use bevy_ratatui::crossterm::event::{KeyCode, KeyEvent};
+use bevy_ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use nitidus::cmdline::CommandLineState;
 use nitidus::compose::{ComposeDir, ComposePlugin, ComposeState, EditorCommand};
 use nitidus::config::account::{AccountConfig, Outgoing, SendmailOutgoing};
@@ -66,8 +66,6 @@ fn send_app(dirs: &Dirs, sendmail_command: &str, delay: Duration) -> App {
     app.init_resource::<MailStore>();
     app.init_resource::<SyncTracker>();
     let mut config = Config::default();
-    // Driven through `EditorCommand`, so pin the `$EDITOR` path.
-    config.ui.compose.editor = nitidus::config::EditorKind::External;
     config.accounts.push(AccountConfig {
         name: "local".to_owned(),
         email: "norman@example.com".to_owned(),
@@ -96,12 +94,15 @@ fn send_app(dirs: &Dirs, sendmail_command: &str, delay: Duration) -> App {
 }
 
 fn press(app: &mut App, code: KeyCode) {
-    route_key(
-        app.world_mut(),
-        Entity::PLACEHOLDER,
-        UiEvent::Key(KeyEvent::from(code)),
-    )
-    .unwrap();
+    send(app, KeyEvent::from(code));
+}
+
+fn press_alt(app: &mut App, code: KeyCode) {
+    send(app, KeyEvent::new(code, KeyModifiers::ALT));
+}
+
+fn send(app: &mut App, key: KeyEvent) {
+    route_key(app.world_mut(), Entity::PLACEHOLDER, UiEvent::Key(key)).unwrap();
     app.update();
 }
 
@@ -114,9 +115,10 @@ fn type_text(app: &mut App, text: &str) {
 fn stage_message(app: &mut App) {
     press(app, KeyCode::Char('m'));
     type_text(app, "bob@example.com");
-    press(app, KeyCode::Tab);
+    for _ in 0..3 {
+        press(app, KeyCode::Tab);
+    }
     type_text(app, "outbox test");
-    press(app, KeyCode::Enter);
     assert!(app.world().resource::<ComposeState>().is_active());
 }
 
@@ -136,7 +138,7 @@ fn outbox_files(directory: &Path) -> usize {
 }
 
 #[test]
-fn y_queues_with_countdown_and_z_restores_the_session() {
+fn sending_queues_with_a_countdown_and_z_restores_the_session() {
     let dirs = dirs();
     let mut app = send_app(&dirs, "true", Duration::from_secs(600));
     stage_message(&mut app);
@@ -148,7 +150,7 @@ fn y_queues_with_countdown_and_z_restores_the_session() {
         .body_path
         .clone();
 
-    press(&mut app, KeyCode::Char('y'));
+    press_alt(&mut app, KeyCode::Enter);
     assert!(!app.world().resource::<ComposeState>().is_active());
     assert!(!app.world().resource::<ComposeState>().is_active());
     assert_eq!(outbox_files(&dirs.outbox), 2, "eml + toml pair expected");
@@ -184,7 +186,7 @@ fn expiry_submits_via_sendmail_and_cleans_everything_up() {
         .body_path
         .clone();
 
-    press(&mut app, KeyCode::Char('y'));
+    press_alt(&mut app, KeyCode::Enter);
     assert!(
         wait_for(&mut app, |world| {
             world.resource::<OutboxState>().pending_count() == 0
@@ -204,7 +206,7 @@ fn failed_send_parks_the_entry_with_files_intact() {
     let mut app = send_app(&dirs, "exit 3", Duration::from_millis(50));
     stage_message(&mut app);
 
-    press(&mut app, KeyCode::Char('y'));
+    press_alt(&mut app, KeyCode::Enter);
     assert!(
         wait_for(&mut app, |world| {
             let outbox = world.resource::<OutboxState>();

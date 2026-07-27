@@ -9,6 +9,7 @@ use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::Paragraph;
 
+use super::body::{SharedArea, lock, paint_lines};
 use super::geometry::{LABEL_WIDTH, value_area};
 use super::interaction::{Interaction, Visual};
 use super::state::StepState;
@@ -81,11 +82,27 @@ pub(super) fn render_message(
 /// something you change rather than something you type into.
 const SELECT_OPEN: &str = "\u{2039} ";
 const SELECT_CLOSE: &str = " \u{203a}";
+const ENTRY_MARK: &str = "\u{1f4ce} ";
+const ENTRY_GAP: &str = "  ";
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone)]
 pub(super) enum FieldViewKind {
-    Text { masked: bool },
+    Text {
+        masked: bool,
+    },
     Select,
+    /// The live buffer plus the style each of its lines is drawn in.
+    Body {
+        text: SharedArea,
+        styles: Vec<Option<Style>>,
+    },
+    /// A row of entries with one of them picked, or a standing offer to
+    /// add the first.
+    Entries {
+        entries: Vec<String>,
+        selected: usize,
+        empty_label: String,
+    },
 }
 
 #[derive(Clone)]
@@ -95,6 +112,7 @@ pub(super) struct FieldView {
     pub(super) detail: Option<String>,
     pub(super) cursor: usize,
     pub(super) kind: FieldViewKind,
+    pub(super) read_only: bool,
     pub(super) focused: bool,
     pub(super) is_error: bool,
     pub(super) interaction: Interaction,
@@ -110,6 +128,7 @@ impl FieldView {
             detail: None,
             cursor: 0,
             kind,
+            read_only: false,
             focused: false,
             is_error: false,
             interaction: Interaction::default(),
@@ -120,6 +139,10 @@ impl FieldView {
 
     fn is_masked(&self) -> bool {
         matches!(self.kind, FieldViewKind::Text { masked: true })
+    }
+
+    fn is_body(&self) -> bool {
+        matches!(self.kind, FieldViewKind::Body { .. })
     }
 
     fn label_style(&self) -> Style {
@@ -136,6 +159,12 @@ pub(super) fn render_field(
     area: Rect,
     view: &mut FieldView,
 ) -> bevy::prelude::Result {
+    // A body is the width of the frame: it is obviously the body, and
+    // an eighteen-column gutter is room it needs more than the label.
+    if view.is_body() {
+        render_body_value(frame, area, view);
+        return Ok(());
+    }
     let label = truncated(&view.label, LABEL_WIDTH.saturating_sub(1));
     frame.render_widget(
         Paragraph::new(Line::styled(label, view.label_style())),
@@ -146,10 +175,27 @@ pub(super) fn render_field(
     );
     let box_area = value_area(area);
     match view.kind {
+        FieldViewKind::Entries { .. } => render_entries_value(frame, box_area, view),
         FieldViewKind::Select => render_select_value(frame, box_area, view),
-        FieldViewKind::Text { .. } => render_text_value(frame, box_area, view),
+        FieldViewKind::Text { .. } | FieldViewKind::Body { .. } => {
+            render_text_value(frame, box_area, view);
+        }
     }
     Ok(())
+}
+
+/// The widget draws the text and its own caret; the styling pass runs
+/// after it, over the same buffer.
+fn render_body_value(frame: &mut ratatui::Frame, area: Rect, view: &FieldView) {
+    let FieldViewKind::Body { text, styles } = &view.kind else {
+        return;
+    };
+    let base = view.states.normal.style();
+    let text = lock(text);
+    frame.render_widget(&*text, area);
+    paint_lines(frame.buffer_mut(), area, &text, base, |row| {
+        styles.get(row).copied().flatten()
+    });
 }
 
 fn render_text_value(frame: &mut ratatui::Frame, area: Rect, view: &FieldView) {
@@ -159,9 +205,13 @@ fn render_text_value(frame: &mut ratatui::Frame, area: Rect, view: &FieldView) {
         view.value.clone()
     };
     let (visible, column) = windowed(&shown, view.cursor, area.width);
-    let style = Visual::resolve(view.focused, view.interaction)
-        .colors(&view.states)
-        .style();
+    let style = if view.read_only {
+        view.states.disabled.style()
+    } else {
+        Visual::resolve(view.focused, view.interaction)
+            .colors(&view.states)
+            .style()
+    };
     frame.render_widget(
         Paragraph::new(Line::from(Span::styled(
             padded(&visible, area.width),
@@ -169,9 +219,45 @@ fn render_text_value(frame: &mut ratatui::Frame, area: Rect, view: &FieldView) {
         ))),
         area,
     );
-    if view.focused {
+    // A read-only field takes focus but never a caret: there is
+    // nothing there to type into.
+    if view.focused && !view.read_only {
         frame.set_cursor_position((area.x.saturating_add(column), area.y));
     }
+}
+
+/// Entries run left to right, the picked one highlighted. An empty row
+/// says what it would hold instead of showing nothing at all.
+fn render_entries_value(frame: &mut ratatui::Frame, area: Rect, view: &FieldView) {
+    let FieldViewKind::Entries {
+        entries,
+        selected,
+        empty_label,
+    } = &view.kind
+    else {
+        return;
+    };
+    let focus = Visual::resolve(view.focused, view.interaction).colors(&view.states);
+    if entries.is_empty() {
+        frame.render_widget(
+            Paragraph::new(Line::styled(format!("[ {empty_label} ]"), focus.style())),
+            area,
+        );
+        return;
+    }
+    let mut spans = Vec::new();
+    for (index, entry) in entries.iter().enumerate() {
+        if index > 0 {
+            spans.push(Span::styled(ENTRY_GAP, view.states.disabled.style()));
+        }
+        let style = if index == *selected && view.focused {
+            view.states.selected.style()
+        } else {
+            view.states.normal.style()
+        };
+        spans.push(Span::styled(format!("{ENTRY_MARK}{entry}"), style));
+    }
+    frame.render_widget(Paragraph::new(Line::from(spans)), area);
 }
 
 /// The chosen option fills the value box; the detail trails it dimmed

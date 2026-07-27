@@ -22,7 +22,6 @@ pub struct UiConfig {
     pub theme: String,
     pub index: IndexUiConfig,
     pub pager: PagerUiConfig,
-    pub compose: ComposeUiConfig,
 }
 
 impl Default for UiConfig {
@@ -31,25 +30,8 @@ impl Default for UiConfig {
             theme: THEME_TAILWIND_DARK.to_owned(),
             index: IndexUiConfig::default(),
             pager: PagerUiConfig::default(),
-            compose: ComposeUiConfig::default(),
         }
     }
-}
-
-#[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
-#[serde(default, deny_unknown_fields)]
-pub struct ComposeUiConfig {
-    pub editor: EditorKind,
-}
-
-/// Which editor `:compose-edit` and the initial compose flow open.
-/// `:compose-edit-external` always suspends, whatever this says.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
-#[serde(rename_all = "lowercase")]
-pub enum EditorKind {
-    #[default]
-    Inline,
-    External,
 }
 
 const DEFAULT_READING_MAX_WIDTH: u16 = 100;

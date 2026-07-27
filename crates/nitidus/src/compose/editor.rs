@@ -10,7 +10,7 @@ use bevy::app::AppExit;
 use bevy::prelude::*;
 use bevy_ratatui::RatatuiContext;
 
-use super::{ComposeStage, ComposeState};
+use super::ComposeState;
 use crate::status::MessageLog;
 
 const FALLBACK_EDITOR: &str = "vi";
@@ -22,6 +22,7 @@ const FALLBACK_EDITOR: &str = "vi";
 pub struct EditorCommand(pub String);
 
 pub(super) fn edit_body(world: &mut World) {
+    super::form::flush_body(world);
     let Some(path) = world
         .resource::<ComposeState>()
         .session()
@@ -29,17 +30,14 @@ pub(super) fn edit_body(world: &mut World) {
     else {
         return;
     };
-    if let Some(session) = world.resource_mut::<ComposeState>().0.as_mut() {
-        session.stage = ComposeStage::Editing;
-    }
     let outcome = run_editor(world, &path);
     {
         let mut compose = world.resource_mut::<ComposeState>();
         if let Some(session) = compose.0.as_mut() {
             session.reload_body();
-            session.stage = ComposeStage::Review;
         }
     }
+    super::form::reopen(world);
     if let Err(error) = outcome {
         let now = world.resource::<Time>().elapsed_secs_f64();
         world

@@ -19,7 +19,8 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::Paragraph;
 
 use crate::action::Motion;
-use crate::keymap::{CONTEXT_LOG, KeymapMatch, Keymaps};
+use crate::keymap::{KeymapMatch, Keymaps};
+use crate::overlay::surface::Surface;
 use crate::status::{MessageLog, Severity};
 
 const PANEL_WIDTH_PCT: u16 = 50;
@@ -73,8 +74,9 @@ pub fn close(world: &mut World) {
 /// Exact single-key `log` bindings only, like every other modal.
 pub fn handle_key(world: &mut World, key: KeyEvent) -> Result {
     let outcome = {
+        let layers = Surface::MessageLog.key_layers(world);
         let keymaps = world.resource::<Keymaps>();
-        keymaps.lookup(CONTEXT_LOG, &[KeyCombination::from(key)])
+        keymaps.resolve_layered(&layers, &[KeyCombination::from(key)])
     };
     if let KeymapMatch::Exact(action) = outcome {
         crate::action::apply_action(world, &action);

@@ -91,28 +91,25 @@ pub enum Action {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ComposeOp {
-    EditBody,
-    /// Suspend to `$EDITOR` regardless of `ui.compose.editor`, so the
-    /// escape hatch never depends on configuration.
+    /// Suspend to `$EDITOR`, the escape hatch from the body field.
     EditBodyExternal,
-    To,
-    Cc,
-    Bcc,
-    Subject,
     Send,
     Postpone,
     Discard,
     Attach,
+    /// Place the picked attachment where the caret is.
+    AttachInsert,
     Detach,
 }
 
-/// Operations on the inline body editor. Printable keys reach the text
+/// Operations on the focused body field. Printable keys reach the text
 /// area directly; everything else arrives as one of these, so bindings
 /// stay rebindable and the help overlay keeps listing them.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum EditorOp {
-    /// Leave the editor, returning to the review screen.
-    Done,
+    /// Break the line. A body field is the only control on a form where
+    /// Enter means this rather than "activate the primary button".
+    Newline,
     Move(EditorMotion),
     Undo,
     Redo,
@@ -307,7 +304,7 @@ pub fn apply_action(world: &mut World, action: &Action) {
         Action::HelpScope => crate::help::toggle_scope(world),
         Action::Compose => crate::compose::start_compose(world),
         Action::ComposeAction(op) => crate::compose::dispatch(world, *op),
-        Action::Editor(op) => crate::compose::inline::dispatch(world, *op),
+        Action::Editor(op) => crate::compose::editing::dispatch(world, *op),
         Action::UndoSend => crate::outbox::undo_send(world),
         Action::Reply(kind) => crate::compose::start_reply(world, *kind),
         Action::Recall => crate::compose::recall_selected(world),
@@ -419,7 +416,6 @@ fn dispatch_motion(world: &mut World, motion: Motion) {
         _ => {}
     }
     match crate::focus::active_context(world) {
-        crate::keymap::CONTEXT_COMPOSE => crate::compose::scroll(world, motion),
         crate::keymap::CONTEXT_CONTACTS => crate::contacts::move_cursor(world, motion),
         crate::keymap::CONTEXT_SIDEBAR => crate::sidebar::move_cursor(world, motion),
         crate::keymap::CONTEXT_PAGER => crate::pager::scroll(world, motion),

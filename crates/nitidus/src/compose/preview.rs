@@ -57,14 +57,20 @@ impl Plugin for PreviewPlugin {
 
 /// Opens the preview for the token on the cursor line.
 pub(super) fn open(world: &mut World) {
-    let Some(token) = super::inline::token_at_cursor(world) else {
+    let Some(token) = super::editing::token_at_cursor(world) else {
         let now = world.resource::<Time>().elapsed_secs_f64();
         world
             .resource_mut::<MessageLog>()
             .info("no attachment on this line".to_owned(), now);
         return;
     };
-    let preview = build(world, &token.path);
+    open_path(world, &token.path);
+}
+
+/// Opens the preview for a named file — what the attachment row shows
+/// for the entry it has picked.
+pub(super) fn open_path(world: &mut World, path: &std::path::Path) {
+    let preview = build(world, path);
     world.resource_mut::<AttachPreview>().0 = Some(preview);
     crate::overlay::surface::raise(world, crate::overlay::surface::Surface::AttachPreview);
 }

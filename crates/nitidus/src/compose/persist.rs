@@ -1,7 +1,7 @@
 //! Crash-safe session sidecars: a `<body-stem>.toml` beside every
 //! compose body, rewritten whenever the session changes and removed
 //! with it. Startup counts orphaned pairs; `:recover` restores the
-//! newest into a full session at review.
+//! newest into a live composer.
 
 use std::path::{Path, PathBuf};
 
@@ -9,7 +9,7 @@ use bevy::prelude::*;
 use nitidus_mail::{AccountId, EnvelopeId, FolderId};
 use serde::{Deserialize, Serialize};
 
-use super::{ComposeSession, ComposeStage, ComposeState, ReplySource};
+use super::{ComposeSession, ComposeState, ReplySource};
 use crate::status::MessageLog;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -72,7 +72,6 @@ impl SessionMeta {
             subject: self.subject,
             body_path,
             body: Vec::new(),
-            stage: ComposeStage::Review,
             in_reply_to: self.in_reply_to,
             references: self.references,
             reply_source: self.reply_source.map(|(account, folder, id)| ReplySource {
@@ -177,9 +176,10 @@ pub fn recover(world: &mut World) {
         Ok(meta) => {
             let session = meta.into_session(meta_path.with_extension("md"));
             world.resource_mut::<ComposeState>().0 = Some(session);
+            super::form::reopen_restored(world);
             world
                 .resource_mut::<MessageLog>()
-                .info("draft recovered — back to review".to_owned(), now);
+                .info("draft recovered".to_owned(), now);
         }
         Err(error) => {
             world

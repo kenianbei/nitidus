@@ -29,8 +29,6 @@ pub enum InputMode {
     Normal,
     CommandLine,
     Search,
-    /// The inline body editor owns the keyboard.
-    Editor,
 }
 
 /// The active input mode. A plain resource (not bevy `States`) so mode
@@ -187,18 +185,23 @@ impl Keymaps {
         Ok(())
     }
 
-    /// Context bindings shadow global ones: a context exact fires first,
-    /// a prefix in either layer waits for the chord, and only then may a
-    /// global exact fire.
-    pub fn resolve_layered(&self, context: &str, keys: &[KeyCombination]) -> KeymapMatch {
-        let scoped = self.lookup(context, keys);
-        if matches!(scoped, KeymapMatch::Exact(_)) {
-            return scoped;
+    /// Earlier layers shadow later ones: the first exact fires, unless a
+    /// layer before it holds a prefix, in which case the chord is still
+    /// being spelled and nothing may fire yet.
+    pub fn resolve_layered(&self, contexts: &[&str], keys: &[KeyCombination]) -> KeymapMatch {
+        let mut pending_chord = false;
+        for context in contexts {
+            match self.lookup(context, keys) {
+                KeymapMatch::Exact(_) if pending_chord => return KeymapMatch::Prefix,
+                KeymapMatch::Exact(action) => return KeymapMatch::Exact(action),
+                KeymapMatch::Prefix => pending_chord = true,
+                KeymapMatch::Unbound => {}
+            }
         }
-        let global = self.lookup(CONTEXT_GLOBAL, keys);
-        match (scoped, global) {
-            (KeymapMatch::Prefix, _) | (_, KeymapMatch::Prefix) => KeymapMatch::Prefix,
-            (_, global) => global,
+        if pending_chord {
+            KeymapMatch::Prefix
+        } else {
+            KeymapMatch::Unbound
         }
     }
 
@@ -313,7 +316,7 @@ mod tests {
     #[test]
     fn help_rows_merge_globals_without_shadowed_sequences() {
         let keymaps = Keymaps::compile(&RawKeymaps::default()).unwrap();
-        let rows = keymaps.help_rows(CONTEXT_INDEX);
+        let rows = keymaps.help_rows(&[CONTEXT_INDEX, CONTEXT_GLOBAL]);
         assert!(
             rows.iter()
                 .any(|row| row.context == CONTEXT_GLOBAL && row.command == ":quit"),
@@ -324,6 +327,49 @@ mod tests {
         assert_eq!(
             tab_rows[0].command, ":sidebar-focus",
             "the index Tab binding shadows the global tab-next"
+        );
+    }
+
+    /// The stack a body-focused composer resolves against. Help reads
+    /// the same layers the router does, so a binding it lists is one
+    /// that fires — and a global, which no form falls through to, is one
+    /// it must not list.
+    #[test]
+    fn help_rows_over_a_deep_stack_keep_the_innermost_layer() {
+        let keymaps = Keymaps::compile(&RawKeymaps::default()).unwrap();
+        let rows = keymaps.help_rows(&[CONTEXT_EDITOR, CONTEXT_FORM, CONTEXT_COMPOSE]);
+        let enter_rows: Vec<_> = rows.iter().filter(|row| row.keys == "Enter").collect();
+        assert_eq!(enter_rows.len(), 1, "{enter_rows:?}");
+        assert_eq!(
+            enter_rows[0].command, ":editor-newline",
+            "the editor's Enter shadows the form's activate"
+        );
+        assert!(
+            rows.iter().any(|row| row.command == ":postpone"),
+            "the composer's own commands answer from a field: {rows:?}"
+        );
+        assert!(
+            !rows.iter().any(|row| row.context == CONTEXT_GLOBAL),
+            "a form does not fall through to global bindings: {rows:?}"
+        );
+    }
+
+    #[test]
+    fn help_is_reachable_from_a_form_without_shadowing_a_printable() {
+        let keymaps = Keymaps::compile(&RawKeymaps::default()).unwrap();
+        assert_eq!(
+            keymaps.lookup(CONTEXT_FORM, &keys("<F1>")),
+            KeymapMatch::Exact(Action::Help),
+            "F1 must open help from inside a form"
+        );
+        assert_eq!(
+            keymaps.lookup(CONTEXT_FORM, &keys("~")),
+            KeymapMatch::Unbound,
+            "~ is printable and must stay typeable in a field"
+        );
+        assert_eq!(
+            keymaps.lookup(CONTEXT_GLOBAL, &keys("~")),
+            KeymapMatch::Exact(Action::Help)
         );
     }
 
@@ -361,11 +407,11 @@ mod tests {
     fn index_defaults_resolve_through_layering() {
         let keymaps = Keymaps::compile(&RawKeymaps::default()).unwrap();
         assert!(matches!(
-            keymaps.resolve_layered(CONTEXT_INDEX, &keys("j")),
+            keymaps.resolve_layered(&[CONTEXT_INDEX, CONTEXT_GLOBAL], &keys("j")),
             KeymapMatch::Exact(Action::Cursor(crate::action::Motion::Next))
         ));
         assert_eq!(
-            keymaps.resolve_layered(CONTEXT_INDEX, &keys("q")),
+            keymaps.resolve_layered(&[CONTEXT_INDEX, CONTEXT_GLOBAL], &keys("q")),
             KeymapMatch::Exact(Action::Quit),
             "global bindings must fall through"
         );
@@ -375,7 +421,7 @@ mod tests {
     fn context_binding_shadows_global() {
         let keymaps = Keymaps::compile(&raw("index", &[("q", ":tab-next")])).unwrap();
         assert_eq!(
-            keymaps.resolve_layered(CONTEXT_INDEX, &keys("q")),
+            keymaps.resolve_layered(&[CONTEXT_INDEX, CONTEXT_GLOBAL], &keys("q")),
             KeymapMatch::Exact(Action::TabNext)
         );
     }
@@ -384,14 +430,90 @@ mod tests {
     fn context_prefix_outweighs_global_exact() {
         let keymaps = Keymaps::compile(&raw("global", &[("g", ":tab-next")])).unwrap();
         assert_eq!(
-            keymaps.resolve_layered(CONTEXT_INDEX, &keys("g")),
+            keymaps.resolve_layered(&[CONTEXT_INDEX, CONTEXT_GLOBAL], &keys("g")),
             KeymapMatch::Prefix,
             "gg in index must make bare g wait for the chord"
         );
         assert_eq!(
-            keymaps.resolve_layered(CONTEXT_PICKER, &keys("g")),
+            keymaps.resolve_layered(&[CONTEXT_PICKER, CONTEXT_GLOBAL], &keys("g")),
             KeymapMatch::Exact(Action::TabNext),
             "contexts without the chord fire the global immediately"
+        );
+    }
+
+    /// The composer stacks `editor` over `form` over `compose`, so the
+    /// order of the slice — not a two-layer special case — decides which
+    /// binding answers.
+    #[test]
+    fn the_first_layer_holding_the_key_answers() {
+        let mut raw = RawKeymaps::default();
+        for (context, key, command) in [
+            ("editor", "x", ":editor-cut"),
+            ("form", "x", ":form-activate"),
+            ("compose", "x", ":send"),
+            ("compose", "z", ":postpone"),
+        ] {
+            raw.0
+                .entry(context.to_owned())
+                .or_default()
+                .insert(key.to_owned(), command.to_owned());
+        }
+        let keymaps = Keymaps::compile(&raw).unwrap();
+        let layers = [
+            CONTEXT_EDITOR,
+            CONTEXT_FORM,
+            CONTEXT_COMPOSE,
+            CONTEXT_GLOBAL,
+        ];
+
+        assert_eq!(
+            keymaps.resolve_layered(&layers, &keys("x")),
+            KeymapMatch::Exact(Action::Editor(crate::action::EditorOp::Cut)),
+            "the most specific layer wins"
+        );
+        assert_eq!(
+            keymaps.resolve_layered(&layers[1..], &keys("x")),
+            KeymapMatch::Exact(Action::Form(crate::action::FormOp::Activate)),
+            "dropping a layer hands the key to the next one"
+        );
+        assert_eq!(
+            keymaps.resolve_layered(&layers, &keys("z")),
+            KeymapMatch::Exact(Action::ComposeAction(crate::action::ComposeOp::Postpone)),
+            "a key no earlier layer claims falls all the way through"
+        );
+    }
+
+    #[test]
+    fn a_prefix_in_any_layer_outranks_an_exact_in_a_later_one() {
+        let mut raw = RawKeymaps::default();
+        raw.0
+            .entry("editor".to_owned())
+            .or_default()
+            .insert("gg".to_owned(), ":editor-top".to_owned());
+        raw.0
+            .entry("compose".to_owned())
+            .or_default()
+            .insert("g".to_owned(), ":send".to_owned());
+        let keymaps = Keymaps::compile(&raw).unwrap();
+
+        assert_eq!(
+            keymaps.resolve_layered(&[CONTEXT_EDITOR, CONTEXT_COMPOSE], &keys("g")),
+            KeymapMatch::Prefix,
+            "gg is still being spelled; sending on the first g would be a disaster"
+        );
+        assert_eq!(
+            keymaps.resolve_layered(&[CONTEXT_COMPOSE, CONTEXT_EDITOR], &keys("g")),
+            KeymapMatch::Exact(Action::ComposeAction(crate::action::ComposeOp::Send)),
+            "with the chord layer below, the exact above it fires"
+        );
+    }
+
+    #[test]
+    fn an_empty_stack_binds_nothing() {
+        let keymaps = Keymaps::compile(&RawKeymaps::default()).unwrap();
+        assert_eq!(
+            keymaps.resolve_layered(&[], &keys("q")),
+            KeymapMatch::Unbound
         );
     }
 
