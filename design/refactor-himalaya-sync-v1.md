@@ -465,8 +465,13 @@ Resolved `io-imap 0.2.0 → 0.3.1` and `io-smtp 0.2.0 → 0.2.3`, both still
 
 - `cargo build --workspace` — clean, no compile break (see the §2.2 correction).
 - `cargo clippy --workspace` — clean, no warnings.
-- `CARGO_INCREMENTAL=0 cargo test --workspace` — **597 passed, 0 failed, 0
-  ignored** across 20 binaries.
+- `CARGO_INCREMENTAL=0 cargo test --workspace` — **657 passed, 0 failed, 0
+  ignored** across 29 binaries.
+
+The IMAP tests (`tests/imap.rs`, 15 cases) run against an in-process scripted
+server, not a live one, so the inherited `COPYUID` and SORT fixes are not
+exercised here. A live smoke against `norman.kerr.dev` is deferred to Phase 5,
+which needs one anyway.
 
 No source file changed; the diff is two manifest lines plus `Cargo.lock`.
 
